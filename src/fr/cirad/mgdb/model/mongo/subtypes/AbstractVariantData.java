@@ -151,6 +151,13 @@ abstract public class AbstractVariantData
 	@Field(SECTION_ADDITIONAL_INFO)
 	private HashMap<String, Object> additionalInfo = null;
 
+	/**
+	 * Fixes AD array in the case where provided alleles are different from the order in which we have them in the DB
+	 * @param importedAD
+	 * @param importedAlleles
+	 * @param knownAlleles
+	 * @return
+	 */
 	static public int[] fixAdFieldValue(int[] importedAD, List<? extends Comparable> importedAlleles, List<String> knownAlleles)
     {
     	List<String> importedAllelesAsStrings = importedAlleles.stream().filter(allele -> Allele.class.isAssignableFrom(allele.getClass()))
