@@ -78,6 +78,7 @@ public class VcfImport extends AbstractGenotypeImport {
 
     public static final String ANNOTATION_FIELDNAME_EFF = "EFF";
     public static final String ANNOTATION_FIELDNAME_ANN = "ANN";
+    public static final String ANNOTATION_FIELDNAME_CSQ = "CSQ";
     
     /**
      * The m_process id.
@@ -235,18 +236,18 @@ public class VcfImport extends AbstractGenotypeImport {
             VCFHeader header = (VCFHeader) reader.getHeader();
             int effectAnnotationPos = -1, geneIdAnnotationPos = -1;
             for (VCFInfoHeaderLine headerLine : header.getInfoHeaderLines()) {
-                if (ANNOTATION_FIELDNAME_EFF.equals(headerLine.getID()) || ANNOTATION_FIELDNAME_ANN.equals(headerLine.getID())) {
+                if (ANNOTATION_FIELDNAME_EFF.equals(headerLine.getID()) || ANNOTATION_FIELDNAME_ANN.equals(headerLine.getID()) || ANNOTATION_FIELDNAME_CSQ.equals(headerLine.getID())) {
                     String desc = headerLine.getDescription().replaceAll("\\(", "").replaceAll("\\)", "");
                     desc = desc.substring(1 + desc.indexOf(":")).replace("'", "");
                     String[] fields = desc.split("\\|");
                     for (i = 0; i<fields.length; i++) {
                         String trimmedField = fields[i].trim();
-                        if (/*snpeff*/ "Gene_Name".equals(trimmedField) || /*snpeff*/ "Gene_ID".equals(trimmedField) || /*vep*/ "Gene".equals(trimmedField)) {
+                        if (/*EFF*/ "Gene_Name".equals(trimmedField) || /*EFF*/ "Gene_ID".equals(trimmedField) || /*CSQ or ANN*/ "Gene".equals(trimmedField)) {
                             geneIdAnnotationPos = i;
                             if (effectAnnotationPos != -1) {
                                 break;
                             }
-                        } else if (/*snpeff*/ "Annotation".equals(trimmedField) || /*vep*/ "Consequence".equals(trimmedField)) {
+                        } else if (/*EFF*/ "Annotation".equals(trimmedField) || /*CSQ or ANN*/ "Consequence".equals(trimmedField)) {
                             effectAnnotationPos = i;
                             if (geneIdAnnotationPos != -1) {
                                 break;
@@ -475,13 +476,13 @@ public class VcfImport extends AbstractGenotypeImport {
         // actual VCF info fields
         Map<String, Object> attributes = vc.getAttributes();
         for (String key : attributes.keySet()) {
-            if (geneIdAnnotationPos != -1 && (ANNOTATION_FIELDNAME_EFF.equals(key) || ANNOTATION_FIELDNAME_ANN.equals(key))) {
+            if (geneIdAnnotationPos != -1 && (ANNOTATION_FIELDNAME_EFF.equals(key) || ANNOTATION_FIELDNAME_ANN.equals(key) || ANNOTATION_FIELDNAME_CSQ.equals(key))) {
                 Object effectAttr = vc.getAttribute(key);
                 List<String> effectList = effectAttr instanceof String ? Arrays.asList((String) effectAttr) : (List<String>) vc.getAttribute(key);
                 for (String effect : effectList) {
                     for (String effectDesc : effect.split(",")) {
                         String sEffect = null;
-                        int parenthesisPos = ANNOTATION_FIELDNAME_ANN.equals(key) ? -1 /* parenthesis can also be used in ANN, bud differently */ : effectDesc.indexOf("(");
+                        int parenthesisPos = !ANNOTATION_FIELDNAME_EFF.equals(key) ? -1 /* parenthesis can also be used in ANN or CSQ, but differently */ : effectDesc.indexOf("(");
                         List<String> fields = Helper.split(effectDesc.substring(parenthesisPos + 1).replaceAll("\\)", ""), "|");
                         if (parenthesisPos > 0)
                             sEffect = effectDesc.substring(0, parenthesisPos);	// snpEff version < 4.1
@@ -522,7 +523,7 @@ public class VcfImport extends AbstractGenotypeImport {
                 }
             }
         }
-
+        
         // genotype fields
         Iterator<Genotype> genotypes = vc.getGenotypesOrderedByName().iterator();
         while (genotypes.hasNext()) {
@@ -552,6 +553,9 @@ public class VcfImport extends AbstractGenotypeImport {
             String gtCode = VariantData.rebuildVcfFormatGenotype(knownAlleleList, gtAllelesAsStrings, isPhased, false);
             if (gtCode == null)
             	continue;
+
+            if ("1/0".equals(gtCode))
+            	gtCode = "0/1";	// convert to "0/1" so that MAF queries can work reliably
 
             SampleGenotype aGT = new SampleGenotype(gtCode);
             if (isPhased) {
