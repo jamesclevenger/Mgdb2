@@ -89,6 +89,9 @@ public class IndividualMetadataImport {
 				if (sLine.length() == 0)
 					continue;
 
+				if (columnLabels.isEmpty() && sLine.startsWith("\uFEFF"))
+					sLine = sLine.substring(1);
+
 				List<String> cells = Helper.split(sLine, "\t");
 
 				if (columnLabels.isEmpty()) { // it's the header line
@@ -101,7 +104,7 @@ public class IndividualMetadataImport {
 							columnLabels.put(i, cell);
 					}
 					if (idColumn == -1)
-						throw new Exception("Unable to find individual name column \"" + individualColName + "\" in file header!");
+						throw new Exception(cells.size() <= 1 ? "Provided file does not seem to be tab-delimited!" : "Unable to find individual name column \"" + individualColName + "\" in file header!");
 					if (columnLabels.size() == 0)
 						throw new Exception("Unable to find any columns to import in file header!");
 
