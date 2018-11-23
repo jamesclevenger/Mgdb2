@@ -49,7 +49,7 @@ public class DBVCFHeader
 	/**
 	 * The Class VcfHeaderId.
 	 */
-	static public class VcfHeaderId implements java.io.Serializable
+	static public class VcfHeaderId
 	{
 		
 		/** The Constant FIELDNAME_PROJECT. */
