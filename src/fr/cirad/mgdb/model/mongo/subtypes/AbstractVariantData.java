@@ -571,7 +571,7 @@ abstract public class AbstractVariantData
 	 * @return the variant context
 	 * @throws Exception the exception
 	 */
-	public VariantContext toVariantContext(Collection<VariantRunData> runs, boolean exportVariantIDs, Collection<GenotypingSample> samplesToExport, Collection<String> individuals1, Collection<String> individuals2, HashMap<Integer, Object> previousPhasingIds, HashMap<String, Integer> annotationFieldThresholds1, HashMap<String, Integer> annotationFieldThresholds2, FileWriter warningFileWriter, Comparable synonym) throws Exception
+	public VariantContext toVariantContext(Collection<VariantRunData> runs, boolean exportVariantIDs, Collection<GenotypingSample> samplesToExport, Collection<String> individuals1, Collection<String> individuals2, HashMap<Integer, Object> previousPhasingIds, HashMap<String, Float> annotationFieldThresholds1, HashMap<String, Float> annotationFieldThresholds2, FileWriter warningFileWriter, Comparable synonym) throws Exception
 	{
 		ArrayList<Genotype> genotypes = new ArrayList<Genotype>();
 		String sRefAllele = knownAlleleList.size() == 0 ? "" : knownAlleleList.get(0);
@@ -770,15 +770,15 @@ abstract public class AbstractVariantData
 	}
 
 	// tells whether applied filters imply to treat this genotype as missing data
-    public static boolean gtPassesVcfAnnotationFilters(String individualName, SampleGenotype sampleGenotype, Collection<String> individuals1, HashMap<String, Integer> annotationFieldThresholds, Collection<String> individuals2, HashMap<String, Integer> annotationFieldThresholds2)
+    public static boolean gtPassesVcfAnnotationFilters(String individualName, SampleGenotype sampleGenotype, Collection<String> individuals1, HashMap<String, Float> annotationFieldThresholds, Collection<String> individuals2, HashMap<String, Float> annotationFieldThresholds2)
     {
-		List<HashMap<String, Integer>> thresholdsToCheck = new ArrayList<HashMap<String, Integer>>();
+		List<HashMap<String, Float>> thresholdsToCheck = new ArrayList<HashMap<String, Float>>();
 		if (individuals1.contains(individualName))
 			thresholdsToCheck.add(annotationFieldThresholds);
 		if (individuals2.contains(individualName))
 			thresholdsToCheck.add(annotationFieldThresholds2);
 		
-		for (HashMap<String, Integer> someThresholdsToCheck : thresholdsToCheck)
+		for (HashMap<String, Float> someThresholdsToCheck : thresholdsToCheck)
 			for (String annotationField : someThresholdsToCheck.keySet())
 			{
 				Integer annotationValue = null;
