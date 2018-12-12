@@ -105,8 +105,8 @@ public class IndividualMetadataImport {
 					}
 					if (idColumn == -1)
 						throw new Exception(cells.size() <= 1 ? "Provided file does not seem to be tab-delimited!" : "Unable to find individual name column \"" + individualColName + "\" in file header!");
-					if (columnLabels.size() == 0)
-						throw new Exception("Unable to find any columns to import in file header!");
+//					if (columnLabels.size() == 0)
+//						throw new Exception("Unable to find any columns to import in file header!");
 
 					continue;
 				}
@@ -122,15 +122,21 @@ public class IndividualMetadataImport {
 				bulkOperations.updateMulti(new Query(Criteria.where("_id").is(individualId)), new Update().set(Individual.SECTION_ADDITIONAL_INFO, additionalInfo));
 			}
 			
-			// first check if any passed individuals are unknown
-			Query verificationQuery = new Query(Criteria.where("_id").in(passedIndList));
-			verificationQuery.fields().include("_id");
-			List<String> foundIndList = mongoTemplate.find(verificationQuery, Individual.class).stream().map(ind -> ind.getId()).collect(Collectors.toList());
-			if (foundIndList.size() < passedIndList.size())
-				throw new Exception("The following individuals do not exist in the selected database: " + StringUtils.join(CollectionUtils.disjunction(passedIndList, foundIndList), ", "));
-			
+			if (passedIndList.size() == 0)
+				bulkOperations.updateMulti(new Query(), new Update().unset(Individual.SECTION_ADDITIONAL_INFO)); // a blank metadata file was submitted: let's delete any existing metadata				
+			else
+			{	// first check if any passed individuals are unknown
+				Query verificationQuery = new Query(Criteria.where("_id").in(passedIndList));
+				verificationQuery.fields().include("_id");
+				List<String> foundIndList = mongoTemplate.find(verificationQuery, Individual.class).stream().map(ind -> ind.getId()).collect(Collectors.toList());
+				if (foundIndList.size() < passedIndList.size())
+					throw new Exception("The following individuals do not exist in the selected database: " + StringUtils.join(CollectionUtils.disjunction(passedIndList, foundIndList), ", "));
+			}
 			BulkWriteResult bwr = bulkOperations.execute();
-			LOG.info(bwr.getModifiedCount() + " individuals updated with metadata, out of " + bwr.getMatchedCount() + " matched documents");
+			if (passedIndList.size() == 0)
+				LOG.info("Database " + sModule + ": metadata was deleted for " + bwr.getModifiedCount() + " individuals");
+			else
+				LOG.info("Database " + sModule + ": " + bwr.getModifiedCount() + " individuals updated with metadata, out of " + bwr.getMatchedCount() + " matched documents");
 		}
 		finally
 		{
