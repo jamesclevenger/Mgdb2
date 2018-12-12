@@ -382,7 +382,7 @@ public class VcfImport extends AbstractGenotypeImport {
             }
             reader.close();
 
-            if (existingVariantIDs.size() == 0) {	// we benefit from the fact that it's the first variant import into this database to use bulk insert which is meant to be faster
+            if (existingVariantIDs.size() == 0) {	// we benefit from the fact that it's the first variant import into this database and use batch insert which is ways faster than looping on save 
                 mongoTemplate.insert(unsavedVariants, VariantData.class);
                 mongoTemplate.insert(unsavedRuns, VariantRunData.class);
             }

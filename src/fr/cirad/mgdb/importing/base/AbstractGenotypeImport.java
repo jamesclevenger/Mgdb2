@@ -145,7 +145,12 @@ public class AbstractGenotypeImport {
 							idAndSynonyms.add((String) syn.toString());
 
 				for (String variantDescForPos : getIdentificationStrings((String) vd.get(VariantData.FIELDNAME_TYPE), !fGotChrPos ? null : (String) Helper.readPossiblyNestedField(vd, VariantData.FIELDNAME_REFERENCE_POSITION + "." + ReferencePosition.FIELDNAME_SEQUENCE), !fGotChrPos ? null : (long) Helper.readPossiblyNestedField(vd, VariantData.FIELDNAME_REFERENCE_POSITION + "." + ReferencePosition.FIELDNAME_START_SITE), idAndSynonyms))
+				{
+					if (existingVariantIDs.containsKey(variantDescForPos))
+			        	throw new Exception("This database seems to contain duplicate variants. Importing additional data will not be supported until this problem is fixed.");
+
 					existingVariantIDs.put(variantDescForPos, vd.get("_id").toString());
+				}
 			}
             LOG.info(mongoTemplate.count(null, VariantData.class) + " VariantData record IDs were scanned in " + (System.currentTimeMillis() - beforeReadingAllVariants) / 1000 + "s");
         }
