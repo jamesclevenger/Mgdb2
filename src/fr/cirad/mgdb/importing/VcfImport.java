@@ -587,9 +587,11 @@ public class VcfImport extends AbstractGenotypeImport {
             	VCFFormatHeaderLine formatHeaderLine = header.getFormatHeaderLine(sAttrName);
             	if (formatHeaderLine != null) {
 	            	boolean fConvertToNumber = (formatHeaderLine.getType().equals(VCFHeaderLineType.Integer) || formatHeaderLine.getType().equals(VCFHeaderLineType.Float)) && formatHeaderLine.isFixedCount() && formatHeaderLine.getCount() == 1;
-	            	boolean fConvertToNumberWithDecimals = fConvertToNumber && formatHeaderLine.getType().equals(VCFHeaderLineType.Float);
 	            	String value = extendedAttributes.get(sAttrName).toString();
-	                aGT.getAdditionalInfo().put(sAttrName, fConvertToNumber ? (fConvertToNumberWithDecimals ? Float.parseFloat(value) : Integer.parseInt(value)) : value);
+	            	Object correctlyTypedValue = fConvertToNumber ? Float.parseFloat(value) : value;
+	            	if (fConvertToNumber && !formatHeaderLine.getType().equals(VCFHeaderLineType.Float))
+	            		correctlyTypedValue = Math.round((float) correctlyTypedValue);
+	                aGT.getAdditionalInfo().put(sAttrName, correctlyTypedValue);
             	}
             }
 
