@@ -164,7 +164,7 @@
         <dependency>
             <groupId>org.springframework.data</groupId>
             <artifactId>spring-data-mongodb</artifactId>
-            <version>1.10.14.RELEASE</version>
+            <version>1.10.17.RELEASE</version>
         </dependency>
         
 		<dependency>
