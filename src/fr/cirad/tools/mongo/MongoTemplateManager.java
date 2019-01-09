@@ -56,6 +56,7 @@ import com.mongodb.BasicDBObject;
 import com.mongodb.DBCollection;
 import com.mongodb.Mongo;
 import com.mongodb.MongoClient;
+import com.mongodb.MongoClientOptions;
 import com.mongodb.MongoCredential;
 import com.mongodb.MongoTimeoutException;
 import com.mongodb.ServerAddress;
@@ -249,7 +250,8 @@ public class MongoTemplateManager implements ApplicationContextAware {
 	                } catch (NoSuchBeanDefinitionException nsbde) {
 	                    LOG.warn("No user credentials configured for host " + sHost + "! You might want to create a bean UserCredentials named " + sHost + "Credentials");
 	                }
-	                MongoClient client = uc != null ? new MongoClient(serverAddress, Arrays.asList(MongoCredential.createCredential(uc.getUsername(), "admin", uc.getPassword().toCharArray()))) : new MongoClient(serverAddress);
+	                MongoClientOptions mco = new MongoClientOptions.Builder().maxConnectionIdleTime(0).maxConnectionLifeTime(0).build();	                
+	                MongoClient client = uc != null ? new MongoClient(serverAddress, MongoCredential.createCredential(uc.getUsername(), "admin", uc.getPassword().toCharArray()), mco) : new MongoClient(serverAddress, mco);
 	                mongoClients.put(sHost, client);
 	            }
 	            catch (MongoTimeoutException mte)
