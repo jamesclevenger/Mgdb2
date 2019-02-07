@@ -61,13 +61,31 @@ import fr.cirad.tools.mongo.MongoTemplateManager;
  * The Class HapMapImport.
  */
 public class HapMapImport extends AbstractGenotypeImport {
-	
+
 	/** The Constant LOG. */
 	private static final Logger LOG = Logger.getLogger(VariantData.class);
 
 	/** The m_process id. */
 	private String m_processID;
 
+	private static HashMap<String, String> iupacCodeConversionMap = new HashMap<>();
+
+	static
+	{
+		iupacCodeConversionMap.put("A", "AA");
+		iupacCodeConversionMap.put("C", "CC");
+		iupacCodeConversionMap.put("G", "GG");
+		iupacCodeConversionMap.put("T", "TT");
+		iupacCodeConversionMap.put("U", "TT");
+		iupacCodeConversionMap.put("R", "AG");
+		iupacCodeConversionMap.put("Y", "CT");
+		iupacCodeConversionMap.put("S", "GC");
+		iupacCodeConversionMap.put("W", "AT");
+		iupacCodeConversionMap.put("K", "GT");
+		iupacCodeConversionMap.put("M", "AC");
+		iupacCodeConversionMap.put("N", "NN");
+	}
+	
 	/**
 	 * Instantiates a new hap map import.
 	 */
@@ -271,16 +289,7 @@ public class HapMapImport extends AbstractGenotypeImport {
 	                    Thread insertionThread = new Thread() {
 	                        @Override
 	                        public void run() {
-	                            if (existingVariantIDs.size() == 0) {	// we benefit from the fact that it's the first variant import into this database to use bulk insert which is much faster
-	                            	finalMongoTemplate.insert(finalUnsavedVariants, VariantData.class);
-	                                finalMongoTemplate.insert(finalUnsavedRuns, VariantRunData.class);
-	                            }
-	                            else {
-	                                for (VariantData vd : finalUnsavedVariants)
-	                                	finalMongoTemplate.save(vd);
-	                                for (VariantRunData run : finalUnsavedRuns)
-	                                	finalMongoTemplate.save(run);
-	                            }    
+	                        	persistVariantsAndGenotypes(existingVariantIDs, finalMongoTemplate, finalUnsavedVariants, finalUnsavedRuns); 
 	                        }
 	                    };
 
@@ -317,18 +326,7 @@ public class HapMapImport extends AbstractGenotypeImport {
 			}
 			reader.close();
 
-			if (existingVariantIDs.size() == 0)
-			{	// we benefit from the fact that it's the first variant import into this database to use bulk insert which is meant to be faster
-				mongoTemplate.insert(unsavedVariants, VariantData.class);
-				mongoTemplate.insert(unsavedRuns, VariantRunData.class);
-			}
-			else
-			{
-				for (VariantData vd : unsavedVariants)
-					mongoTemplate.save(vd);
-				for (VariantRunData run : unsavedRuns)
-					mongoTemplate.save(run);							
-			}
+			persistVariantsAndGenotypes(existingVariantIDs, finalMongoTemplate, unsavedVariants, unsavedRuns);
 
 			// save project data
 			if (!project.getRuns().contains(sRun))
@@ -375,6 +373,10 @@ public class HapMapImport extends AbstractGenotypeImport {
 
 		if (variantToFeed.getReferencePosition() == null)	// otherwise we leave it as it is (had some trouble with overridden end-sites)
 			variantToFeed.setReferencePosition(new ReferencePosition(hmFeature.getChr(), hmFeature.getStart(), (long) hmFeature.getEnd()));
+		
+		// take into account ref and alt alleles (if it's not too late)
+		if (variantToFeed.getKnownAlleleList().size() == 0)
+			variantToFeed.setKnownAlleleList(Arrays.asList(hmFeature.getAlleles()));
 
 		VariantRunData run = new VariantRunData(new VariantRunData.VariantRunDataId(project.getId(), runName, variantToFeed.getId()));
 			
@@ -384,6 +386,9 @@ public class HapMapImport extends AbstractGenotypeImport {
 			String sIndividual = hmFeature.getSampleIDs()[i];
 
 			String genotype = hmFeature.getGenotypes()[i].toUpperCase(), gtCode = null;
+			if (genotype.length() == 1 && iupacCodeConversionMap.containsKey(genotype))
+				genotype = iupacCodeConversionMap.get(genotype);	// it's a IUPAC code, let's convert it to a pair of bases
+
 			if (!"NN".equals(genotype) && genotype.length() == 2)
 			{
 				String allele1 = genotype.substring(0, 1);

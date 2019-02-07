@@ -21,6 +21,7 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 
 import org.apache.log4j.Logger;
 import org.springframework.data.domain.Sort;
@@ -33,6 +34,7 @@ import com.mongodb.DBCursor;
 import com.mongodb.DBObject;
 
 import fr.cirad.mgdb.model.mongo.maintypes.VariantData;
+import fr.cirad.mgdb.model.mongo.maintypes.VariantRunData;
 import fr.cirad.mgdb.model.mongo.subtypes.ReferencePosition;
 import fr.cirad.mgdb.model.mongodao.MgdbDao;
 import fr.cirad.tools.Helper;
@@ -176,5 +178,20 @@ public class AbstractGenotypeImport {
 		boolean fLooksLikePreprocessedVariantList = firstId != null && lastId != null && firstId.endsWith("001") && lastId.endsWith("" + variantCount);
 //		LOG.debug("Database " + sModule + " does " + (fLooksLikePreprocessedVariantList ? "not " : "") + "support importing unknown variants");
 		return !fLooksLikePreprocessedVariantList;
-	}		
+	}
+
+    public void persistVariantsAndGenotypes(HashMap<String, String> existingVariantIDs, MongoTemplate mongoTemplate, List<VariantData> unsavedVariants, List<VariantRunData> unsavedRuns)
+    {
+        if (existingVariantIDs.size() == 0) {	// we benefit from the fact that it's the first variant import into this database to use bulk insert which is much faster
+        	mongoTemplate.insert(unsavedVariants, VariantData.class);
+        	mongoTemplate.insert(unsavedRuns, VariantRunData.class);
+        }
+        else
+        {
+            for (VariantData vd : unsavedVariants)
+            	mongoTemplate.save(vd);
+            for (VariantRunData run : unsavedRuns)
+            	mongoTemplate.save(run);
+        }  
+    }
 }

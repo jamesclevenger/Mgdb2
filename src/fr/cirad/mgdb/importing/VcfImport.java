@@ -332,16 +332,7 @@ public class VcfImport extends AbstractGenotypeImport {
 	                    Thread insertionThread = new Thread() {
 	                        @Override
 	                        public void run() {
-	                            if (existingVariantIDs.size() == 0) {	// we benefit from the fact that it's the first variant import into this database to use bulk insert which is much faster
-	                            	finalMongoTemplate.insert(finalUnsavedVariants, VariantData.class);
-	                                finalMongoTemplate.insert(finalUnsavedRuns, VariantRunData.class);
-	                            }
-	                            else {
-	                                for (VariantData vd : finalUnsavedVariants)
-	                                	finalMongoTemplate.save(vd);
-	                                for (VariantRunData run : finalUnsavedRuns)
-	                                	finalMongoTemplate.save(run);
-	                            }    
+	                        	persistVariantsAndGenotypes(existingVariantIDs, finalMongoTemplate, finalUnsavedVariants, finalUnsavedRuns);
 	                        }
 	                    };
 
@@ -382,16 +373,7 @@ public class VcfImport extends AbstractGenotypeImport {
             }
             reader.close();
 
-            if (existingVariantIDs.size() == 0) {	// we benefit from the fact that it's the first variant import into this database and use batch insert which is ways faster than looping on save 
-                mongoTemplate.insert(unsavedVariants, VariantData.class);
-                mongoTemplate.insert(unsavedRuns, VariantRunData.class);
-            }
-            else {
-                for (VariantData vd : unsavedVariants)
-                    mongoTemplate.save(vd);
-                for (VariantRunData run : unsavedRuns)
-                    mongoTemplate.save(run);
-            }
+            persistVariantsAndGenotypes(existingVariantIDs, finalMongoTemplate, unsavedVariants, unsavedRuns);
 
             // save project data
             if (!project.getRuns().contains(sRun)) {
