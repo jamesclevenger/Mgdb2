@@ -129,8 +129,8 @@ public abstract class AbstractIndividualOrientedExportHandler implements IExport
 		for (GenotypingSample gs : samplesToExport)
 			sampleIdToIndividualMap.put(gs.getId(), gs.getIndividual());
 
-        int avgObjSize = (Integer) mongoTemplate.getCollection(mongoTemplate.getCollectionName(VariantRunData.class)).getStats().get("avgObjSize");
-		int nQueryChunkSize = Math.max(1, (nMaxChunkSizeInMb*1024*1024 / avgObjSize) / AsyncExportTool.INITIAL_NUMBER_OF_SIMULTANEOUS_QUERY_THREADS);
+    	Number avgObjSize = (Number) mongoTemplate.getCollection(mongoTemplate.getCollectionName(VariantRunData.class)).getStats().get("avgObjSize");
+		int nQueryChunkSize = (int) Math.max(1, (nMaxChunkSizeInMb*1024*1024 / avgObjSize.doubleValue()) / AsyncExportTool.INITIAL_NUMBER_OF_SIMULTANEOUS_QUERY_THREADS);
 
 		AtomicLong nLoadedMarkerCount = new AtomicLong(0);
 		int markerCount = markerCursor.count();
