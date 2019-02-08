@@ -388,6 +388,8 @@ public class HapMapImport extends AbstractGenotypeImport {
 			String genotype = hmFeature.getGenotypes()[i].toUpperCase(), gtCode = null;
 			if (genotype.length() == 1 && iupacCodeConversionMap.containsKey(genotype))
 				genotype = iupacCodeConversionMap.get(genotype);	// it's a IUPAC code, let's convert it to a pair of bases
+			else if ("NA".equals(genotype))
+				genotype = "NN";
 
 			if (!"NN".equals(genotype) && genotype.length() == 2)
 			{
