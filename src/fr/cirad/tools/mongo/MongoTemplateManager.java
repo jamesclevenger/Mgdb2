@@ -159,7 +159,7 @@ public class MongoTemplateManager implements ApplicationContextAware {
         String serverCleanupCSV = appConfig.dbServerCleanup();
         List<String> authorizedCleanupServers = serverCleanupCSV == null ? null : Arrays.asList(serverCleanupCSV.split(","));
 
-        // we do this cleanup here because it only happens when the webapp is truly being (re)started (not when the reload button has been clicked)
+        // we do this cleanup here because it only happens when the webapp is being (re)started
         for (String sModule : templateMap.keySet()) {
 
             MongoTemplate mongoTemplate = templateMap.get(sModule);
@@ -250,7 +250,7 @@ public class MongoTemplateManager implements ApplicationContextAware {
 	                } catch (NoSuchBeanDefinitionException nsbde) {
 	                    LOG.warn("No user credentials configured for host " + sHost + "! You might want to create a bean UserCredentials named " + sHost + "Credentials");
 	                }
-	                MongoClientOptions mco = new MongoClientOptions.Builder().maxConnectionIdleTime(0).maxConnectionLifeTime(0).build();	                
+	                MongoClientOptions mco = new MongoClientOptions.Builder()/*.maxConnectionIdleTime(0).maxConnectionLifeTime(0)*/.build();	                
 	                MongoClient client = uc != null ? new MongoClient(serverAddress, MongoCredential.createCredential(uc.getUsername(), "admin", uc.getPassword().toCharArray()), mco) : new MongoClient(serverAddress, mco);
 	                mongoClients.put(sHost, client);
 	            }
@@ -628,16 +628,6 @@ public class MongoTemplateManager implements ApplicationContextAware {
             return document.collection();
         }
         return clazz.getSimpleName();
-    }
-
-    /**
-     * Close.
-     */
-    @PreDestroy
-    static public void close() {
-        for (MongoTemplate mongoTemplate : templateMap.values()) {
-            mongoTemplate.getDb().getMongo().close();
-        }
     }
 
 	public static void setTaxon(String database, String taxon) {
