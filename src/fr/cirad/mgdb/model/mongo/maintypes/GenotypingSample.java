@@ -28,18 +28,10 @@ import org.springframework.data.mongodb.core.mapping.Field;
 @TypeAlias("GS")
 public class GenotypingSample {
 
-	/** The Constant FIELDNAME_PROBLEM. */
 	public final static String FIELDNAME_INDEX = "ix";
-	
-	/** The Constant FIELDNAME_PROBLEM. */
 	public final static String FIELDNAME_NAME = "nm";
-	
 	public final static String FIELDNAME_INDIVIDUAL = "in";
-	
-	/** The Constant FIELDNAME_INDIVIDUAL. */
 	public final static String FIELDNAME_PROJECT_ID = "pj";
-	
-	/** The Constant FIELDNAME_INDIVIDUAL. */
 	public final static String FIELDNAME_RUN = "rn";
 
 	/** The sample id. */

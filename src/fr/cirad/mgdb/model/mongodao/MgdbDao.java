@@ -34,6 +34,7 @@ import org.springframework.data.mongodb.core.query.Query;
 import com.mongodb.BasicDBObject;
 import com.mongodb.DBCollection;
 
+import fr.cirad.mgdb.model.mongo.maintypes.CachedCount;
 import fr.cirad.mgdb.model.mongo.maintypes.GenotypingSample;
 import fr.cirad.mgdb.model.mongo.maintypes.Individual;
 import fr.cirad.mgdb.model.mongo.maintypes.VariantData;
@@ -54,9 +55,6 @@ public class MgdbDao
 	/** The Constant COLLECTION_NAME_TAGGED_VARIANT_IDS. */
 	static final public String COLLECTION_NAME_TAGGED_VARIANT_IDS = "taggedVariants";
 	
-	/** The Constant COLLECTION_NAME_CACHED_COUNTS. */
-	static final public String COLLECTION_NAME_CACHED_COUNTS = "cachedCounts";
-	
 	/** The Constant FIELD_NAME_CACHED_COUNT_VALUE. */
 	static final public String FIELD_NAME_CACHED_COUNT_VALUE = "val";
 	
@@ -70,7 +68,7 @@ public class MgdbDao
 	public static List<String> prepareDatabaseForSearches(MongoTemplate mongoTemplate) throws Exception
 	{
 		// empty count cache
-		mongoTemplate.dropCollection(COLLECTION_NAME_CACHED_COUNTS);
+		mongoTemplate.dropCollection(mongoTemplate.getCollectionName(CachedCount.class));
 		
 		DBCollection variantColl = mongoTemplate.getCollection(mongoTemplate.getCollectionName(VariantData.class));
 		DBCollection runColl = mongoTemplate.getCollection(mongoTemplate.getCollectionName(VariantRunData.class));
