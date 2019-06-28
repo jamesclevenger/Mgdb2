@@ -37,6 +37,7 @@ import org.springframework.data.mongodb.core.query.Update;
 
 import com.mongodb.BulkWriteResult;
 
+import fr.cirad.mgdb.model.mongo.maintypes.CustomIndividualMetadata;
 import fr.cirad.mgdb.model.mongo.maintypes.Individual;
 import fr.cirad.tools.Helper;
 import fr.cirad.tools.mongo.MongoTemplateManager;
@@ -76,7 +77,7 @@ public class IndividualMetadataImport {
 			if (mongoTemplate == null)
 				throw new Exception("DATASOURCE '" + sModule + "' is not supported!");
 		}
-
+  
 		try
 		{
 			HashMap<Integer, String> columnLabels = new HashMap<Integer, String>();
@@ -124,6 +125,91 @@ public class IndividualMetadataImport {
 			
 			if (passedIndList.size() == 0)
 				bulkOperations.updateMulti(new Query(), new Update().unset(Individual.SECTION_ADDITIONAL_INFO)); // a blank metadata file was submitted: let's delete any existing metadata				
+			else
+			{	// first check if any passed individuals are unknown
+				Query verificationQuery = new Query(Criteria.where("_id").in(passedIndList));
+				verificationQuery.fields().include("_id");
+				List<String> foundIndList = mongoTemplate.find(verificationQuery, Individual.class).stream().map(ind -> ind.getId()).collect(Collectors.toList());
+				if (foundIndList.size() < passedIndList.size())
+					throw new Exception("The following individuals do not exist in the selected database: " + StringUtils.join(CollectionUtils.disjunction(passedIndList, foundIndList), ", "));
+			}
+			BulkWriteResult bwr = bulkOperations.execute();
+			if (passedIndList.size() == 0)
+				LOG.info("Database " + sModule + ": metadata was deleted for " + bwr.getModifiedCount() + " individuals");
+			else
+				LOG.info("Database " + sModule + ": " + bwr.getModifiedCount() + " individuals updated with metadata, out of " + bwr.getMatchedCount() + " matched documents");
+		}
+		finally
+		{
+			scanner.close();
+			if (ctx != null)
+				ctx.close();
+		}
+	}
+	
+	public static void insertCustomIndividualMetadata(String sModule, URL metadataFileURL, String individualColName, String csvFieldListToImport, String username) throws Exception 
+	{
+		List<String> fieldsToImport = csvFieldListToImport != null ? Arrays.asList(csvFieldListToImport.toLowerCase().split(",")) : null;
+		Scanner scanner = new Scanner(metadataFileURL.openStream());
+
+		GenericXmlApplicationContext ctx = null;
+		MongoTemplate mongoTemplate = MongoTemplateManager.get(sModule);
+		if (mongoTemplate == null) { // we are probably being invoked offline
+			ctx = new GenericXmlApplicationContext("applicationContext-data.xml");
+
+			MongoTemplateManager.initialize(ctx);
+			mongoTemplate = MongoTemplateManager.get(sModule);
+			if (mongoTemplate == null)
+				throw new Exception("DATASOURCE '" + sModule + "' is not supported!");
+		}
+  
+		try
+		{
+			HashMap<Integer, String> columnLabels = new HashMap<Integer, String>();
+			int idColumn = -1;
+			String sLine = null;
+			BulkOperations bulkOperations = mongoTemplate.bulkOps(BulkOperations.BulkMode.ORDERED, CustomIndividualMetadata.class);
+			List<String> passedIndList = new ArrayList<>();
+			while (scanner.hasNextLine()) {
+				sLine = scanner.nextLine().trim();
+				if (sLine.length() == 0)
+					continue;
+
+				if (columnLabels.isEmpty() && sLine.startsWith("\uFEFF"))
+					sLine = sLine.substring(1);
+
+				List<String> cells = Helper.split(sLine, "\t");
+
+				if (columnLabels.isEmpty()) { // it's the header line
+					for (int i=0; i<cells.size(); i++)
+					{
+						String cell = cells.get(i);
+						if (cell.equalsIgnoreCase(individualColName))
+							idColumn = i;
+						else if (fieldsToImport == null || fieldsToImport.contains(cell.toLowerCase()))
+							columnLabels.put(i, cell);
+					}
+					if (idColumn == -1)
+						throw new Exception(cells.size() <= 1 ? "Provided file does not seem to be tab-delimited!" : "Unable to find individual name column \"" + individualColName + "\" in file header!");
+//					if (columnLabels.size() == 0)
+//						throw new Exception("Unable to find any columns to import in file header!");
+
+					continue;
+				}
+
+				// now deal with actual data rows
+				HashMap<String, Comparable> additionalInfo = new HashMap<>();
+				for (int col : columnLabels.keySet())
+					if (col != idColumn)
+						additionalInfo.put(columnLabels.get(col), cells.size() > col ? cells.get(col) : "");
+
+				String individualId = cells.get(idColumn);
+				passedIndList.add(individualId);
+				bulkOperations.upsert(new Query(Criteria.where("_id").is(new CustomIndividualMetadata.CustomIndividualMetadataId(individualId, username))), new Update().set(CustomIndividualMetadata.SECTION_ADDITIONAL_INFO, additionalInfo));
+			}
+			
+			if (passedIndList.size() == 0)
+				bulkOperations.remove(new Query(Criteria.where("_id." + CustomIndividualMetadata.CustomIndividualMetadataId.FIELDNAME_USER).is(username))); 				
 			else
 			{	// first check if any passed individuals are unknown
 				Query verificationQuery = new Query(Criteria.where("_id").in(passedIndList));
