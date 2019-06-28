@@ -379,7 +379,10 @@ public class VcfImport extends AbstractGenotypeImport {
             if (!project.getRuns().contains(sRun)) {
                 project.getRuns().add(sRun);
             }
-            mongoTemplate.save(project);
+            if (createdProject == null)
+            	mongoTemplate.save(project);
+            else
+            	mongoTemplate.insert(project);
             mongoTemplate.insert(previouslyCreatedSamples.values(), GenotypingSample.class);
 
             LOG.info("VariantImport took " + (System.currentTimeMillis() - before) / 1000 + "s for " + count + " records");
