@@ -379,12 +379,11 @@ public class HapMapImport extends AbstractGenotypeImport {
 			variantToFeed.setKnownAlleleList(Arrays.asList(hmFeature.getAlleles()));
 
 		VariantRunData run = new VariantRunData(new VariantRunData.VariantRunDataId(project.getId(), runName, variantToFeed.getId()));
+		String[] individuals = hmFeature.getSampleIDs();	// don't do this inside the loop as it's an expensive operation
 			
 		// genotype fields
 		for (int i=0; i<hmFeature.getGenotypes().length; i++)
 		{
-			String sIndividual = hmFeature.getSampleIDs()[i];
-
 			String genotype = hmFeature.getGenotypes()[i].toUpperCase(), gtCode = null;
 			if (genotype.length() == 1 && iupacCodeConversionMap.containsKey(genotype))
 				genotype = iupacCodeConversionMap.get(genotype);	// it's a IUPAC code, let's convert it to a pair of bases
@@ -393,8 +392,8 @@ public class HapMapImport extends AbstractGenotypeImport {
 
 			if (!"NN".equals(genotype) && genotype.length() == 2)
 			{
-				String allele1 = genotype.substring(0, 1);
-				String allele2 = genotype.substring(1, 2);
+				String allele1 = "" + genotype.charAt(0);
+				String allele2 = "" + genotype.charAt(1);
 
 				int firstAlleleIndex = variantToFeed.getKnownAlleleList().indexOf(allele1);
 				if (firstAlleleIndex == -1 && validNucleotides.contains(allele1))
@@ -413,26 +412,26 @@ public class HapMapImport extends AbstractGenotypeImport {
 			if (!"NN".equals(genotype) && (gtCode == null || !gtCode.matches("([0-9])([0-9])*/([0-9])([0-9])*")))
 			{
 				gtCode = null;
-				LOG.warn("Ignoring invalid HapMap genotype \"" + genotype + "\" for variant " + variantToFeed.getId() + " and individual " + sIndividual);
+				LOG.warn("Ignoring invalid HapMap genotype \"" + genotype + "\" for variant " + variantToFeed.getId() + " and individual " + individuals[i]);
 			}
 			
 			if (gtCode == null)
 				continue;	// we don't add missing genotypes
 
 			SampleGenotype aGT = new SampleGenotype(gtCode);
-			if (!usedSamples.containsKey(sIndividual))	// we don't want to persist each sample several times
+			if (!usedSamples.containsKey(individuals[i]))	// we don't want to persist each sample several times
 			{
-                Individual ind = mongoTemplate.findById(sIndividual, Individual.class);
+                Individual ind = mongoTemplate.findById(individuals[i], Individual.class);
                 if (ind == null) {	// we don't have any population data so we don't need to update the Individual if it already exists
-                    ind = new Individual(sIndividual);
+                    ind = new Individual(individuals[i]);
                     mongoTemplate.save(ind);
                 }
 
                 int sampleId = AutoIncrementCounter.getNextSequence(mongoTemplate, MongoTemplateManager.getMongoCollectionName(GenotypingSample.class));
-                usedSamples.put(sIndividual, new GenotypingSample(sampleId, project.getId(), run.getRunName(), sIndividual));	// add a sample for this individual to the project
+                usedSamples.put(individuals[i], new GenotypingSample(sampleId, project.getId(), run.getRunName(), individuals[i]));	// add a sample for this individual to the project
             }			
 
-			run.getSampleGenotypes().put(usedSamples.get(sIndividual).getId(), aGT);
+			run.getSampleGenotypes().put(usedSamples.get(individuals[i]).getId(), aGT);
 		}
 		
         run.setKnownAlleleList(variantToFeed.getKnownAlleleList());
