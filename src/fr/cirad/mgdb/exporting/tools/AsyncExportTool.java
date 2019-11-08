@@ -95,16 +95,20 @@ public class AsyncExportTool {
 
 		while (!fReadingFinished)
 		{
-			Thread.sleep(10);
+			Thread.sleep(20);
 			if (runningThreadCount.get() < nNConcurrentThreads && dataWritingQueue.size() < nNConcurrentThreads)
 			{
-				new Thread()
+				Thread t = new Thread()
 				{
 					public void run()
 					{
 						tryAndGetNextChunks();
 					}
-				}.start();
+				};
+				if (!fHasBeenLaunched)
+					t.run();	// launch first chunk synchronously otherwise it may launch too many ones at first
+				else
+					t.start();
 			}
 		}
 	}

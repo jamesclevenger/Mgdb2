@@ -23,6 +23,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 
+import org.apache.commons.lang3.StringUtils;
 import org.apache.log4j.Logger;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.mongodb.core.MongoTemplate;
@@ -159,10 +160,9 @@ public class AbstractGenotypeImport {
         return existingVariantIDs;
 	}
 	
-	public static boolean doesDatabaseSupportImportingUnknownVariants(String sModule)
+	static public boolean doesDatabaseSupportImportingUnknownVariants(String sModule)
 	{
 		MongoTemplate mongoTemplate = MongoTemplateManager.get(sModule);
-		long variantCount = mongoTemplate.count(null, VariantData.class);
 		String firstId = null, lastId = null;
 		Query query = new Query(Criteria.where("_id").not().regex("^\\*.*"));
         query.with(new Sort("_id"));
@@ -173,12 +173,12 @@ public class AbstractGenotypeImport {
 		query.with(new Sort(Sort.Direction.DESC, "_id"));
 		VariantData lastVariant = mongoTemplate.findOne(query, VariantData.class);
 		if (lastVariant != null)
-			lastId = lastVariant.getId().toString();	
+			lastId = lastVariant.getId().toString();
 
-		boolean fLooksLikePreprocessedVariantList = firstId != null && lastId != null && firstId.endsWith("001") && lastId.endsWith("" + variantCount);
+		boolean fLooksLikePreprocessedVariantList = firstId != null && firstId.endsWith("001") && mongoTemplate.count(new Query(Criteria.where("_id").not().regex("^\\*?" + StringUtils.getCommonPrefix(new String[] {firstId, lastId}) + ".*")), VariantData.class) == 0;
 //		LOG.debug("Database " + sModule + " does " + (fLooksLikePreprocessedVariantList ? "not " : "") + "support importing unknown variants");
 		return !fLooksLikePreprocessedVariantList;
-	}
+	}	
 
     public void persistVariantsAndGenotypes(HashMap<String, String> existingVariantIDs, MongoTemplate mongoTemplate, List<VariantData> unsavedVariants, List<VariantRunData> unsavedRuns)
     {
