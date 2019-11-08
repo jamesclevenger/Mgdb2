@@ -132,7 +132,6 @@ public abstract class AbstractIndividualOrientedExportHandler implements IExport
     	Number avgObjSize = (Number) mongoTemplate.getCollection(mongoTemplate.getCollectionName(VariantRunData.class)).getStats().get("avgObjSize");
 		int nQueryChunkSize = (int) Math.max(1, (nMaxChunkSizeInMb*1024*1024 / avgObjSize.doubleValue()) / AsyncExportTool.INITIAL_NUMBER_OF_SIMULTANEOUS_QUERY_THREADS);
 
-		AtomicLong nLoadedMarkerCount = new AtomicLong(0);
 		int markerCount = markerCursor.count();
 
 		AbstractDataOutputHandler<Integer, LinkedHashMap<VariantData, Collection<VariantRunData>>> dataOutputHandler = new AbstractDataOutputHandler<Integer, LinkedHashMap<VariantData, Collection<VariantRunData>>>() {				
@@ -187,7 +186,6 @@ public abstract class AbstractIndividualOrientedExportHandler implements IExport
 									individualGenotypeBuffers[i].append(storedIndividualGenotype + (j == storedIndividualGenotypes.size() - 1 ? LINE_SEPARATOR : "|"));
 								}
 						}
-						nLoadedMarkerCount.incrementAndGet();
 					}
 
 					// write genotypes collected in this chunk to each individual's file

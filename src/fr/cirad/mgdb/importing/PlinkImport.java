@@ -293,7 +293,7 @@ public class PlinkImport extends AbstractGenotypeImport {
 	            int nMaxChunkSize = existingVariantIDs.size() == 0 ? 10000 /*saved one by one*/ : 50000 /*inserted at once*/;
 				final MongoTemplate finalMongoTemplate = mongoTemplate;
 	            Thread asyncThread = null;
-				mainLoop : while (scanner.hasNextLine())
+				while (scanner.hasNextLine())
 				{
 					StringTokenizer variantFields = new StringTokenizer(scanner.nextLine(), "\t");
 					String providedVariantId = variantFields.nextToken();
@@ -326,7 +326,7 @@ public class PlinkImport extends AbstractGenotypeImport {
 						LOG.warn("Skipping unknown variant: " + providedVariantId);
 					else if (variantId != null && variantId.toString().startsWith("*"))
 					{
-						LOG.warn("\r\nSkipping deprecated variant data: " + providedVariantId);
+						LOG.warn("Skipping deprecated variant data: " + providedVariantId);
 						continue;
 					}
 					else
@@ -475,7 +475,7 @@ public class PlinkImport extends AbstractGenotypeImport {
 					Scanner sc = new Scanner(pedFile);
 					while (sc.hasNextLine())
 					{
-						String sLine = sc.nextLine().trim().replaceAll(" +", " ");
+						String sLine = sc.nextLine().trim().replaceAll("\t", " ").replaceAll(" +", " ");
 						if (nCurrentChunkIndex == 0)
 							PlinkEigenstratTool.readIndividualFromPlinkPedLine(sLine, (HashMap<String, String>) userIndividualToPopulationMapToFill);	// important because it fills the map
 						int nFirstPosToRead = sLine.length() - 4*(variants.length - nCurrentChunkIndex * nMaxMarkersReadAtOnce);

@@ -517,7 +517,7 @@ abstract public class AbstractVariantData
 		}
 		catch (Exception e)
 		{
-			throw new Exception("Variant ID: " + id, e);
+			throw new Exception("Variant ID: " + id + " - " + e.getMessage());
 		}
 	}
 	
@@ -583,7 +583,6 @@ abstract public class AbstractVariantData
 		Map<String/*individual*/, HashMap<String/*genotype code*/, List<Integer>>> individualSamplesByGenotype = new LinkedHashMap<>();
 		
 		HashMap<Integer, SampleGenotype> sampleGenotypes = new HashMap<>();
-		HashMap<Integer, HashMap<String, Object>> gtInfos = new HashMap<>();
 		List<VariantRunData> runsWhereDataWasFound = new ArrayList<>();
 		List<String> individualList = new ArrayList<>();
 		for (GenotypingSample sample : samplesToExport)
