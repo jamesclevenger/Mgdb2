@@ -41,12 +41,8 @@ public class AsyncExportTool {
 	
 	private static final Logger LOG = Logger.getLogger(AbstractMarkerOrientedExportHandler.class);
 	
-    /**
-     * number of simultaneous query threads
-     */
-    public static final int INITIAL_NUMBER_OF_SIMULTANEOUS_QUERY_THREADS = 5;
-    static final private int MINIMUM_NUMBER_OF_SIMULTANEOUS_QUERY_THREADS = 2;
-    static final private int MAXIMUM_NUMBER_OF_SIMULTANEOUS_QUERY_THREADS = 50;
+	// This is a compromise: 3 seems to be enough for hand-coded variant oriented formats, VCF seems happy with 4, and individual oriented formats would probably benefit from 10 or more... make it dynamic?
+    public static final int WRITING_QUEUE_CAPACITY = 4;
 
 	private DBCursor markerCursor;
 	private MongoTemplate mongoTemplate;
@@ -56,14 +52,10 @@ public class AsyncExportTool {
 	private AbstractDataOutputHandler<Integer, LinkedHashMap<VariantData, Collection<VariantRunData>>> dataOutputHandler;
 
 	private int queryChunkIndex = 0, lastWrittenChunkIndex = -1;
-	private AtomicInteger runningThreadCount = new AtomicInteger(0);
 	private ConcurrentSkipListMap<Integer, LinkedHashMap<VariantData, Collection<VariantRunData>>> dataWritingQueue;
 	private boolean fHasBeenLaunched = false;
-	private boolean fReadingFinished = false;
 	
 	private int nNumberOfChunks;
-	
-	private int nNConcurrentThreads = INITIAL_NUMBER_OF_SIMULTANEOUS_QUERY_THREADS;
 
 	public AsyncExportTool(DBCursor markerCursor, int nTotalMarkerCount, int nQueryChunkSize, MongoTemplate mongoTemplate, List<GenotypingSample> samples, AbstractDataOutputHandler<Integer, LinkedHashMap<VariantData, Collection<VariantRunData>>> dataOutputHandler, ProgressIndicator progress) throws Exception
 	{
@@ -84,7 +76,7 @@ public class AsyncExportTool {
 	{
 		if (fHasBeenLaunched)
 			throw new Exception("This AsyncExportTool has already been launched!");
-		
+
 		new Thread()
 		{
 			public void run()
@@ -93,35 +85,16 @@ public class AsyncExportTool {
 			}
 		}.start();
 
-		while (!fReadingFinished)
-		{
-			Thread.sleep(20);
-			if (runningThreadCount.get() < nNConcurrentThreads && dataWritingQueue.size() < nNConcurrentThreads)
-			{
-				Thread t = new Thread()
-				{
-					public void run()
-					{
-						tryAndGetNextChunks();
-					}
-				};
-				if (!fHasBeenLaunched)
-					t.run();	// launch first chunk synchronously otherwise it may launch too many ones at first
-				else
-					t.start();
-			}
-		}
+		for (int i=0; i<WRITING_QUEUE_CAPACITY; i++)
+			tryAndGetNextChunks();	// writing will automatically start when first chunk is added to the queue
 	}
 	
 	synchronized protected void tryAndGetNextChunks()
 	{
-		if ((progress != null && progress.isAborted()) || !markerCursor.hasNext())
-		{
-			fReadingFinished = true;
-			return;
-		}
-
 		fHasBeenLaunched = true;
+
+		if (!markerCursor.hasNext())
+			return;	// finished
 		
 		int nLoadedMarkerCountInLoop = 0;
 		boolean fStartingNewChunk = true;
@@ -129,41 +102,27 @@ public class AsyncExportTool {
 		while (markerCursor.hasNext() && (fStartingNewChunk || nLoadedMarkerCountInLoop%nQueryChunkSize != 0))
 		{
 			DBObject exportVariant = markerCursor.next();
-			currentMarkers.add((String) exportVariant.get("_id"));
+			currentMarkers.add((Comparable) exportVariant.get("_id"));
 			nLoadedMarkerCountInLoop++;
 			fStartingNewChunk = false;
 		}
 
 		final int nFinalChunkIndex = queryChunkIndex++;
-		Thread t = new Thread()
+		new Thread()
 		{
 			public void run()
 			{
 				try
 				{
-					runningThreadCount.addAndGet(1);
 					dataWritingQueue.put(nFinalChunkIndex, MgdbDao.getSampleGenotypes(mongoTemplate, samples, currentMarkers, true, null /*new Sort(VariantData.FIELDNAME_REFERENCE_POSITION + "." + ChromosomalPosition.FIELDNAME_SEQUENCE).and(new Sort(VariantData.FIELDNAME_REFERENCE_POSITION + "." + ChromosomalPosition.FIELDNAME_START_SITE))*/));
-					runningThreadCount.addAndGet(-1);
 				}
 				catch (Exception e)
 				{
 					LOG.error("Error reading asynchronously genotypes for export", e);
 					progress.setError("Error reading asynchronously genotypes for export: " + e);
 				}
-
-		        if (nFinalChunkIndex % nNConcurrentThreads == (nNConcurrentThreads - 1)) {
-		            if (runningThreadCount.get() > nNConcurrentThreads * .3)
-		            	nNConcurrentThreads = (int) (nNConcurrentThreads / 1.5);
-		            else if (runningThreadCount.get() < nNConcurrentThreads * .5)
-		            	nNConcurrentThreads *= 2;
-		            nNConcurrentThreads = Math.min(MAXIMUM_NUMBER_OF_SIMULTANEOUS_QUERY_THREADS, Math.max(MINIMUM_NUMBER_OF_SIMULTANEOUS_QUERY_THREADS, nNConcurrentThreads));
-		        }
-				
-				if (runningThreadCount.get() < nNConcurrentThreads && dataWritingQueue.size() < nNConcurrentThreads)
-					tryAndGetNextChunks();
 			}
-		};
-		t.start();
+		}.start();
 	}
 	
 	static public abstract class AbstractDataOutputHandler<T, V> implements Callable<Void> {
@@ -182,13 +141,28 @@ public class AsyncExportTool {
 		{
 			while ((progress == null || !progress.isAborted()) && (nNumberOfChunks > lastWrittenChunkIndex + 1))
 			{
+				long b4 = System.currentTimeMillis();
 				while (!dataWritingQueue.containsKey(lastWrittenChunkIndex + 1))
-					Thread.sleep(50);
+					Thread.sleep(20);
+				long delay = System.currentTimeMillis() - b4;
+				if (lastWrittenChunkIndex > 0 && delay > 100)
+					LOG.debug(progress.getProcessId() + " waited " + delay + "ms before writing chunk " + (lastWrittenChunkIndex + 1));
 
 				dataOutputHandler.setVariantDataArray(dataWritingQueue.get(lastWrittenChunkIndex + 1));
 				dataOutputHandler.call();	// invoke data writing
 				dataWritingQueue.remove(++lastWrittenChunkIndex);
 				progress.setCurrentStepProgress((lastWrittenChunkIndex + 1) * 100 / nNumberOfChunks);
+				
+				if ((progress != null && progress.isAborted()) || lastWrittenChunkIndex + 1 >= nNumberOfChunks)
+					return;
+
+				new Thread()
+				{
+					public void run()
+					{
+						tryAndGetNextChunks();
+					}
+				}.start();
 			}
 		}
 		catch (Throwable t)
