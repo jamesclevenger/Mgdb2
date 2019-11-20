@@ -1,12 +1,17 @@
 package jhi.brapi.api.germplasm;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import jhi.brapi.api.germplasm.BrapiGermplasmDonor;
 
 @JsonIgnoreProperties(ignoreUnknown=true)
 public class BrapiGermplasm {
+	
+    static public final HashMap<String, String> germplasmFields = new HashMap<>();
+
     private String germplasmDbId;
     private String defaultDisplayName;
     private String germplasmName;
@@ -29,6 +34,27 @@ public class BrapiGermplasm {
     private String subtaxaAuthority;
     private List<BrapiGermplasmDonor> donors;
     private String acquisitionDate;
+    
+    static {
+    	germplasmFields.put("germplasmname", "germplasmName");
+    	germplasmFields.put("defaultdisplayname", "defaultDisplayName");
+    	germplasmFields.put("accessionnumber", "accessionNumber");
+    	germplasmFields.put("germplasmpui", "germplasmPUI");
+    	germplasmFields.put("pedigree", "pedigree");
+    	germplasmFields.put("seedsource", "seedSource");
+    	germplasmFields.put("commoncropname", "commonCropName");
+    	germplasmFields.put("institutecode", "instituteCode");
+    	germplasmFields.put("institutename", "instituteName");
+    	germplasmFields.put("biologicalstatusofaccessioncode", "biologicalStatusOfAccessionCode");
+    	germplasmFields.put("countryoforigincode", "countryOfOriginCode");
+    	germplasmFields.put("typeofgermplasmstoragecode", "typeOfGermplasmStorageCode");
+    	germplasmFields.put("genus", "genus");
+    	germplasmFields.put("species", "species");
+    	germplasmFields.put("speciesauthority", "speciesAuthority");
+    	germplasmFields.put("subtaxa", "subtaxa");
+    	germplasmFields.put("subtaxaauthority", "subtaxaAuthority");
+    	germplasmFields.put("acquisitiondate", "acquisitionDate");
+    }
 
     public String getGermplasmDbId() {
         return this.germplasmDbId;
