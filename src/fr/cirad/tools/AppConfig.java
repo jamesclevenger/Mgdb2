@@ -16,23 +16,45 @@
  *******************************************************************************/
 package fr.cirad.tools;
 
-import org.springframework.beans.factory.annotation.Autowired;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.FileReader;
+import java.io.IOException;
+import java.util.Properties;
+import java.util.ResourceBundle;
+import java.util.ResourceBundle.Control;
+import java.util.UUID;
+
+import org.apache.log4j.Logger;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.context.annotation.PropertySource;
-import org.springframework.core.env.Environment;
+import org.springframework.core.io.ClassPathResource;
 
 /**
  * The Class AppConfig.
  */
 @Configuration
-@PropertySource("classpath:config.properties")
 public class AppConfig {
+	
+	static private final Logger LOG = Logger.getLogger(AppConfig.class);
 
+	public static final String CONFIG_FILE = "config";
+	
     /**
-     * The env.
+     * The resource control.
      */
-    @Autowired
-    private Environment env;
+    private static final Control resourceControl = new ResourceBundle.Control() {
+        @Override
+        public boolean needsReload(String baseName, java.util.Locale locale, String format, ClassLoader loader, ResourceBundle bundle, long loadTime) {
+            return true;
+        }
+
+        @Override
+        public long getTimeToLive(String baseName, java.util.Locale locale) {
+            return 0;
+        }
+    };
+    
+    private ResourceBundle props = ResourceBundle.getBundle(CONFIG_FILE, resourceControl);
 
     /**
      * Db server cleanup.
@@ -40,10 +62,28 @@ public class AppConfig {
      * @return the string
      */
     public String dbServerCleanup() {
-        return env.getProperty("dbServerCleanup");
+        return get("dbServerCleanup");
     }
 
     public String get(String sPropertyName) {
-        return env.getProperty(sPropertyName);
+        return props.containsKey(sPropertyName) ? props.getString(sPropertyName) : null;
+    }
+    
+    synchronized public String getInstanceUUID() throws IOException {
+        String instanceUUID = get("instanceUUID");
+        if (instanceUUID == null) { // generate it
+        	instanceUUID = UUID.randomUUID().toString();
+        	FileOutputStream fos = null;
+            File f = new ClassPathResource("/" + CONFIG_FILE + ".properties").getFile();
+        	FileReader fileReader = new FileReader(f);
+            Properties properties = new Properties();
+            properties.load(fileReader);
+            properties.put("instanceUUID", instanceUUID);
+            fos = new FileOutputStream(f);
+            properties.store(fos, null);
+            props = ResourceBundle.getBundle(CONFIG_FILE, resourceControl);
+            LOG.info("instanceUUID generated as " + instanceUUID);
+        }
+        return instanceUUID;
     }
 }
