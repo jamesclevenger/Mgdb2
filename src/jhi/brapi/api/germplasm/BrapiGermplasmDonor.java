@@ -1,5 +1,8 @@
 package jhi.brapi.api.germplasm;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+
+@JsonIgnoreProperties(ignoreUnknown=true)
 public class BrapiGermplasmDonor {
     private String donorInstituteCode;
     private String donorAccessionNumber;

@@ -23,6 +23,7 @@ import jhi.brapi.api.authentication.*;
 import jhi.brapi.api.calls.*;
 import jhi.brapi.api.genomemaps.*;
 import jhi.brapi.api.germplasm.BrapiGermplasm;
+import jhi.brapi.api.germplasm.BrapiSearchResult;
 import jhi.brapi.api.markerprofiles.*;
 import jhi.brapi.api.markers.BrapiMarker;
 import jhi.brapi.api.studies.*;
@@ -58,7 +59,7 @@ public interface BrapiService {
 	@GET("markers-search")
 	public Call<BrapiListResource<BrapiMarker>> getMarkerInfo(@Query("markerDbIds") Set<String> markerDbIds, @Query("name") Set<String> name, @Query("matchMethod") String matchMethod, @Query("include") String include, @Query("type") String type, @Query("pageSize") String pageSize, @Query("page") String page);
     @POST(value="markers-search")
-    public Call<BrapiListResource<BrapiMarker>> getMarkerInfo_byPost(@Body Map<String, Object> var1);
+    public Call<BrapiListResource<BrapiMarker>> getMarkerInfo_byPost(@Body Map<String, Object> body);
 
     @GET(value="markerprofiles")
     public Call<BrapiListResource<BrapiMarkerProfile>> getMarkerProfiles(@Query(value="studyDbId") String var1, @Query(value="germplasmDbId") Collection<String> var2, @Query(value="pageSize") String var3, @Query(value="page") String var4);
@@ -70,4 +71,13 @@ public interface BrapiService {
 
     @GET(value="allelematrix-search/status/{id}")
     public Call<BrapiBaseResource<Object>> getAlleleMatrixStatus(@Path(value="id") String var1);
+    
+    
+    /* V1.3 calls */
+    
+    @POST(value="search/germplasm")
+    public Call<BrapiBaseResource<BrapiSearchResult>> searchGermplasm(@Body Map<String, Object> body);
+    
+    @GET(value="search/germplasm/{searchResultDbId}")
+    public Call<BrapiListResource<BrapiGermplasm>> searchGermplasmResult(@Path(value="searchResultDbId") String searchResultDbId);
 }

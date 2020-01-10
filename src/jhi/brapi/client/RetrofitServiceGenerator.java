@@ -1,29 +1,22 @@
 package jhi.brapi.client;
 
-import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
 import java.net.URL;
 import java.security.KeyStore;
-import java.security.SecureRandom;
 import java.security.cert.Certificate;
 import java.security.cert.CertificateFactory;
 import java.util.concurrent.TimeUnit;
-import javax.net.ssl.HostnameVerifier;
-import javax.net.ssl.KeyManager;
+
 import javax.net.ssl.SSLContext;
-import javax.net.ssl.SSLSession;
-import javax.net.ssl.SSLSocketFactory;
-import javax.net.ssl.TrustManager;
 import javax.net.ssl.TrustManagerFactory;
 import javax.net.ssl.X509TrustManager;
-import jhi.brapi.client.RetrofitService;
-import okhttp3.Call;
+
+import fr.cirad.io.brapi.BrapiService;
 import okhttp3.Interceptor;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
-import okhttp3.ResponseBody;
 import retrofit2.Converter;
 import retrofit2.Retrofit;
 import retrofit2.converter.jackson.JacksonConverterFactory;
@@ -39,7 +32,7 @@ public class RetrofitServiceGenerator {
         this.certificate = certificate;
     }
 
-    public RetrofitService generate(String authToken) {
+    public BrapiService generate(String authToken) {
         Interceptor inter = this.buildInterceptor(authToken);
         this.httpClient = new OkHttpClient.Builder().readTimeout(60L, TimeUnit.SECONDS).connectTimeout(60L, TimeUnit.SECONDS).addNetworkInterceptor(inter).build();
         try {
@@ -85,9 +78,9 @@ public class RetrofitServiceGenerator {
         return client;
     }
 
-    private RetrofitService buildService(String baseURL, OkHttpClient client) {
+    private BrapiService buildService(String baseURL, OkHttpClient client) {
         this.retrofit = new Retrofit.Builder().baseUrl(baseURL).addConverterFactory((Converter.Factory)JacksonConverterFactory.create()).client(client).build();
-        return (RetrofitService)this.retrofit.create(RetrofitService.class);
+        return (BrapiService) this.retrofit.create(BrapiService.class);
     }
 
     public InputStream getInputStream(URI uri) throws Exception {
