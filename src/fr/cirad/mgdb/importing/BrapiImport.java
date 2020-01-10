@@ -82,8 +82,6 @@ import jhi.brapi.api.Status;
 import jhi.brapi.api.calls.BrapiCall;
 import jhi.brapi.api.genomemaps.BrapiGenomeMap;
 import jhi.brapi.api.genomemaps.BrapiMarkerPosition;
-import jhi.brapi.api.germplasm.BrapiGermplasm;
-import jhi.brapi.api.germplasm.BrapiSearchResult;
 import jhi.brapi.api.markerprofiles.BrapiAlleleMatrix;
 import jhi.brapi.api.markerprofiles.BrapiMarkerProfile;
 import jhi.brapi.api.markers.BrapiMarker;
@@ -875,29 +873,5 @@ public class BrapiImport extends AbstractGenotypeImport {
 			}
 		}
 		return false;	// all attempts failed
-	}
-
-	public void importMetadata(String sModule, String endpointUrl, HashMap<String, String> germplasmDbIdToIndividualMap) throws Exception
-	{
-		BrapiClient client = new BrapiClient();
-		client.initService(endpointUrl);
-//		client.getCalls();
-		final BrapiService service = client.getService();
-
-		HashMap<String, Object> reqBody = new HashMap<>();
-		reqBody.put("germplasmDbIds", germplasmDbIdToIndividualMap.keySet());
-		BrapiSearchResult bsr = service.searchGermplasm(reqBody).execute().body().getResult();
-		
-		Pager callPager = new Pager();
-		List<BrapiGermplasm> germplasmList = new ArrayList<>();
-		while (callPager.isPaging())
-		{
-			BrapiListResource<BrapiGermplasm> br = service.searchGermplasmResult(bsr.getSearchResultDbId()).execute().body();
-			germplasmList.addAll(br.data());
-			callPager.paginate(br.getMetadata());
-		}
-		ObjectMapper oMapper = new ObjectMapper();
-		for (BrapiGermplasm g : germplasmList)
-			System.err.println(oMapper.convertValue(g, Map.class));
 	}
 }

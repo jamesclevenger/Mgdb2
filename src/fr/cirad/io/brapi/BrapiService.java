@@ -23,9 +23,9 @@ import jhi.brapi.api.authentication.*;
 import jhi.brapi.api.calls.*;
 import jhi.brapi.api.genomemaps.*;
 import jhi.brapi.api.germplasm.BrapiGermplasm;
-import jhi.brapi.api.germplasm.BrapiSearchResult;
 import jhi.brapi.api.markerprofiles.*;
 import jhi.brapi.api.markers.BrapiMarker;
+import jhi.brapi.api.search.BrapiSearchResult;
 import jhi.brapi.api.studies.*;
 
 import retrofit2.Call;

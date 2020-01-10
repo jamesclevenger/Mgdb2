@@ -1,4 +1,4 @@
-package jhi.brapi.api.germplasm;
+package jhi.brapi.api.search;
 
 public class BrapiSearchResult {
     private String searchResultDbId;
