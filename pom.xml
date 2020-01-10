@@ -190,17 +190,6 @@
             <version>0.1-RELEASE</version>
             <type>jar</type>
         </dependency>
-        
-		<dependency>
-		  <groupId>org.restlet.jee</groupId>
-		  <artifactId>org.restlet</artifactId>
-		  <version>2.3.3</version>
-		</dependency>
-		<dependency>
-		    <groupId>org.restlet.jee</groupId>
-		    <artifactId>org.restlet.ext.jackson</artifactId>
-		    <version>2.3.3</version>
-		</dependency>
     </dependencies>
 
 	<repositories>
