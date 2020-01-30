@@ -270,7 +270,7 @@ public class BrapiImport extends AbstractGenotypeImport {
 			progress.moveToNextStep();
 			
 			ArrayList<String> variantsToQueryGenotypesFor = new ArrayList<>();
-			Boolean fGotKnownAllelesWhenImportingVariants = null;
+			Boolean fGotKnownAllelesWhenImportingVariants = null;	// value will be determined below
 			int count = 0;
 			
 			while (markerPager.isPaging())
@@ -435,7 +435,7 @@ public class BrapiImport extends AbstractGenotypeImport {
 				Pager genotypePager = new Pager();
 				HashMap<String, Object> body = new HashMap<>();
 				body.put("markerprofileDbId", markerProfileIDs);
-				body.put("format", CallsUtils.TSV);
+				body.put("format", CallsUtils.TSV.get(0));
 				body.put("expandHomozygotes", true);
 				body.put("unknownString", unknownString);
 				body.put("sepPhased", URLEncoder.encode(phasedGenotypeSeparator, "UTF-8"));
@@ -515,14 +515,14 @@ public class BrapiImport extends AbstractGenotypeImport {
 					Pager genotypePager = new Pager();
 					genotypePager.setPageSize("" + 50000);
 
-					HashMap<String, LinkedHashSet<String>> knownAllelesByVariant = fGotKnownAllelesWhenImportingVariants ? null : new HashMap<>();
+					HashMap<String, LinkedHashSet<String>> knownAllelesByVariant = Boolean.TRUE.equals(fGotKnownAllelesWhenImportingVariants) ? null : new HashMap<>();	// if known list was determined before then we don't need to do it now
 					while (genotypePager.isPaging())
 					{
 						BrapiBaseResource<BrapiAlleleMatrix> br = null;
 						HashMap<String, Object> body = new HashMap<>();
 						body.put("markerprofileDbId", markerProfileIDs);
 						body.put("markerDbId", markerSubList);
-						body.put("format", CallsUtils.JSON);
+						body.put("format", CallsUtils.JSON.get(0));
 						body.put("expandHomozygotes", true);
 						body.put("unknownString", unknownString);
 						body.put("sepPhased", URLEncoder.encode(phasedGenotypeSeparator, "UTF-8"));
@@ -563,34 +563,32 @@ public class BrapiImport extends AbstractGenotypeImport {
 							tempFileWriter.write(". " + profileToGermplasmMap.get(row.get(1)) + " " + row.get(0) + " " + genotype.replaceAll(multipleGenotypeSeparatorRegex, " ") + "\n");
 						}
 						
-						// now build reverse hashmap for faster db update
-						HashMap<String, List<String>> variantsByKnownAlleles = new HashMap<>();
-						for (String variant : knownAllelesByVariant.keySet())
-						{
-							String knownAlleleCsv = StringUtils.join(knownAllelesByVariant.get(variant), ",");
-							List<String> variantForAlleles = variantsByKnownAlleles.get(knownAlleleCsv);
-							if (variantForAlleles == null)
+						if (knownAllelesByVariant != null) {
+							// build reverse hashmap for faster db update
+							HashMap<String, List<String>> variantsByKnownAlleles = new HashMap<>();
+							for (String variant : knownAllelesByVariant.keySet())
 							{
-								variantForAlleles = new ArrayList<>();
-								variantsByKnownAlleles.put(knownAlleleCsv, variantForAlleles);
+								String knownAlleleCsv = StringUtils.join(knownAllelesByVariant.get(variant), ",");
+								List<String> variantForAlleles = variantsByKnownAlleles.get(knownAlleleCsv);
+								if (variantForAlleles == null)
+								{
+									variantForAlleles = new ArrayList<>();
+									variantsByKnownAlleles.put(knownAlleleCsv, variantForAlleles);
+								}
+								variantForAlleles.add(variant);
 							}
-							variantForAlleles.add(variant);
+	
+							for (String knownAlleleCsv : variantsByKnownAlleles.keySet())
+							{
+								List<String> variants = variantsByKnownAlleles.get(knownAlleleCsv);
+								Query q = new Query(Criteria.where("_id").in(variants));
+								if (existingVariantIDs.isEmpty())
+									mongoTemplate.updateMulti(q, new Update().set(VariantData.FIELDNAME_KNOWN_ALLELE_LIST, Helper.split(knownAlleleCsv, ",")), VariantData.class);
+								else	// we need to be more careful and avoid to delete existing known alleles
+									for (String allele : Helper.split(knownAlleleCsv, ","))
+										mongoTemplate.updateMulti(q, new Update().addToSet(VariantData.FIELDNAME_KNOWN_ALLELE_LIST, allele), VariantData.class);
+							}
 						}
-
-//						LOG.debug(markerSubList.size() + " / " + knownAllelesByVariant.size());
-//						long b4 = System.currentTimeMillis();
-//						BulkOperations bulkOperations = mongoTemplate.bulkOps(BulkOperations.BulkMode.ORDERED, VariantData.class);
-						for (String knownAlleleCsv : variantsByKnownAlleles.keySet())
-						{
-							List<String> variants = variantsByKnownAlleles.get(knownAlleleCsv);
-//							System.out.println("got " + variants.size() + " variants with known alleles " + knownAlleleCsv);
-							Query q = new Query(Criteria.where("_id").in(variants));
-//							System.out.println(q + " -> " + mongoTemplate.count(q, VariantData.class));
-//							bulkOperations.updateMulti(new Query(Criteria.where("_id").in(variants)), new Update().set(VariantData.FIELDNAME_KNOWN_ALLELE_LIST, Helper.split(knownAlleleCsv, ",")));
-							mongoTemplate.updateMulti(q, new Update().set(VariantData.FIELDNAME_KNOWN_ALLELE_LIST, Helper.split(knownAlleleCsv, ",")), VariantData.class);
-						}
-//						bulkOperations.execute();
-//						LOG.debug("bulk update done in " + (System.currentTimeMillis() - b4) + "ms");
 						
 						genotypePager.paginate(br.getMetadata());
 						tempFileWriter.flush();				

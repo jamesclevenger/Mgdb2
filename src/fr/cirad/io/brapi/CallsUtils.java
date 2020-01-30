@@ -26,8 +26,8 @@ public class CallsUtils
 {
 	public static final String GET = "GET";
 	public static final String POST = "POST";
-	public static final List<String> JSON = Arrays.asList("json", "application/json");
-	public static final List<String> TSV = Arrays.asList("tsv", "text/tsv");
+	public static final List<String> JSON = Arrays.asList("application/json", "json");
+	public static final List<String> TSV = Arrays.asList("text/tsv", "tsv");
 
 	private List<BrapiCall> calls;
 
@@ -37,24 +37,24 @@ public class CallsUtils
 	}
 
 	boolean ensureGenotypesCanBeImported() {	// validate the calls that MUST be present
-		if (!hasCall("studies-search", JSON, GET) == false)
+		if (!hasCall("studies-search", JSON, GET))
 			return false;
-		if (!hasCall("maps", JSON, GET) == false)
+		if (!hasCall("maps", JSON, GET))
 			return false;
-		if (!hasCall("maps/{mapDbId}/positions", JSON, GET) == false)
+		if (!hasCall("maps/{mapDbId}/positions", JSON, GET))
 			return false;
-		if (!hasCall("markerprofiles", JSON, GET) == false)
+		if (!hasCall("markerprofiles", JSON, GET))
 			return false;
-		if (!hasCall("allelematrix-search", JSON, POST) == false && !hasCall("allelematrix-search", TSV, POST) == false)
+		if (!hasCall("allelematrix-search", JSON, POST) && !hasCall("allelematrix-search", TSV, POST))
 			return false;
 
 		return true;
 	}
 	
 	boolean ensureGermplasmInfoCanBeImported() {	// validate the calls that MUST be present
-		if (!hasCall("search/germplasm", JSON, POST) == false)
+		if (!hasCall("search/germplasm", JSON, POST))
 			return false;
-		if (!hasCall("attributes", JSON, GET) == false)
+		if (!hasCall("attributes", JSON, GET))
 			return false;
 
 		return true;
