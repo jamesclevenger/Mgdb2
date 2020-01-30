@@ -244,14 +244,8 @@ public class VcfImport extends AbstractGenotypeImport {
                         String trimmedField = fields[i].trim();
                         if (/*EFF*/ "Gene_Name".equals(trimmedField) || /*EFF*/ "Gene_ID".equals(trimmedField) || /*CSQ or ANN*/ "Gene".equals(trimmedField)) {
                             geneIdAnnotationPos = i;
-                            if (effectAnnotationPos != -1) {
-                                break;
-                            }
                         } else if (/*EFF*/ "Annotation".equals(trimmedField) || /*CSQ or ANN*/ "Consequence".equals(trimmedField)) {
                             effectAnnotationPos = i;
-                            if (geneIdAnnotationPos != -1) {
-                                break;
-                            }
                         }
                     }
                 }
