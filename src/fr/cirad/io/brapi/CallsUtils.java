@@ -18,14 +18,16 @@ package fr.cirad.io.brapi;
 
 import java.util.*;
 
+import org.apache.commons.collections.CollectionUtils;
+
 import jhi.brapi.api.calls.*;
 
 public class CallsUtils
 {
 	public static final String GET = "GET";
 	public static final String POST = "POST";
-	public static final String JSON = "json";
-	public static final String TSV = "tsv";
+	public static final List<String> JSON = Arrays.asList("json", "application/json");
+	public static final List<String> TSV = Arrays.asList("tsv", "text/tsv");
 
 	private List<BrapiCall> calls;
 
@@ -34,27 +36,34 @@ public class CallsUtils
 		this.calls = calls;
 	}
 
-	boolean validate()
-	{
-		// First validate the calls that MUST be present
-		if (hasCall("studies-search", JSON, GET) == false)
+	boolean ensureGenotypesCanBeImported() {	// validate the calls that MUST be present
+		if (!hasCall("studies-search", JSON, GET) == false)
 			return false;
-		if (hasCall("maps", JSON, GET) == false)
+		if (!hasCall("maps", JSON, GET) == false)
 			return false;
-		if (hasCall("maps/{mapDbId}/positions", JSON, GET) == false)
+		if (!hasCall("maps/{mapDbId}/positions", JSON, GET) == false)
 			return false;
-		if (hasCall("markerprofiles", JSON, GET) == false)
+		if (!hasCall("markerprofiles", JSON, GET) == false)
 			return false;
-		if (hasCall("allelematrix-search", JSON, POST) == false && hasCall("allelematrix-search", TSV, POST) == false)
+		if (!hasCall("allelematrix-search", JSON, POST) == false && !hasCall("allelematrix-search", TSV, POST) == false)
+			return false;
+
+		return true;
+	}
+	
+	boolean ensureGermplasmInfoCanBeImported() {	// validate the calls that MUST be present
+		if (!hasCall("search/germplasm", JSON, POST) == false)
+			return false;
+		if (!hasCall("attributes", JSON, GET) == false)
 			return false;
 
 		return true;
 	}
 
-	public boolean hasCall(String signature, String datatype, String method)
+	public boolean hasCall(String signature, List<String> datatype, String method)
 	{
 		for (BrapiCall call : calls)
-			if (call.getCall().equals(signature) && call.getDatatypes().contains(datatype) && call.getMethods().contains(method))
+			if (call.getCall().equals(signature) && call.getMethods().contains(method) && CollectionUtils.intersection(call.getDataTypes(), datatype).size() > 0)
 				return true;
 
 		return false;

@@ -220,6 +220,7 @@ public class BrapiImport extends AbstractGenotypeImport {
 			BrapiClient client = new BrapiClient();	
 			client.initService(endpointUrl);
 			client.getCalls();
+			client.ensureGenotypesCanBeImported();
 			final BrapiService service = client.getService();
 
 			// see if TSV format is supported by remote service
