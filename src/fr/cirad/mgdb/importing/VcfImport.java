@@ -354,7 +354,7 @@ public class VcfImport extends AbstractGenotypeImport {
 	                    }
                     }
 
-                    project.getAlleleCounts().add(vcfEntry.getAlleles().size());	// it's a Set so it will only be added if it's not already present
+                    project.getAlleleCounts().add(variant.getKnownAlleleList().size());	// it's a Set so it will only be added if it's not already present
                     project.getVariantTypes().add(vcfEntry.getType().toString());	// it's a Set so it will only be added if it's not already present 
                     project.getSequences().add(vcfEntry.getChr());	// it's a Set so it will only be added if it's not already present
 

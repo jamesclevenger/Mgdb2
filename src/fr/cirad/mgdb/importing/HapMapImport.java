@@ -264,7 +264,7 @@ public class HapMapImport extends AbstractGenotypeImport {
 						project.getSequences().add(hmFeature.getChr());
 
 					int alleleCount = hmFeature.getAlleles().length;
-					project.getAlleleCounts().add(alleleCount);	// it's a TreeSet so it will only be added if it's not already present
+					project.getAlleleCounts().add(variant.getKnownAlleleList().size());	// it's a TreeSet so it will only be added if it's not already present
 					if (alleleCount > 2)
 						LOG.warn("Variant " + variant.getId() + " (" + variant.getReferencePosition().getSequence() + ":" + variant.getReferencePosition().getStartSite() + ") has more than 2 alleles!");
 					
