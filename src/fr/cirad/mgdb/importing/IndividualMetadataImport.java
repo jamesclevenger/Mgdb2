@@ -166,7 +166,8 @@ public class IndividualMetadataImport {
 	{
 		BrapiClient client = new BrapiClient();
 		client.initService(endpointUrl);
-//		client.getCalls();
+		client.getCalls();
+		client.ensureGermplasmInfoCanBeImported();
 		final BrapiService service = client.getService();
 
 		HashMap<String, Object> reqBody = new HashMap<>();
