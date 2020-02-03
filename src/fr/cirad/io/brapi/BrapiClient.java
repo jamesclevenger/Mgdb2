@@ -64,12 +64,12 @@ public class BrapiClient
 	private CallsUtils callsUtils;
 	private OkHttpClient httpClient;
 
-	public void initService(String baseURL)
+	public void initService(String baseURL, String authToken)
 		throws Exception
 	{
 		baseURL = baseURL.endsWith("/") ? baseURL : baseURL + "/";
 
-		httpClient = getUnsafeOkHttpClient();
+		httpClient = getUnsafeOkHttpClient(authToken);
 		 
 		Retrofit retrofit = new Retrofit.Builder()
 			.baseUrl(baseURL)
@@ -80,7 +80,7 @@ public class BrapiClient
 		service = retrofit.create(BrapiService.class);
 	}
 	
-	public static OkHttpClient getUnsafeOkHttpClient()
+	public static OkHttpClient getUnsafeOkHttpClient(String authToken)
 	{
         try
         {
@@ -122,8 +122,8 @@ public class BrapiClient
             OkHttpClient okHttpClient = builder.addInterceptor(new Interceptor() {
                 @Override
                 public Response intercept(Chain chain) throws IOException {
-                    Request request = chain.request();
-                    if (LOG.isEnabledFor(Level.DEBUG)) {
+                	Request request = chain.request();
+                	if (LOG.isEnabledFor(Level.DEBUG)) {
                         LOG.debug(getClass().getName() + ": " + request.method() + " " + request.url());
 //                        LOG.debug(getClass().getName() + ": " + request.header("Cookie"));
                         RequestBody rb = request.body();
@@ -133,6 +133,16 @@ public class BrapiClient
                         LOG.debug(getClass().getName() + ": " + "Payload- " + buffer.readUtf8());
                     }
                     return chain.proceed(request);
+                }
+            })
+            .addInterceptor(new Interceptor() {
+                @Override
+                public Response intercept(Chain chain) throws IOException {
+    				Request originalRequest = chain.request();
+    				Request newRequest = originalRequest.newBuilder().addHeader("Authorization", "Bearer " + authToken).build();
+//    				System.out.println("HI");
+    				Response response = chain.proceed(newRequest);
+    				return response;
                 }
             })
             .readTimeout(60, TimeUnit.SECONDS)	// Tweak to make the timeout on Retrofit connections last longer
@@ -264,6 +274,12 @@ public class BrapiClient
 	
 	public void setGermplasmDbIDs(Collection<String> germplasmDbIDs)
 	{ this.germplasmDbIDs = germplasmDbIDs; }
+	
+	public OkHttpClient getHttpClient()
+	{ return httpClient; }
+	
+	public void setHttpClient(OkHttpClient httpClient)
+	{ this.httpClient = httpClient; }
 
 //	private static void initCertificates(Client client, XmlResource resource)
 //		throws Exception
@@ -345,6 +361,8 @@ public class BrapiClient
 
 		public void setPage(String page)
 		{ this.page = page; }
+		
+		
 	}
 
 }

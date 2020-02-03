@@ -72,11 +72,17 @@ public interface BrapiService {
     @GET(value="allelematrix-search/status/{id}")
     public Call<BrapiBaseResource<Object>> getAlleleMatrixStatus(@Path(value="id") String var1);
     
-    
+//    @GET(value="attributes")// v2.0
+//    public Call<BrapiListResource<Object>> getAttributes(@Query(value="germplasmDbId") String germplasmDbId);
+	@GET(value="germplasm/{germplasmDbId}/attributes")// v1.3
+	public Call<BrapiListResource<Object>> getAttributes(@Path(value="germplasmDbId") String germplasmDbId);
+	
     /* V1.3 calls */
     
     @POST(value="search/germplasm")
     public Call<BrapiBaseResource<BrapiSearchResult>> searchGermplasm(@Body Map<String, Object> body);
+    @POST(value="search/germplasm")
+    public Call<BrapiListResource<BrapiGermplasm>> searchGermplasmDirectResult(@Body Map<String, Object> body);
     
     @GET(value="search/germplasm/{searchResultDbId}")
     public Call<BrapiListResource<BrapiGermplasm>> searchGermplasmResult(@Path(value="searchResultDbId") String searchResultDbId);

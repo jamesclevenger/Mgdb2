@@ -17,18 +17,24 @@
 package fr.cirad.mgdb.importing;
 
 import java.io.File;
+import java.io.IOException;
 import java.net.URL;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.HashMap;
+import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Scanner;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang.StringUtils;
 import org.apache.log4j.Logger;
+import org.bson.BasicBSONObject;
 import org.springframework.context.support.GenericXmlApplicationContext;
 import org.springframework.data.mongodb.core.BulkOperations;
 import org.springframework.data.mongodb.core.MongoTemplate;
@@ -37,7 +43,11 @@ import org.springframework.data.mongodb.core.query.Query;
 import org.springframework.data.mongodb.core.query.Update;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.mongodb.BasicDBObject;
+import com.mongodb.BulkWriteOperation;
 import com.mongodb.BulkWriteResult;
+import com.mongodb.DBObject;
+import com.mongodb.client.model.UpdateOptions;
 
 import fr.cirad.io.brapi.BrapiClient;
 import fr.cirad.io.brapi.BrapiService;
@@ -49,6 +59,9 @@ import fr.cirad.tools.mongo.MongoTemplateManager;
 import jhi.brapi.api.BrapiListResource;
 import jhi.brapi.api.germplasm.BrapiGermplasm;
 import jhi.brapi.api.search.BrapiSearchResult;
+import okhttp3.Interceptor;
+import okhttp3.Request;
+import okhttp3.Response;
 
 /**
  * The Class IndividualMetadataImport.
@@ -162,27 +175,228 @@ public class IndividualMetadataImport {
 		}
 	}
 
-	public void importBrapiMetadata(String sModule, String endpointUrl, HashMap<String, String> germplasmDbIdToIndividualMap) throws Exception
+	public void importBrapiMetadata(String sModule, String endpointUrl, HashMap<String, String> germplasmDbIdToIndividualMap, String username) throws Exception
 	{
 		BrapiClient client = new BrapiClient();
-		client.initService(endpointUrl);
 //		client.getCalls();
+		
+/*		Interceptor interceptor = new Interceptor() {
+
+			@Override
+			public Response intercept(Chain chain) throws IOException {
+				String authToken = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJhdXRoMCIsImlhdCI6MTU4MDcyOTA2Nn0.oO9sAabdK1_7uKuECvexMRqYdYmc2TLLkwARcsdIQUw";
+				Request originalRequest = chain.request();
+				Request newRequest = originalRequest.newBuilder().addHeader("Authorization", "Bearer " + authToken).build();
+				
+				Response response = chain.proceed(newRequest);
+				return response;
+			}
+			
+		};*/
+		String authToken = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJhdXRoMCIsImlhdCI6MTU4MDczNDUyOX0.PPJgAq7LSeyHRFifba6RB6p3V-PGiVB4ppFbsEeFWfE";
+//		String bearer = "Bearer %s";
+/*		Interceptor interceptor = chain ->
+		{
+			Request original = chain.request();
+
+			// If we already have an authorization token in the header, or we
+			// don't have a valid token to add, return the original request
+//			if (original.header("Authorization") != null || authToken == null || authToken.isEmpty())
+//				return chain.proceed(original);
+
+			// Otherwise add the header and return the tweaked request
+			Request next = original.newBuilder()
+					.header("Authorization", String.format(bearer, authToken))
+					.build();
+			System.out.println("hit");
+
+			return chain.proceed(next);
+		};*/
+		
+		client.initService(endpointUrl, authToken);
+//		client.getHttpClient().newBuilder().addNetworkInterceptor(interceptor).build();
+//		client.setHttpClient(client.getHttpClient().newBuilder().addNetworkInterceptor(interceptor).build());
+
+//		client.setHttpClient(client.getHttpClient().newBuilder().addInterceptor(interceptor).build());
+		LOG.info(client.getHttpClient().interceptors());
+		
 		final BrapiService service = client.getService();
+//		client.getUnsafeOkHttpClient();
+		
 
 		HashMap<String, Object> reqBody = new HashMap<>();
 		reqBody.put("germplasmDbIds", germplasmDbIdToIndividualMap.keySet());
-		BrapiSearchResult bsr = service.searchGermplasm(reqBody).execute().body().getResult();
-		
-		Pager callPager = new Pager();
+
 		List<BrapiGermplasm> germplasmList = new ArrayList<>();
-		while (callPager.isPaging())
-		{
-			BrapiListResource<BrapiGermplasm> br = service.searchGermplasmResult(bsr.getSearchResultDbId()).execute().body();
-			germplasmList.addAll(br.data());
-			callPager.paginate(br.getMetadata());
-		}
 		ObjectMapper oMapper = new ObjectMapper();
-		for (BrapiGermplasm g : germplasmList)
-			System.err.println(oMapper.convertValue(g, Map.class));
+		
+//		searchGermplasmDirectResult
+		
+		try {
+			LOG.info("searchGermplasm");
+			BrapiSearchResult bsr = service.searchGermplasm(reqBody).execute().body().getResult();
+			Pager callPager = new Pager();
+			while (callPager.isPaging())
+			{
+				BrapiListResource<BrapiGermplasm> br = service.searchGermplasmResult(bsr.getSearchResultDbId()).execute().body();
+				germplasmList.addAll(br.data());
+				callPager.paginate(br.getMetadata());
+			}
+			
+		} catch (Exception e) {
+			try {
+				LOG.info("searchGermplasmDirectResult");
+				
+				
+//				LOG.info(service.searchGermplasmDirectResult(reqBody).request().newBuilder().addHeader("lol" , "lol" ).build().headers().toString());
+//				Request request = service.searchGermplasmDirectResult(reqBody).request().newBuilder().addHeader("lol" , "lol" ).build();
+//				client.getUnsafeOkHttpClient().newCall(request);
+				LOG.info(service.searchGermplasmDirectResult(reqBody).request().headers().toString());
+				LOG.info(service.searchGermplasmDirectResult(reqBody).execute().headers().toString());
+				LOG.info(service.searchGermplasmDirectResult(reqBody).execute().code());
+				
+				
+				BrapiListResource<BrapiGermplasm> br = service.searchGermplasmDirectResult(reqBody).execute().body();
+				Pager callPager = new Pager();
+				while (callPager.isPaging()) {
+					germplasmList.addAll(br.data());
+					callPager.paginate(br.getMetadata());
+				}
+			}catch(Exception f) {
+				e.printStackTrace();
+				f.printStackTrace();
+	            LOG.debug(e);
+	            LOG.debug(f);
+			}
+		}
+			
+		
+
+		 	
+
+		
+		GenericXmlApplicationContext ctx = null;
+		MongoTemplate mongoTemplate = MongoTemplateManager.get(sModule);
+		if (mongoTemplate == null) { // we are probably being invoked offline
+			ctx = new GenericXmlApplicationContext("applicationContext-data.xml");
+
+			MongoTemplateManager.initialize(ctx);
+			mongoTemplate = MongoTemplateManager.get(sModule);
+			if (mongoTemplate == null)
+				throw new Exception("DATASOURCE '" + sModule + "' is not supported!");
+		}
+		
+		if(username == null) {
+			BulkWriteOperation bulkWriteOperation= mongoTemplate.getCollection("individuals").initializeUnorderedBulkOperation();
+			LOG.info("Database " + sModule + ": individuals");
+		for (BrapiGermplasm g : germplasmList) {
+			Map<Object, Object> aiMap = oMapper.convertValue(g, Map.class);
+//			LOG.info(aiMap);
+//			service.getAttributes(aiMap.get("germplasmDbId").toString()).request().newBuilder().addHeader("name", "value");
+//			service.getAttributes(aiMap.get("germplasmDbId").toString()).request().headers().newBuilder().add("bearer", "token");
+//			service.getAttributes(aiMap.get("germplasmDbId").toString()).cancel();
+			
+			System.out.println("HIT");
+			LOG.info(service.getAttributes(aiMap.get("germplasmDbId").toString()).request().headers().toString());
+//			service.getAttributes(aiMap.get("germplasmDbId").toString()).execute().body();
+//			-------- MUST BE PROTECTED --------
+			BrapiListResource<Object> moreAttributes = service.getAttributes(aiMap.get("germplasmDbId").toString()).execute().body();
+//			LOG.info(service.getAttributes(aiMap.get("germplasmDbId").toString()));
+//			LOG.info(moreAttributes.data().toString());
+			Update update = new Update();
+			
+			moreAttributes.data().forEach(
+//					(k)->LOG.info(((LinkedHashMap<String,String>)k).get("attributeDbId").toString())
+					(k)->aiMap.put(((LinkedHashMap<String,String>)k).get("attributeDbId").toString(), ((LinkedHashMap<String,String>)k).get("value").toString()));
+//					(k)->update.set(Individual.SECTION_ADDITIONAL_INFO + "." + ((LinkedHashMap<String,String>)k).get("attributeDbId").toString(), ((LinkedHashMap<String,String>)k).get("value").toString()));
+//			-------- MUST BE PROTECTED --------
+			
+			
+			
+			// remove ArrayList and null entry from ai fields
+			Iterator<Map.Entry<Object, Object>> itr = aiMap.entrySet().iterator();
+			while(itr.hasNext())
+			{
+			   Map.Entry<Object, Object> entry = itr.next();
+			   if(entry.getValue() instanceof ArrayList || entry.getValue()==null)
+			   {
+				   itr.remove();
+			   }
+			}
+			
+			
+//			LOG.info(aiMap);
+			
+	
+			
+
+	        
+			
+	        aiMap.forEach((k,v)->update.set(Individual.SECTION_ADDITIONAL_INFO + "." + k, v));
+			bulkWriteOperation.find(new BasicDBObject("_id", germplasmDbIdToIndividualMap.get(aiMap.get("germplasmDbId")))).upsert().updateOne(update.getUpdateObject());
+			
+			
+			
+			
+		}bulkWriteOperation.execute();
+		}else {
+			BulkWriteOperation bulkWriteOperation= mongoTemplate.getCollection("customIndividualMetadata").initializeUnorderedBulkOperation();
+			LOG.info("Database " + sModule + ": customIndividualMetadata");
+
+			for (BrapiGermplasm g : germplasmList) {
+				Map<Object, Object> aiMap = oMapper.convertValue(g, Map.class);
+				
+				
+				
+//				-------- MUST BE PROTECTED --------
+				BrapiListResource<Object> moreAttributes = service.getAttributes(aiMap.get("germplasmDbId").toString()).execute().body();
+//				LOG.info(service.getAttributes(aiMap.get("germplasmDbId").toString()));
+//				LOG.info(moreAttributes.data().toString());
+				Update update = new Update();
+				
+				moreAttributes.data().forEach(
+//						(k)->LOG.info(((LinkedHashMap<String,String>)k).get("attributeDbId").toString())
+						(k)->aiMap.put(((LinkedHashMap<String,String>)k).get("attributeDbId").toString(), ((LinkedHashMap<String,String>)k).get("value").toString()));
+//						(k)->update.set(CustomIndividualMetadata.SECTION_ADDITIONAL_INFO + "." + ((LinkedHashMap<String,String>)k).get("attributeDbId").toString(), ((LinkedHashMap<String,String>)k).get("value").toString()));
+//				-------- MUST BE PROTECTED --------
+				
+				
+				
+				// remove ArrayList and null entry from ai fields
+				Iterator<Map.Entry<Object, Object>> itr = aiMap.entrySet().iterator();
+				while(itr.hasNext())
+				{
+				   Map.Entry<Object, Object> entry = itr.next();
+				   if(entry.getValue() instanceof ArrayList || entry.getValue()==null)
+				   {
+					   itr.remove();
+				   }
+				}
+				
+				
+				
+				
+				
+				
+				
+
+
+				
+				
+		        aiMap.forEach((k,v)->update.set(CustomIndividualMetadata.SECTION_ADDITIONAL_INFO + "." + k, v));
+		        
+				Map<Object, Object> idMap = new HashMap<Object,Object>();
+				idMap.put(CustomIndividualMetadata.CustomIndividualMetadataId.FIELDNAME_INDIVIDUAL_ID, germplasmDbIdToIndividualMap.get(aiMap.get("germplasmDbId")));
+				idMap.put(CustomIndividualMetadata.CustomIndividualMetadataId.FIELDNAME_USER, username);
+				bulkWriteOperation.find(new BasicDBObject("_id", idMap)).upsert().updateOne(update.getUpdateObject());
+				
+				
+				
+			}bulkWriteOperation.execute();}
+
+		
+		
+		
+
 	}
 }
