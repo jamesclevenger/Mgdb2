@@ -178,6 +178,7 @@ public class IndividualMetadataImport {
 	public void importBrapiMetadata(String sModule, String endpointUrl, HashMap<String, String> germplasmDbIdToIndividualMap, String username) throws Exception
 	{
 		BrapiClient client = new BrapiClient();
+		
 //		client.getCalls();
 		
 /*		Interceptor interceptor = new Interceptor() {
@@ -213,12 +214,15 @@ public class IndividualMetadataImport {
 			return chain.proceed(next);
 		};*/
 		
-		client.initService(endpointUrl, authToken);
 //		client.getHttpClient().newBuilder().addNetworkInterceptor(interceptor).build();
 //		client.setHttpClient(client.getHttpClient().newBuilder().addNetworkInterceptor(interceptor).build());
 
 //		client.setHttpClient(client.getHttpClient().newBuilder().addInterceptor(interceptor).build());
-		LOG.info(client.getHttpClient().interceptors());
+//		LOG.info(client.getHttpClient().interceptors());
+		
+		client.initService(endpointUrl, authToken);
+		client.getCalls();
+		client.ensureGermplasmInfoCanBeImported();
 		
 		final BrapiService service = client.getService();
 //		client.getUnsafeOkHttpClient();

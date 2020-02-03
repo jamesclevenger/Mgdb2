@@ -2,19 +2,21 @@ package jhi.brapi.api.calls;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.function.Predicate;
-import java.util.stream.Stream;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+
+@JsonIgnoreProperties(ignoreUnknown=true)
 public class BrapiCall {
-    public static final String DATATYPE_JSON = "json";
-    public static final String DATATYPE_TSV = "tsv";
-    public static final String DATATYPE_FLAPJACK = "flapjack";
+    public static final String dataType_JSON = "json";
+    public static final String dataType_TSV = "tsv";
+    public static final String dataType_FLAPJACK = "flapjack";
     public static final String METHOD_GET = "GET";
     public static final String METHOD_POST = "POST";
     public static final String METHOD_PUT = "PUT";
     public static final String METHOD_DELETE = "DELETE";
+
     private String call;
-    private List<String> datatypes = new ArrayList<String>();
+    private List<String> dataTypes = new ArrayList<String>();
     private List<String> methods = new ArrayList<String>();
 
     public BrapiCall() {
@@ -29,21 +31,21 @@ public class BrapiCall {
         return this;
     }
 
-    public BrapiCall addDatatype(String dataType) {
-        this.datatypes.add(dataType);
+    public BrapiCall adddataType(String dataType) {
+        this.dataTypes.add(dataType);
         return this;
     }
 
-    public BrapiCall withDatatypeJson() {
-        return this.addDatatype(DATATYPE_JSON);
+    public BrapiCall withDataTypeJson() {
+        return this.adddataType(dataType_JSON);
     }
 
-    public BrapiCall withDatatypeTsv() {
-        return this.addDatatype(DATATYPE_TSV);
+    public BrapiCall withDataTypeTsv() {
+        return this.adddataType(dataType_TSV);
     }
 
-    public BrapiCall withDatatypeFlapjack() {
-        return this.addDatatype(DATATYPE_FLAPJACK);
+    public BrapiCall withDataTypeFlapjack() {
+        return this.adddataType(dataType_FLAPJACK);
     }
 
     public BrapiCall withMethodGet() {
@@ -63,7 +65,7 @@ public class BrapiCall {
     }
 
     public boolean hasDataType(String dataType) {
-        return this.datatypes.stream().filter(d -> d.equalsIgnoreCase(dataType)).count() >= 1L;
+        return this.dataTypes.stream().filter(d -> d.equalsIgnoreCase(dataType)).count() >= 1L;
     }
 
     public boolean hasMethod(String method) {
@@ -78,12 +80,12 @@ public class BrapiCall {
         this.call = call;
     }
 
-    public List<String> getDatatypes() {
-        return this.datatypes;
+    public List<String> getDataTypes() {
+        return this.dataTypes;
     }
 
-    public void setDatatypes(List<String> datatypes) {
-        this.datatypes = datatypes;
+    public void setDataTypes(List<String> dataTypes) {
+        this.dataTypes = dataTypes;
     }
 
     public List<String> getMethods() {

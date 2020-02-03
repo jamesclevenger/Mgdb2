@@ -244,14 +244,8 @@ public class VcfImport extends AbstractGenotypeImport {
                         String trimmedField = fields[i].trim();
                         if (/*EFF*/ "Gene_Name".equals(trimmedField) || /*EFF*/ "Gene_ID".equals(trimmedField) || /*CSQ or ANN*/ "Gene".equals(trimmedField)) {
                             geneIdAnnotationPos = i;
-                            if (effectAnnotationPos != -1) {
-                                break;
-                            }
                         } else if (/*EFF*/ "Annotation".equals(trimmedField) || /*CSQ or ANN*/ "Consequence".equals(trimmedField)) {
                             effectAnnotationPos = i;
-                            if (geneIdAnnotationPos != -1) {
-                                break;
-                            }
                         }
                     }
                 }
@@ -360,7 +354,7 @@ public class VcfImport extends AbstractGenotypeImport {
 	                    }
                     }
 
-                    project.getAlleleCounts().add(vcfEntry.getAlleles().size());	// it's a Set so it will only be added if it's not already present
+                    project.getAlleleCounts().add(variant.getKnownAlleleList().size());	// it's a Set so it will only be added if it's not already present
                     project.getVariantTypes().add(vcfEntry.getType().toString());	// it's a Set so it will only be added if it's not already present 
                     project.getSequences().add(vcfEntry.getChr());	// it's a Set so it will only be added if it's not already present
 

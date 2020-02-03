@@ -161,8 +161,7 @@ public class BrapiClient
 //		catch (UnsupportedEncodingException e) { return str; }
 //	}
 
-	public void getCalls()
-		throws Exception
+	public void getCalls() throws Exception
 	{
 		List<BrapiCall> calls = new ArrayList<>();
 		Pager pager = new Pager();
@@ -179,9 +178,16 @@ public class BrapiClient
 		}
 
 		callsUtils = new CallsUtils(calls);
-
-		if (callsUtils.validate() == false)
-			throw new Exception("/calls not valid");
+	}
+	
+	public void ensureGenotypesCanBeImported() throws Exception {
+		if (callsUtils.ensureGenotypesCanBeImported() == false)
+			throw new Exception("Some calls are missing to be able to import genotypes");
+	}
+	
+	public void ensureGermplasmInfoCanBeImported() throws Exception {
+		if (callsUtils.ensureGermplasmInfoCanBeImported() == false)
+			throw new Exception("Some calls are missing to be able to import germplasm info");
 	}
 
 	public boolean hasToken()
