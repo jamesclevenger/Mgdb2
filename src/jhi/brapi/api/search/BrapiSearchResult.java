@@ -10,4 +10,11 @@ public class BrapiSearchResult {
 	public void setSearchResultDbId(String searchResultDbId) {
 		this.searchResultDbId = searchResultDbId;
 	}
+	public String getSearchResultsDbId() {
+		return searchResultDbId;
+	}
+
+	public void setSearchResultsDbId(String searchResultDbId) {
+		this.searchResultDbId = searchResultDbId;
+	}
 }

@@ -51,15 +51,23 @@ public class CallsUtils
 		return true;
 	}
 	
-	boolean ensureGermplasmInfoCanBeImported() {	// validate the calls that MUST be present
-		if (!hasCall("search/germplasm", JSON, POST))
-			return false;
-		if (!hasCall("attributes", JSON, GET))
-			return false;
+	boolean ensureGermplasmInfoCanBeImported() {	// validate that at least one of the MUST calls is present
+		if (hasCall("search/germplasm", JSON, POST))
+			return true;
+		if (hasCall("germplasm/{germplasmDbId}/attributes", JSON, GET))
+			return true;
 
-		return true;
+		return false;
 	}
-
+	
+	boolean hasCallGetAttributes() {
+		return hasCall("germplasm/{germplasmDbId}/attributes", JSON, GET);
+	}
+	
+	boolean hasCallSearchGermplasm() {
+		return hasCall("search/germplasm", JSON, POST);
+	}
+	
 	public boolean hasCall(String signature, List<String> datatype, String method)
 	{
 		for (BrapiCall call : calls)

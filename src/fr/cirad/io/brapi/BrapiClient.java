@@ -135,13 +135,16 @@ public class BrapiClient
                     return chain.proceed(request);
                 }
             })
-            .addInterceptor(new Interceptor() {
+            .addInterceptor(new Interceptor() {//add the authToken to headers
                 @Override
                 public Response intercept(Chain chain) throws IOException {
     				Request originalRequest = chain.request();
-    				Request newRequest = originalRequest.newBuilder().addHeader("Authorization", "Bearer " + authToken).build();
-//    				System.out.println("HI");
-    				Response response = chain.proceed(newRequest);
+    				Response response = null;
+    				if(authToken!=null) {//if authToken is null => do nothing
+    					Request newRequest = originalRequest.newBuilder().addHeader("Authorization", "Bearer " + authToken).build();
+    					response = chain.proceed(newRequest);
+    				}else {
+    					response = chain.proceed(originalRequest);}
     				return response;
                 }
             })
@@ -188,6 +191,14 @@ public class BrapiClient
 	public void ensureGermplasmInfoCanBeImported() throws Exception {
 		if (callsUtils.ensureGermplasmInfoCanBeImported() == false)
 			throw new Exception("Some calls are missing to be able to import germplasm info");
+	}
+	
+	public boolean hasCallGetAttributes() {
+		return callsUtils.hasCallGetAttributes();
+	}
+	
+	public boolean hasCallSearchGermplasm() {
+		return callsUtils.hasCallSearchGermplasm();
 	}
 
 	public boolean hasToken()

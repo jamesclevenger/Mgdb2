@@ -218,7 +218,7 @@ public class BrapiImport extends AbstractGenotypeImport {
 			}
 
 			BrapiClient client = new BrapiClient();	
-			client.initService(endpointUrl);
+			client.initService(endpointUrl, null);
 			client.getCalls();
 			client.ensureGenotypesCanBeImported();
 			final BrapiService service = client.getService();
