@@ -23,6 +23,7 @@ import jhi.brapi.api.authentication.*;
 import jhi.brapi.api.calls.*;
 import jhi.brapi.api.genomemaps.*;
 import jhi.brapi.api.germplasm.BrapiGermplasm;
+import jhi.brapi.api.germplasm.BrapiGermplasmAttributes;
 import jhi.brapi.api.markerprofiles.*;
 import jhi.brapi.api.markers.BrapiMarker;
 import jhi.brapi.api.search.BrapiSearchResult;
@@ -32,7 +33,9 @@ import retrofit2.Call;
 import retrofit2.http.*;
 
 public interface BrapiService {
-    @GET(value="calls")
+    public static final String BRAPI_FIELD_germplasmDbId = "germplasmDbId";
+
+	@GET(value="calls")
     public Call<BrapiListResource<BrapiCall>> getCalls(@Query(value="pageSize") String var1, @Query(value="page") String var2);
 
     @FormUrlEncoded
@@ -62,7 +65,7 @@ public interface BrapiService {
     public Call<BrapiListResource<BrapiMarker>> getMarkerInfo_byPost(@Body Map<String, Object> body);
 
     @GET(value="markerprofiles")
-    public Call<BrapiListResource<BrapiMarkerProfile>> getMarkerProfiles(@Query(value="studyDbId") String var1, @Query(value="germplasmDbId") Collection<String> var2, @Query(value="pageSize") String var3, @Query(value="page") String var4);
+    public Call<BrapiListResource<BrapiMarkerProfile>> getMarkerProfiles(@Query(value="studyDbId") String var1, @Query(value=BRAPI_FIELD_germplasmDbId) Collection<String> var2, @Query(value="pageSize") String var3, @Query(value="page") String var4);
 
     @GET(value="allelematrix-search")
     public Call<BrapiBaseResource<BrapiAlleleMatrix>> getAlleleMatrix(@Query(value="markerprofileDbId") List<String> var1, @Query(value="markerDbId") List<String> var2, @Query(value="format") String var3, @Query(value="expandHomozygotes") Boolean var4, @Query(value="unknownString") String var5, @Query(value="sepPhased") String var6, @Query(value="sepUnphased") String var7, @Query(value="pageSize") String var8, @Query(value="page") String var9);
@@ -73,9 +76,9 @@ public interface BrapiService {
     public Call<BrapiBaseResource<Object>> getAlleleMatrixStatus(@Path(value="id") String var1);
     
 //    @GET(value="attributes")// v2.0
-//    public Call<BrapiListResource<Object>> getAttributes(@Query(value="germplasmDbId") String germplasmDbId);
+//    public Call<BrapiListResource<Object>> getAttributes(@Query(value=BRAPI_FIELD_germplasmDbId) String germplasmDbId);
 	@GET(value="germplasm/{germplasmDbId}/attributes")// v1.3
-	public Call<BrapiListResource<Object>> getAttributes(@Path(value="germplasmDbId") String germplasmDbId);
+	public Call<BrapiBaseResource<BrapiGermplasmAttributes>> getAttributes(@Path(value=BRAPI_FIELD_germplasmDbId) String germplasmDbId);
 	
     /* V1.3 calls */
     

@@ -22,7 +22,6 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Iterator;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Scanner;
@@ -53,6 +52,7 @@ import fr.cirad.tools.mongo.MongoTemplateManager;
 import jhi.brapi.api.BrapiBaseResource;
 import jhi.brapi.api.BrapiListResource;
 import jhi.brapi.api.germplasm.BrapiGermplasm;
+import jhi.brapi.api.germplasm.BrapiGermplasmAttributes;
 import jhi.brapi.api.search.BrapiSearchResult;
 
 import retrofit2.Response;
@@ -77,7 +77,7 @@ public class IndividualMetadataImport {
 		importIndividualMetadata(args[0], new File(args[1]).toURI().toURL(), args[2], args.length > 3 ? args[2] : null, null);
 	}
 	
-	public static void importIndividualMetadata(String sModule, URL metadataFileURL, String individualColName, String csvFieldListToImport, String username) throws Exception 
+	public static int importIndividualMetadata(String sModule, URL metadataFileURL, String individualColName, String csvFieldListToImport, String username) throws Exception 
 	{
 		List<String> fieldsToImport = csvFieldListToImport != null ? Arrays.asList(csvFieldListToImport.toLowerCase().split(",")) : null;
 		Scanner scanner = new Scanner(metadataFileURL.openStream());
@@ -160,6 +160,7 @@ public class IndividualMetadataImport {
 				LOG.info("Database " + sModule + ": metadata was deleted for " + bwr.getModifiedCount() + " individuals");
 			else
 				LOG.info("Database " + sModule + ": " + bwr.getModifiedCount() + " individuals updated with metadata, out of " + bwr.getMatchedCount() + " matched documents");
+			return bwr.getModifiedCount();
 		}
 		finally
 		{
@@ -169,17 +170,18 @@ public class IndividualMetadataImport {
 		}
 	}
 
-	public void importBrapiMetadata(String sModule, String endpointUrl, HashMap<String, String> germplasmDbIdToIndividualMap, String username, String authToken) throws Exception
+	public static int importBrapiMetadata(String sModule, String endpointUrl, HashMap<String, String> germplasmDbIdToIndividualMap, String username, String authToken) throws Exception
 	{
+		if (germplasmDbIdToIndividualMap == null || germplasmDbIdToIndividualMap.isEmpty())
+			return 0;	// we must know which individuals to update
+		
 		BrapiClient client = new BrapiClient();
-		
-		
+
 		client.initService(endpointUrl, authToken);
 		client.getCalls();
 		client.ensureGermplasmInfoCanBeImported();
 		
 		final BrapiService service = client.getService();
-		
 
 		HashMap<String, Object> reqBody = new HashMap<>();
 		reqBody.put("germplasmDbIds", germplasmDbIdToIndividualMap.keySet());
@@ -187,13 +189,12 @@ public class IndividualMetadataImport {
 		List<BrapiGermplasm> germplasmList = new ArrayList<>();
 		ObjectMapper oMapper = new ObjectMapper();
 		
-//		searchGermplasmDirectResult
-		if(client.hasCallSearchGermplasm()) {
+		if (client.hasCallSearchGermplasm()) {
 			try {
-				LOG.debug("searchGermplasm");
+//				LOG.debug("searchGermplasm");
 				
 				Response<BrapiBaseResource<BrapiSearchResult>> response =  service.searchGermplasm(reqBody).execute();
-				errorCodeHandler(response.code());
+				handleErrorCode(response.code());
 				BrapiSearchResult bsr = response.body().getResult();
 				
 				Pager callPager = new Pager();
@@ -206,11 +207,10 @@ public class IndividualMetadataImport {
 				
 			} catch (Exception e) {
 				try {
-					LOG.debug("searchGermplasmDirectResult");
-					
+//					LOG.debug("searchGermplasmDirectResult");
 					
 					Response<BrapiListResource<BrapiGermplasm>> response = service.searchGermplasmDirectResult(reqBody).execute();
-					errorCodeHandler(response.code());
+					handleErrorCode(response.code());
 					BrapiListResource<BrapiGermplasm> br = response.body();
 					
 					Pager callPager = new Pager();
@@ -218,18 +218,14 @@ public class IndividualMetadataImport {
 						germplasmList.addAll(br.data());
 						callPager.paginate(br.getMetadata());
 					}
-				}catch(Exception f) {
+				}
+				catch(Exception f) {
 		            LOG.debug(e);
 		            LOG.debug(f);
 				}
 			}
 		}
-			
-		
 
-		 	
-
-		
 		GenericXmlApplicationContext ctx = null;
 		MongoTemplate mongoTemplate = MongoTemplateManager.get(sModule);
 		if (mongoTemplate == null) { // we are probably being invoked offline
@@ -242,23 +238,18 @@ public class IndividualMetadataImport {
 		}
 		
 		if(username == null) {
-			BulkWriteOperation bulkWriteOperation= mongoTemplate.getCollection("individuals").initializeUnorderedBulkOperation();
+			BulkWriteOperation bulkWriteOperation = mongoTemplate.getCollection("individuals").initializeUnorderedBulkOperation();
 			LOG.info("Database " + sModule + ": individuals");
 			
 			for (BrapiGermplasm g : germplasmList) {
 				Map<Object, Object> aiMap = oMapper.convertValue(g, Map.class);
 				
-				
-				
 //				-------- getAttributes --------
 				if(client.hasCallGetAttributes()) {
-					Response<BrapiListResource<Object>> response = service.getAttributes(aiMap.get("germplasmDbId").toString()).execute();
-					errorCodeHandler(response.code());
-					BrapiListResource<Object> moreAttributes = response.body();
-					
-					
-					moreAttributes.data().forEach(
-							(k)->aiMap.put(((LinkedHashMap<String,String>)k).get("attributeDbId").toString(), ((LinkedHashMap<String,String>)k).get("value").toString()));}
+					Response<BrapiBaseResource<BrapiGermplasmAttributes>> response = service.getAttributes(aiMap.get("germplasmDbId").toString()).execute();
+					handleErrorCode(response.code());
+					BrapiBaseResource<BrapiGermplasmAttributes> moreAttributes = response.body();
+					moreAttributes.getResult().getData().forEach(k -> aiMap.put(k.getAttributeDbId(), k.getValue()));}
 //				-------- getAttributes --------
 				
 				
@@ -279,36 +270,30 @@ public class IndividualMetadataImport {
 //				LOG.debug(aiMap);
 				
 		
-				if(aiMap.isEmpty())
+				if (aiMap.isEmpty())
 				{
-					throw new Exception("Cannot import an empty list of attributes");//Clear section have probably remove all the entry
+					throw new Exception("Cannot import an empty list of attributes");
 				}
 				Update update = new Update();
 		        aiMap.forEach((k,v)->update.set(Individual.SECTION_ADDITIONAL_INFO + "." + k, v));
 				bulkWriteOperation.find(new BasicDBObject("_id", germplasmDbIdToIndividualMap.get(aiMap.get("germplasmDbId")))).upsert().updateOne(update.getUpdateObject());
-				
-			
-			
-			
-			}bulkWriteOperation.execute();
-		}else {
-			BulkWriteOperation bulkWriteOperation= mongoTemplate.getCollection("customIndividualMetadata").initializeUnorderedBulkOperation();
+			}
+			BulkWriteResult wr = bulkWriteOperation.execute();
+			return wr.getModifiedCount();
+		}
+		else {
+			BulkWriteOperation bulkWriteOperation = mongoTemplate.getCollection("customIndividualMetadata").initializeUnorderedBulkOperation();
 			LOG.info("Database " + sModule + ": customIndividualMetadata");
 
 			for (BrapiGermplasm g : germplasmList) {
 				Map<Object, Object> aiMap = oMapper.convertValue(g, Map.class);
 				
-				
-				
 //				-------- getAttributes --------
 				if(client.hasCallGetAttributes()) {
-					Response<BrapiListResource<Object>> response = service.getAttributes(aiMap.get("germplasmDbId").toString()).execute();
-					errorCodeHandler(response.code());
-					BrapiListResource<Object> moreAttributes = response.body();
-					
-					
-					moreAttributes.data().forEach(
-							(k)->aiMap.put(((LinkedHashMap<String,String>)k).get("attributeDbId").toString(), ((LinkedHashMap<String,String>)k).get("value").toString()));}
+					Response<BrapiBaseResource<BrapiGermplasmAttributes>> response = service.getAttributes(aiMap.get("germplasmDbId").toString()).execute();
+					handleErrorCode(response.code());
+					BrapiBaseResource<BrapiGermplasmAttributes> moreAttributes = response.body();
+					moreAttributes.getResult().getData().forEach(k -> aiMap.put(k.getAttributeDbId(), k.getValue()));}
 //				-------- getAttributes --------
 				
 				
@@ -325,17 +310,11 @@ public class IndividualMetadataImport {
 				}
 //				-------- CLEAR SECTION --------
 
-				
-				
-				
 //				to see what will be imported
 //				LOG.debug(aiMap);
-				
-				
-
 
 				
-				if(aiMap.isEmpty())
+				if (aiMap.isEmpty())
 				{
 					throw new Exception("Cannot import an empty list of attributes");//Clear section have probably remove all the entry
 				}
@@ -346,36 +325,32 @@ public class IndividualMetadataImport {
 				idMap.put(CustomIndividualMetadata.CustomIndividualMetadataId.FIELDNAME_INDIVIDUAL_ID, germplasmDbIdToIndividualMap.get(aiMap.get("germplasmDbId")));
 				idMap.put(CustomIndividualMetadata.CustomIndividualMetadataId.FIELDNAME_USER, username);
 				bulkWriteOperation.find(new BasicDBObject("_id", idMap)).upsert().updateOne(update.getUpdateObject());
-				
-				
-				
-			}bulkWriteOperation.execute();}
-
-		
-		
-		
-
+			}
+			BulkWriteResult wr = bulkWriteOperation.execute();
+			return wr.getModifiedCount();
+		}
 	}
-	private void errorCodeHandler(int code) {
+
+	private static void handleErrorCode(int code) {
 		if(code==400)
 		{
-			throw new Error("HTTP request return a 400 - Bad Request");
+			throw new Error("HTTP request returned code 400 - Bad Request");
 		}
 		if(code==401)//most probably authToken is wrong
 		{
-			throw new Error("HTTP request return a 401 - Unauthorized");
+			throw new Error("HTTP request returned code 401 - Unauthorized");
 		}
 		if(code==403)
 		{
-			throw new Error("HTTP request return a 403 - Forbidden");
+			throw new Error("HTTP request returned code 403 - Forbidden");
 		}
 		if(code==404)
 		{
-			throw new Error("HTTP request return a 404 - Not Found");
+			throw new Error("HTTP request returned code 404 - Not Found");
 		}
 		if(code==500)
 		{
-			throw new Error("HTTP request return a 500 - Internal Server Error");
+			throw new Error("HTTP request returned code 500 - Internal Server Error");
 		}
 	}
 }

@@ -141,7 +141,7 @@ public class BrapiClient
     				Request originalRequest = chain.request();
     				Response response = null;
     				if(authToken!=null) {//if authToken is null => do nothing
-    					Request newRequest = originalRequest.newBuilder().addHeader("Authorization", "Bearer " + authToken).build();
+    					Request newRequest = originalRequest.newBuilder().addHeader("Authorization", authToken).build();
     					response = chain.proceed(newRequest);
     				}else {
     					response = chain.proceed(originalRequest);}
@@ -341,7 +341,7 @@ public class BrapiClient
 	public static class Pager
 	{
 		private boolean isPaging = true;
-		private String pageSize = "100000";
+		private String pageSize = "10000";
 		private String page = "0";
 
 		// Returns true if another 'page' of data should be requested
