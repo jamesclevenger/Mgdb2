@@ -155,12 +155,12 @@ public class IndividualMetadataImport {
 				if (foundIndList.size() < passedIndList.size())
 					throw new Exception("The following individuals do not exist in the selected database: " + StringUtils.join(CollectionUtils.disjunction(passedIndList, foundIndList), ", "));
 			}
-			BulkWriteResult bwr = bulkOperations.execute();
+			BulkWriteResult wr = bulkOperations.execute();
 			if (passedIndList.size() == 0)
-				LOG.info("Database " + sModule + ": metadata was deleted for " + bwr.getModifiedCount() + " individuals");
+				LOG.info("Database " + sModule + ": metadata was deleted for " + wr.getModifiedCount() + " individuals");
 			else
-				LOG.info("Database " + sModule + ": " + bwr.getModifiedCount() + " individuals updated with metadata, out of " + bwr.getMatchedCount() + " matched documents");
-			return bwr.getModifiedCount();
+				LOG.info("Database " + sModule + ": " + wr.getModifiedCount() + " individuals updated with metadata, out of " + wr.getMatchedCount() + " matched documents");
+			return wr.getModifiedCount() + wr.getUpserts().size();
 		}
 		finally
 		{
@@ -177,9 +177,11 @@ public class IndividualMetadataImport {
 		
 		BrapiClient client = new BrapiClient();
 
-		client.initService(endpointUrl, authToken);
+		// hack to try and make it work with current BMS version
+		client.initService(endpointUrl.replace("Ricegigwa/", ""), authToken);
 		client.getCalls();
 		client.ensureGermplasmInfoCanBeImported();
+		client.initService(endpointUrl, authToken);
 		
 		final BrapiService service = client.getService();
 
@@ -191,8 +193,6 @@ public class IndividualMetadataImport {
 		
 		if (client.hasCallSearchGermplasm()) {
 			try {
-//				LOG.debug("searchGermplasm");
-				
 				Response<BrapiBaseResource<BrapiSearchResult>> response =  service.searchGermplasm(reqBody).execute();
 				handleErrorCode(response.code());
 				BrapiSearchResult bsr = response.body().getResult();
@@ -204,11 +204,8 @@ public class IndividualMetadataImport {
 					germplasmList.addAll(br.data());
 					callPager.paginate(br.getMetadata());
 				}
-				
-			} catch (Exception e) {
+			} catch (Exception e) {	// we did not get a searchResultDbId: see if we actually got results straight away
 				try {
-//					LOG.debug("searchGermplasmDirectResult");
-					
 					Response<BrapiListResource<BrapiGermplasm>> response = service.searchGermplasmDirectResult(reqBody).execute();
 					handleErrorCode(response.code());
 					BrapiListResource<BrapiGermplasm> br = response.body();
@@ -237,98 +234,52 @@ public class IndividualMetadataImport {
 				throw new Exception("DATASOURCE '" + sModule + "' is not supported!");
 		}
 		
-		if(username == null) {
-			BulkWriteOperation bulkWriteOperation = mongoTemplate.getCollection("individuals").initializeUnorderedBulkOperation();
-			LOG.info("Database " + sModule + ": individuals");
-			
-			for (BrapiGermplasm g : germplasmList) {
-				Map<Object, Object> aiMap = oMapper.convertValue(g, Map.class);
-				
-//				-------- getAttributes --------
-				if(client.hasCallGetAttributes()) {
-					Response<BrapiBaseResource<BrapiGermplasmAttributes>> response = service.getAttributes(aiMap.get("germplasmDbId").toString()).execute();
+		boolean fCanQueryAttributes = client.hasCallGetAttributes();
+		BulkOperations bulkOperations = mongoTemplate.bulkOps(BulkOperations.BulkMode.ORDERED, username == null ? Individual.class : CustomIndividualMetadata.class);
+		for (BrapiGermplasm g : germplasmList) {
+			Map<Object, Object> aiMap = oMapper.convertValue(g, Map.class);
+
+			if (fCanQueryAttributes) {
+				Response<BrapiBaseResource<BrapiGermplasmAttributes>> response = service.getAttributes(aiMap.get("germplasmDbId").toString()).execute();
+				if (response.code() != 404) {	// TODO: remove this hack when this call is correctly implemented in BMS
 					handleErrorCode(response.code());
 					BrapiBaseResource<BrapiGermplasmAttributes> moreAttributes = response.body();
-					moreAttributes.getResult().getData().forEach(k -> aiMap.put(k.getAttributeDbId(), k.getValue()));}
-//				-------- getAttributes --------
-				
-				
-//				-------- CLEAR SECTION --------
-//				remove ArrayList and null entry from ai fields
-				Iterator<Map.Entry<Object, Object>> itr = aiMap.entrySet().iterator();
-				while(itr.hasNext())
-				{
-				   Map.Entry<Object, Object> entry = itr.next();
-				   if(entry.getValue() instanceof ArrayList || entry.getValue()==null)
-				   {
-					   itr.remove();
-				   }
+					moreAttributes.getResult().getData().forEach(k -> aiMap.put(k.getAttributeDbId(), k.getValue()));
 				}
-//				-------- CLEAR SECTION --------
+			}
 
-//				to see what will be imported
-//				LOG.debug(aiMap);
-				
-		
-				if (aiMap.isEmpty())
-				{
-					throw new Exception("Cannot import an empty list of attributes");
-				}
-				Update update = new Update();
+			// only keep fields whose values are a single-string
+			Iterator<Map.Entry<Object, Object>> itr = aiMap.entrySet().iterator();
+			while(itr.hasNext()) {
+			   Map.Entry<Object, Object> entry = itr.next();
+			   if (entry.getValue() == null)
+				   itr.remove();
+			   else if (entry.getValue() instanceof ArrayList) {
+				   if (((ArrayList)entry.getValue()).size() == 1)
+					   entry.setValue(((ArrayList)entry.getValue()).get(0));
+				   else
+					   itr.remove();
+			   }
+			}
+	
+			if (aiMap.isEmpty()) {
+//				throw new Exception("Cannot import an empty list of attributes");
+				LOG.warn("Found no metadata to import for germplasm " + g.getGermplasmDbId());
+				continue;
+			}
+
+			Update update = new Update();			
+			if (username == null) {
 		        aiMap.forEach((k,v)->update.set(Individual.SECTION_ADDITIONAL_INFO + "." + k, v));
-				bulkWriteOperation.find(new BasicDBObject("_id", germplasmDbIdToIndividualMap.get(aiMap.get("germplasmDbId")))).upsert().updateOne(update.getUpdateObject());
+		        bulkOperations.updateMulti(new Query(Criteria.where("_id").is(germplasmDbIdToIndividualMap.get(aiMap.get("germplasmDbId")))), update);
 			}
-			BulkWriteResult wr = bulkWriteOperation.execute();
-			return wr.getModifiedCount();
-		}
-		else {
-			BulkWriteOperation bulkWriteOperation = mongoTemplate.getCollection("customIndividualMetadata").initializeUnorderedBulkOperation();
-			LOG.info("Database " + sModule + ": customIndividualMetadata");
-
-			for (BrapiGermplasm g : germplasmList) {
-				Map<Object, Object> aiMap = oMapper.convertValue(g, Map.class);
-				
-//				-------- getAttributes --------
-				if(client.hasCallGetAttributes()) {
-					Response<BrapiBaseResource<BrapiGermplasmAttributes>> response = service.getAttributes(aiMap.get("germplasmDbId").toString()).execute();
-					handleErrorCode(response.code());
-					BrapiBaseResource<BrapiGermplasmAttributes> moreAttributes = response.body();
-					moreAttributes.getResult().getData().forEach(k -> aiMap.put(k.getAttributeDbId(), k.getValue()));}
-//				-------- getAttributes --------
-				
-				
-//				-------- CLEAR SECTION --------
-//				remove ArrayList and null entry from ai fields
-				Iterator<Map.Entry<Object, Object>> itr = aiMap.entrySet().iterator();
-				while(itr.hasNext())
-				{
-				   Map.Entry<Object, Object> entry = itr.next();
-				   if(entry.getValue() instanceof ArrayList || entry.getValue()==null)
-				   {
-					   itr.remove();
-				   }
-				}
-//				-------- CLEAR SECTION --------
-
-//				to see what will be imported
-//				LOG.debug(aiMap);
-
-				
-				if (aiMap.isEmpty())
-				{
-					throw new Exception("Cannot import an empty list of attributes");//Clear section have probably remove all the entry
-				}
-				Update update = new Update();
-		        aiMap.forEach((k,v)->update.set(CustomIndividualMetadata.SECTION_ADDITIONAL_INFO + "." + k, v));
-		        
-				Map<Object, Object> idMap = new HashMap<Object,Object>();
-				idMap.put(CustomIndividualMetadata.CustomIndividualMetadataId.FIELDNAME_INDIVIDUAL_ID, germplasmDbIdToIndividualMap.get(aiMap.get("germplasmDbId")));
-				idMap.put(CustomIndividualMetadata.CustomIndividualMetadataId.FIELDNAME_USER, username);
-				bulkWriteOperation.find(new BasicDBObject("_id", idMap)).upsert().updateOne(update.getUpdateObject());
+			else {
+		        aiMap.forEach((k,v)->update.set(CustomIndividualMetadata.SECTION_ADDITIONAL_INFO + "." + k, v));		        
+				bulkOperations.upsert(new Query(Criteria.where("_id").is(new CustomIndividualMetadata.CustomIndividualMetadataId(germplasmDbIdToIndividualMap.get(aiMap.get("germplasmDbId")), username))), update);
 			}
-			BulkWriteResult wr = bulkWriteOperation.execute();
-			return wr.getModifiedCount();
 		}
+		BulkWriteResult wr = bulkOperations.execute();
+		return wr.getModifiedCount() + wr.getUpserts().size();
 	}
 
 	private static void handleErrorCode(int code) {

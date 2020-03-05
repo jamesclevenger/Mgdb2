@@ -145,6 +145,8 @@ public class BrapiClient
     					response = chain.proceed(newRequest);
     				}else {
     					response = chain.proceed(originalRequest);}
+    				if (response.code() == 401)
+    					throw new IOException("Unauthorized error 401");
     				return response;
                 }
             })

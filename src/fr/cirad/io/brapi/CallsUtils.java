@@ -70,9 +70,13 @@ public class CallsUtils
 	
 	public boolean hasCall(String signature, List<String> datatype, String method)
 	{
-		for (BrapiCall call : calls)
-			if (call.getCall().equals(signature) && call.getMethods().contains(method) && CollectionUtils.intersection(call.getDataTypes(), datatype).size() > 0)
+		for (BrapiCall call : calls) {
+			String implementedCall = call.getCall();
+			if (implementedCall.startsWith("/"))
+				implementedCall = implementedCall.substring(1);
+			if (implementedCall.equals(signature) && call.getMethods().contains(method) && CollectionUtils.intersection(call.getDataTypes(), datatype).size() > 0)
 				return true;
+		}
 
 		return false;
 	}
