@@ -558,10 +558,22 @@ public class PlinkImport extends AbstractGenotypeImport {
 			if (!usedSamples.containsKey(sIndividual))	// we don't want to persist each sample several times
 			{
                 Individual ind = mongoTemplate.findById(sIndividual, Individual.class);
-                if (ind == null) {	// we don't have any population data so we don't need to update the Individual if it already exists
+                boolean fAlreadyExists = ind != null, fNeedToSave = true;
+                if (!fAlreadyExists)
                     ind = new Individual(sIndividual);
+				String sPop = userIndividualToPopulationMap.get(sIndividual);
+				if (!sPop.equals(".") && sPop.length() == 3)
+					ind.setPopulation(sPop);
+				else if (!sIndividual.substring(0, 3).matches(".*\\d+.*") && sIndividual.substring(3).matches("\\d+"))
+					ind.setPopulation(sIndividual.substring(0, 3));
+				else {
+					LOG.warn("Unable to find 3-digit population code for individual " + sIndividual);
+					if (fAlreadyExists)
+						fNeedToSave = false;
+				}
+				
+				if (fNeedToSave)
                     mongoTemplate.save(ind);
-                }
 
                 int sampleId = AutoIncrementCounter.getNextSequence(mongoTemplate, MongoTemplateManager.getMongoCollectionName(GenotypingSample.class));
                 usedSamples.put(sIndividual, new GenotypingSample(sampleId, project.getId(), run.getRunName(), sIndividual));	// add a sample for this individual to the project

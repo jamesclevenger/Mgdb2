@@ -149,7 +149,7 @@ public class AbstractGenotypeImport {
 
 				for (String variantDescForPos : getIdentificationStrings((String) vd.get(VariantData.FIELDNAME_TYPE), !fGotChrPos ? null : (String) Helper.readPossiblyNestedField(vd, VariantData.FIELDNAME_REFERENCE_POSITION + "." + ReferencePosition.FIELDNAME_SEQUENCE), !fGotChrPos ? null : (long) Helper.readPossiblyNestedField(vd, VariantData.FIELDNAME_REFERENCE_POSITION + "." + ReferencePosition.FIELDNAME_START_SITE), idAndSynonyms))
 				{
-					if (existingVariantIDs.containsKey(variantDescForPos))
+					if (existingVariantIDs.containsKey(variantDescForPos) && !variantIdAsString.startsWith("*"))
 			        	throw new Exception("This database seems to contain duplicate variants. Importing additional data will not be supported until this problem is fixed.");
 
 					existingVariantIDs.put(variantDescForPos, vd.get("_id").toString());
