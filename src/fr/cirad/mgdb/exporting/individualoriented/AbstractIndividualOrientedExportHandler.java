@@ -91,7 +91,7 @@ public abstract class AbstractIndividualOrientedExportHandler implements IExport
 	 * @param exportID the export id
 	 * @param annotationFieldThresholds the annotation field thresholds for group 1
 	 * @param annotationFieldThresholds2 the annotation field thresholds for group 2
-	 * @param sampleToIndividualMapToExport 
+	 * @param samplesToExport 
 	 * @param progress the progress
 	 * @return a map providing one File per individual
 	 * @throws Exception the exception
