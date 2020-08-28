@@ -52,7 +52,7 @@ public class AbstractGenotypeImport {
 	private static final Logger LOG = Logger.getLogger(AbstractGenotypeImport.class);
 
 	private boolean m_fAllowDbDropIfNoGenotypingData = true;
-	
+
 	/** String representing nucleotides considered as valid */
 	protected static HashSet<String> validNucleotides = new HashSet<>(Arrays.asList(new String[] {"a", "A", "t", "T", "g", "G", "c", "C"}));
 	
