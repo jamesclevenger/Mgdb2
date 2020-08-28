@@ -33,9 +33,15 @@ import org.springframework.data.mongodb.core.query.Query;
 import com.mongodb.BasicDBList;
 import com.mongodb.DBCursor;
 import com.mongodb.DBObject;
+import com.mongodb.WriteResult;
 
+import fr.cirad.mgdb.model.mongo.maintypes.DBVCFHeader;
+import fr.cirad.mgdb.model.mongo.maintypes.GenotypingProject;
+import fr.cirad.mgdb.model.mongo.maintypes.GenotypingSample;
 import fr.cirad.mgdb.model.mongo.maintypes.VariantData;
 import fr.cirad.mgdb.model.mongo.maintypes.VariantRunData;
+import fr.cirad.mgdb.model.mongo.maintypes.DBVCFHeader.VcfHeaderId;
+import fr.cirad.mgdb.model.mongo.maintypes.VariantRunData.VariantRunDataId;
 import fr.cirad.mgdb.model.mongo.subtypes.ReferencePosition;
 import fr.cirad.mgdb.model.mongodao.MgdbDao;
 import fr.cirad.tools.Helper;
@@ -45,7 +51,7 @@ public class AbstractGenotypeImport {
 	
 	private static final Logger LOG = Logger.getLogger(AbstractGenotypeImport.class);
 
-//	private static final String COLLECTION_NAME_SYNONYM_MAPPINGS = "synonymMappings";
+	private boolean m_fAllowDbDropIfNoGenotypingData = true;
 	
 	/** String representing nucleotides considered as valid */
 	protected static HashSet<String> validNucleotides = new HashSet<>(Arrays.asList(new String[] {"a", "A", "t", "T", "g", "G", "c", "C"}));
@@ -194,4 +200,56 @@ public class AbstractGenotypeImport {
             	mongoTemplate.save(run);
         }  
     }
+    
+    protected void cleanupBeforeImport(MongoTemplate mongoTemplate, String sModule, GenotypingProject project, int importMode, String sRun) {
+        if (importMode == 2)
+            mongoTemplate.getDb().dropDatabase(); // drop database before importing
+        else if (project != null)
+        {
+			if (importMode == 1 || (project.getRuns().size() == 1 && project.getRuns().get(0).equals(sRun)))
+			{	// empty project data before importing
+				WriteResult wr = mongoTemplate.remove(new Query(Criteria.where("_id." + VcfHeaderId.FIELDNAME_PROJECT).is(project.getId())), DBVCFHeader.class);
+				if (wr.getN() > 0)
+					LOG.info(wr.getN() + " records removed from vcf_header");
+				wr = mongoTemplate.remove(new Query(Criteria.where("_id." + VariantRunDataId.FIELDNAME_PROJECT_ID).is(project.getId())), VariantRunData.class);
+				if (wr.getN() > 0)
+					LOG.info(wr.getN() + " variantRunData records removed while cleaning up project " + project.getId() + "'s data");
+				wr = mongoTemplate.remove(new Query(Criteria.where(GenotypingSample.FIELDNAME_PROJECT_ID).is(project.getId())), GenotypingSample.class);
+				if (wr.getN() > 0)
+					LOG.info(wr.getN() + " samples were removed while cleaning up project " + project.getId() + "'s data");
+				mongoTemplate.remove(new Query(Criteria.where("_id").is(project.getId())), GenotypingProject.class);
+			}
+			else
+			{	// empty run data before importing
+                WriteResult wr = mongoTemplate.remove(new Query(Criteria.where("_id." + VcfHeaderId.FIELDNAME_PROJECT).is(project.getId()).and("_id." + VcfHeaderId.FIELDNAME_RUN).is(sRun)), DBVCFHeader.class);
+                if (wr.getN() > 0)
+                	LOG.info(wr.getN() + " records removed from vcf_header");
+                if (project.getRuns().contains(sRun))
+                {
+                	LOG.info("Cleaning up existing run's data");
+                    List<Criteria> crits = new ArrayList<>();
+                    crits.add(Criteria.where("_id." + VariantRunData.VariantRunDataId.FIELDNAME_PROJECT_ID).is(project.getId()));
+                    crits.add(Criteria.where("_id." + VariantRunData.VariantRunDataId.FIELDNAME_RUNNAME).is(sRun));
+                    crits.add(Criteria.where(VariantRunData.FIELDNAME_SAMPLEGENOTYPES).exists(true));
+                    wr = mongoTemplate.remove(new Query(new Criteria().andOperator(crits.toArray(new Criteria[crits.size()]))), VariantRunData.class);
+                    if (wr.getN() > 0)
+                    	LOG.info(wr.getN() + " variantRunData records removed while cleaning up project " + project.getId() + "'s data");
+    				wr = mongoTemplate.remove(new Query(new Criteria().andOperator(Criteria.where(GenotypingSample.FIELDNAME_PROJECT_ID).is(project.getId()), Criteria.where(GenotypingSample.FIELDNAME_RUN).is(sRun))), GenotypingSample.class);
+    				if (wr.getN() > 0)
+    					LOG.info(wr.getN() + " samples were removed while cleaning up project " + project.getId() + "'s data");
+
+                }
+            }
+			if (mongoTemplate.count(null, VariantRunData.class) == 0 && m_fAllowDbDropIfNoGenotypingData && doesDatabaseSupportImportingUnknownVariants(sModule))
+                mongoTemplate.getDb().dropDatabase();	// if there is no genotyping data left and we are not working on a fixed list of variants then any other data is irrelevant
+        }
+	}
+    
+	public boolean isAllowedToDropDbIfNoGenotypingData() {
+		return m_fAllowDbDropIfNoGenotypingData;
+	}
+
+	public void allowDbDropIfNoGenotypingData(boolean fAllowDbDropIfNoGenotypingData) {
+		this.m_fAllowDbDropIfNoGenotypingData = fAllowDbDropIfNoGenotypingData;
+	}
 }

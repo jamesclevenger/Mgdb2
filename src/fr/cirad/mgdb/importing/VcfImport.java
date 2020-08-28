@@ -35,7 +35,6 @@ import org.springframework.data.mongodb.core.query.Criteria;
 import org.springframework.data.mongodb.core.query.Query;
 
 import com.mongodb.BasicDBObject;
-import com.mongodb.WriteResult;
 
 import fr.cirad.mgdb.importing.base.AbstractGenotypeImport;
 import fr.cirad.mgdb.model.mongo.maintypes.AutoIncrementCounter;
@@ -46,7 +45,6 @@ import fr.cirad.mgdb.model.mongo.maintypes.GenotypingSample;
 import fr.cirad.mgdb.model.mongo.maintypes.Individual;
 import fr.cirad.mgdb.model.mongo.maintypes.VariantData;
 import fr.cirad.mgdb.model.mongo.maintypes.VariantRunData;
-import fr.cirad.mgdb.model.mongo.maintypes.VariantRunData.VariantRunDataId;
 import fr.cirad.mgdb.model.mongo.subtypes.ReferencePosition;
 import fr.cirad.mgdb.model.mongo.subtypes.SampleGenotype;
 import fr.cirad.mgdb.model.mongodao.MgdbDao;
@@ -199,39 +197,7 @@ public class VcfImport extends AbstractGenotypeImport {
             
             currentlyImportedProjects.put(sModule, sProject);
 
-            if (importMode == 2)
-                mongoTemplate.getDb().dropDatabase(); // drop database before importing
-            else if (project != null)
-            {
-				if (importMode == 1 || (project.getRuns().size() == 1 && project.getRuns().get(0).equals(sRun)))
-				{	// empty project data before importing
-					WriteResult wr = mongoTemplate.remove(new Query(Criteria.where("_id." + VcfHeaderId.FIELDNAME_PROJECT).is(project.getId())), DBVCFHeader.class);
-					LOG.info(wr.getN() + " records removed from vcf_header");
-					wr = mongoTemplate.remove(new Query(Criteria.where("_id." + VariantRunDataId.FIELDNAME_PROJECT_ID).is(project.getId())), VariantRunData.class);
-					LOG.info(wr.getN() + " records removed from variantRunData");
-					wr = mongoTemplate.remove(new Query(Criteria.where("_id").is(project.getId())), GenotypingProject.class);
-					project.clearEverythingExceptMetaData();
-				}
-				else
-				{	// empty run data before importing
-                    WriteResult wr = mongoTemplate.remove(new Query(Criteria.where("_id." + VcfHeaderId.FIELDNAME_PROJECT).is(project.getId()).and("_id." + VcfHeaderId.FIELDNAME_RUN).is(sRun)), DBVCFHeader.class);
-                    LOG.info(wr.getN() + " records removed from vcf_header");
-                    if (project.getRuns().contains(sRun))
-                    {
-                    	LOG.info("Cleaning up existing run's data");
-	                    List<Criteria> crits = new ArrayList<>();
-	                    crits.add(Criteria.where("_id." + VariantRunData.VariantRunDataId.FIELDNAME_PROJECT_ID).is(project.getId()));
-	                    crits.add(Criteria.where("_id." + VariantRunData.VariantRunDataId.FIELDNAME_RUNNAME).is(sRun));
-	                    crits.add(Criteria.where(VariantRunData.FIELDNAME_SAMPLEGENOTYPES).exists(true));
-	                    wr = mongoTemplate.remove(new Query(new Criteria().andOperator(crits.toArray(new Criteria[crits.size()]))), VariantRunData.class);
-	                    LOG.info(wr.getN() + " records removed from variantRunData");
-                    }
-                }
-                if (mongoTemplate.count(null, VariantRunData.class) == 0 && doesDatabaseSupportImportingUnknownVariants(sModule))
-                {	// if there is no genotyping data left and we are not working on a fixed list of variants then any other data is irrelevant
-                    mongoTemplate.getDb().dropDatabase();
-                }
-            }
+            cleanupBeforeImport(mongoTemplate, sModule, project, importMode, sRun);
 
             VCFHeader header = (VCFHeader) reader.getHeader();
             int effectAnnotationPos = -1, geneIdAnnotationPos = -1;
@@ -369,10 +335,9 @@ public class VcfImport extends AbstractGenotypeImport {
 
             persistVariantsAndGenotypes(existingVariantIDs, finalMongoTemplate, unsavedVariants, unsavedRuns);
 
-            // save project data
-            if (!project.getRuns().contains(sRun)) {
+        	// always save project before samples otherwise the sample cleaning procedure in MgdbDao.prepareDatabaseForSearches may remove them if called in the meantime
+            if (!project.getRuns().contains(sRun))
                 project.getRuns().add(sRun);
-            }
             if (createdProject == null)
             	mongoTemplate.save(project);
             else
@@ -398,7 +363,7 @@ public class VcfImport extends AbstractGenotypeImport {
         }
     }
 
-    /**
+	/**
      * Adds the vcf data to variant.
      *
      * @param mongoTemplate the mongo template
