@@ -23,7 +23,6 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.TreeMap;
-import java.util.stream.Collectors;
 
 import org.apache.log4j.Logger;
 import org.springframework.data.domain.Sort;
@@ -33,8 +32,11 @@ import org.springframework.data.mongodb.core.query.Query;
 
 import com.mongodb.BasicDBObject;
 import com.mongodb.DBCollection;
+import com.mongodb.MongoCommandException;
+import com.mongodb.WriteResult;
 
 import fr.cirad.mgdb.model.mongo.maintypes.CachedCount;
+import fr.cirad.mgdb.model.mongo.maintypes.GenotypingProject;
 import fr.cirad.mgdb.model.mongo.maintypes.GenotypingSample;
 import fr.cirad.mgdb.model.mongo.maintypes.Individual;
 import fr.cirad.mgdb.model.mongo.maintypes.VariantData;
@@ -67,6 +69,12 @@ public class MgdbDao
 	 */
 	public static List<String> prepareDatabaseForSearches(MongoTemplate mongoTemplate) throws Exception
 	{
+		// cleanup unused sample that eventually got persisted during a failed import
+		Collection<Integer> validProjIDs = (Collection<Integer>) mongoTemplate.getCollection(MongoTemplateManager.getMongoCollectionName(GenotypingProject.class)).distinct("_id");
+		WriteResult wr = mongoTemplate.remove(new Query(Criteria.where(GenotypingSample.FIELDNAME_PROJECT_ID).not().in(validProjIDs)), GenotypingSample.class);
+		if (wr.getN() > 0)
+			LOG.info(wr.getN() + " unused samples were removed");
+
 		// empty count cache
 		mongoTemplate.dropCollection(mongoTemplate.getCollectionName(CachedCount.class));
 		
@@ -81,7 +89,13 @@ public class MgdbDao
 		LOG.debug("Creating index on field " + VariantData.FIELDNAME_SYNONYMS + "." + VariantData.FIELDNAME_SYNONYM_TYPE_ID_NCBI + " of collection " + variantColl.getName());
 		variantColl.createIndex(VariantData.FIELDNAME_SYNONYMS + "." + VariantData.FIELDNAME_SYNONYM_TYPE_ID_ILLUMINA);
 		LOG.debug("Creating index on field " + VariantData.FIELDNAME_TYPE + " of collection " + variantColl.getName());
-		variantColl.createIndex(VariantData.FIELDNAME_TYPE);
+		try {
+			variantColl.createIndex(new BasicDBObject(VariantData.FIELDNAME_TYPE, 1));
+		}
+		catch (MongoCommandException mce) {
+			if (!mce.getMessage().contains("already exists with a different name"))
+				throw mce;	// otherwise we have nothing to do because it already exists anyway
+		}
 		LOG.debug("Creating index on fields " + VariantData.FIELDNAME_REFERENCE_POSITION + "." + ReferencePosition.FIELDNAME_SEQUENCE + ", " + VariantData.FIELDNAME_REFERENCE_POSITION + "." + ReferencePosition.FIELDNAME_START_SITE + " of collection " + variantColl.getName());
 		BasicDBObject variantCollIndexKeys = new BasicDBObject(VariantData.FIELDNAME_REFERENCE_POSITION + "." + ReferencePosition.FIELDNAME_SEQUENCE, 1);
 		variantCollIndexKeys.put(VariantData.FIELDNAME_REFERENCE_POSITION + "." + ReferencePosition.FIELDNAME_START_SITE, 1);
