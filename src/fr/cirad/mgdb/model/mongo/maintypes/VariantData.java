@@ -19,9 +19,11 @@ package fr.cirad.mgdb.model.mongo.maintypes;
 import org.apache.log4j.Logger;
 import org.springframework.data.annotation.Id;
 import org.springframework.data.annotation.TypeAlias;
+import org.springframework.data.annotation.Version;
 //import org.springframework.data.mongodb.core.index.CompoundIndex;
 //import org.springframework.data.mongodb.core.index.CompoundIndexes;
 import org.springframework.data.mongodb.core.mapping.Document;
+import org.springframework.data.mongodb.core.mapping.Field;
 
 import fr.cirad.mgdb.model.mongo.subtypes.AbstractVariantData;
 //import fr.cirad.mgdb.model.mongo.subtypes.ReferencePosition;
@@ -36,13 +38,20 @@ import fr.cirad.mgdb.model.mongo.subtypes.AbstractVariantData;
 //})
 public class VariantData extends AbstractVariantData
 {
-	
 	/** The Constant LOG. */
 	private static final Logger LOG = Logger.getLogger(VariantData.class);
 	
 	/** The id. */
 	@Id
 	protected String id;
+	
+	/** The Constant FIELDNAME_VERSION. */
+	public final static String FIELDNAME_VERSION = "v";
+
+	/** The version. */
+	@Version
+	@Field(FIELDNAME_VERSION)
+    private Long version;
 
 	/**
 	 * Instantiates a new variant data.
@@ -68,6 +77,24 @@ public class VariantData extends AbstractVariantData
 	 */
 	public String getId() {
 		return (String) id;
+	}
+
+	/**
+	 * Gets the version.
+	 *
+	 * @return the version
+	 */
+	public Long getVersion() {
+		return version;
+	}
+
+	/**
+	 * Sets the version.
+	 *
+	 * @param version the new version
+	 */
+	public void setVersion(Long version) {
+		this.version = version;
 	}
 
 	@Override

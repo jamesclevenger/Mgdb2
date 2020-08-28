@@ -47,9 +47,6 @@ import fr.cirad.tools.Helper;
 
 abstract public class AbstractVariantData
 {	
-	/** The Constant FIELDNAME_VERSION. */
-	public final static String FIELDNAME_VERSION = "v";
-	
 	/** The Constant FIELDNAME_ANALYSIS_METHODS. */
 	public final static String FIELDNAME_ANALYSIS_METHODS = "am";
 	
@@ -121,11 +118,6 @@ abstract public class AbstractVariantData
 	
 	/** The id. */
 	protected Object id;
-	
-	/** The version. */
-	@Version
-	@Field(FIELDNAME_VERSION)
-    private Long version;
 	
 	/** The type. */
 	@Field(FIELDNAME_TYPE)
@@ -352,24 +344,6 @@ abstract public class AbstractVariantData
 //	public Comparable getId() {
 //		return id;
 //	}
-
-	/**
-	 * Gets the version.
-	 *
-	 * @return the version
-	 */
-	public Long getVersion() {
-		return version;
-	}
-
-	/**
-	 * Sets the version.
-	 *
-	 * @param version the new version
-	 */
-	public void setVersion(Long version) {
-		this.version = version;
-	}
 
 	/**
 	 * Gets the synonyms.
