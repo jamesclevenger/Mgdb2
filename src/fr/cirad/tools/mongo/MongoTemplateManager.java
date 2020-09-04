@@ -121,7 +121,7 @@ public class MongoTemplateManager implements ApplicationContextAware {
     /**
      * The dot replacement string.
      */
-    static private String DOT_REPLACEMENT_STRING = "\\[dot\\]";
+    static final public String DOT_REPLACEMENT_STRING = "\\[dot\\]";
 
     /**
      * store ontology terms
@@ -333,9 +333,6 @@ public class MongoTemplateManager implements ApplicationContextAware {
             throw new UnknownHostException("Unknown host: " + sHost);
         }
 
-//		UserCredentials uc = mongoCredentials.get(sHost);
-//		if (uc != null)
-//			client.getCredentialsList().add(MongoCredential.createCredential(uc.getUsername(), "admin", uc.getPassword().toCharArray()));
         SimpleMongoDbFactory factory = new SimpleMongoDbFactory(client, sDbName);
         MongoTemplate mongoTemplate = new MongoTemplate(factory);
         ((MappingMongoConverter) mongoTemplate.getConverter()).setMapKeyDotReplacement(DOT_REPLACEMENT_STRING);
