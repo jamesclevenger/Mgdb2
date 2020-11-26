@@ -297,7 +297,7 @@ public class PlinkImport extends AbstractGenotypeImport {
 						VariantData variant = mongoTemplate.findById(variantId == null ? providedVariantId : variantId, VariantData.class);							
 						if (variant == null)
 							variant = new VariantData((ObjectId.isValid(providedVariantId) ? "_" : "") + providedVariantId);
-//BTA000017090
+
 						String[][] alleles = new String[2][individuals.length];
 						int nIndividualIndex = 0;
 						while (nIndividualIndex < alleles[0].length)
@@ -348,13 +348,11 @@ public class PlinkImport extends AbstractGenotypeImport {
 
 		                    if (asyncThread == null)
 	                        {	// every second insert is run asynchronously for better speed
-//	                        	System.out.println("async");
 	                        	asyncThread = insertionThread;
 	                        	asyncThread.start();
 	                        }
 	                        else
 	                        {
-//	                        	System.out.println("sync");
 	                        	insertionThread.run();
 	                        	asyncThread.join();	// make sure previous thread has executed before going further
 	                        	asyncThread = null;
