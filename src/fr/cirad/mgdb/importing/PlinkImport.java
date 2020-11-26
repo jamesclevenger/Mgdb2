@@ -24,9 +24,9 @@ import java.net.URL;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
-import java.util.List;
 import java.util.Map;
 import java.util.Scanner;
 import java.util.StringTokenizer;
@@ -232,8 +232,8 @@ public class PlinkImport extends AbstractGenotypeImport {
 	public long importTempFileContents(ProgressIndicator progress, MongoTemplate mongoTemplate, File[] tempFiles, LinkedHashMap<String, String> variantsAndPositions, HashMap<String, String> existingVariantIDs, GenotypingProject project, String sRun, HashMap<String, ArrayList<String>> inconsistencies, Map<String, String> userIndividualToPopulationMap) throws Exception			
 	{
 		String[] individuals = userIndividualToPopulationMap.keySet().toArray(new String[userIndividualToPopulationMap.size()]);
-		ArrayList<VariantData> unsavedVariants = new ArrayList<VariantData>();
-		ArrayList<VariantRunData> unsavedRuns = new ArrayList<VariantRunData>();
+		HashSet<VariantData> unsavedVariants = new HashSet<VariantData>();	// HashSet allows no duplicates
+		HashSet<VariantRunData> unsavedRuns = new HashSet<VariantRunData>();
 		long count = 0;
 		
 		// loop over each variation and write to DB
@@ -297,7 +297,7 @@ public class PlinkImport extends AbstractGenotypeImport {
 						VariantData variant = mongoTemplate.findById(variantId == null ? providedVariantId : variantId, VariantData.class);							
 						if (variant == null)
 							variant = new VariantData((ObjectId.isValid(providedVariantId) ? "_" : "") + providedVariantId);
-
+//BTA000017090
 						String[][] alleles = new String[2][individuals.length];
 						int nIndividualIndex = 0;
 						while (nIndividualIndex < alleles[0].length)
@@ -320,7 +320,7 @@ public class PlinkImport extends AbstractGenotypeImport {
 						project.getAlleleCounts().add(variant.getKnownAlleleList().size());	// it's a TreeSet so it will only be added if it's not already present
 						if (variant.getKnownAlleleList().size() > 2)
 							LOG.warn("Variant " + variant.getId() + " (" + providedVariantId + ") has more than 2 alleles!");
-						
+
 						if (variant.getKnownAlleleList().size() > 0)
 						{	// we only import data related to a variant if we know its alleles
 							if (!unsavedVariants.contains(variant))
@@ -328,7 +328,7 @@ public class PlinkImport extends AbstractGenotypeImport {
 							if (!unsavedRuns.contains(runToSave))
 								unsavedRuns.add(runToSave);
 						}
-					
+
 						if (count == 0)
 						{
 							nNumberOfVariantsToSaveAtOnce = Math.max(1, nMaxChunkSize / individuals.length);
@@ -336,8 +336,8 @@ public class PlinkImport extends AbstractGenotypeImport {
 						}
 						if (count % nNumberOfVariantsToSaveAtOnce == 0)
 						{
-	                        List<VariantData> finalUnsavedVariants = unsavedVariants;
-	                        List<VariantRunData> finalUnsavedRuns = unsavedRuns;
+	                        HashSet<VariantData> finalUnsavedVariants = unsavedVariants;
+	                        HashSet<VariantRunData> finalUnsavedRuns = unsavedRuns;
 	                        
 		                    Thread insertionThread = new Thread() {
 		                        @Override
@@ -360,8 +360,8 @@ public class PlinkImport extends AbstractGenotypeImport {
 	                        	asyncThread = null;
 	                        }
 	                        
-		                    unsavedVariants = new ArrayList<>();
-		                    unsavedRuns = new ArrayList<>();
+		                    unsavedVariants = new HashSet<>();
+		                    unsavedRuns = new HashSet<>();
 
 							if (count > 0)
 							{
@@ -387,13 +387,13 @@ public class PlinkImport extends AbstractGenotypeImport {
 				scanner.close();
 				
 				persistVariantsAndGenotypes(existingVariantIDs, finalMongoTemplate, unsavedVariants, unsavedRuns);
-				
-				// save project data
-				if (!project.getRuns().contains(sRun))
-					project.getRuns().add(sRun);
-				mongoTemplate.save(project);	// always save project before samples otherwise the sample cleaning procedure in MgdbDao.prepareDatabaseForSearches may remove them if called in the meantime
-	            mongoTemplate.insert(previouslyCreatedSamples.values(), GenotypingSample.class);
 			}
+
+			// save project data
+			if (!project.getRuns().contains(sRun))
+				project.getRuns().add(sRun);
+			mongoTemplate.save(project);	// always save project before samples otherwise the sample cleaning procedure in MgdbDao.prepareDatabaseForSearches may remove them if called in the meantime
+            mongoTemplate.insert(previouslyCreatedSamples.values(), GenotypingSample.class);
 		}
 		finally
 		{

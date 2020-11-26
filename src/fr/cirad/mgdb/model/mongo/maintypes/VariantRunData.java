@@ -50,7 +50,6 @@ public class VariantRunData extends AbstractVariantData
 	 */
 	static public class VariantRunDataId
 	{
-		
 		/** The Constant FIELDNAME_PROJECT_ID. */
 		public final static String FIELDNAME_PROJECT_ID = "pi";
 		
@@ -110,6 +109,30 @@ public class VariantRunData extends AbstractVariantData
 		 */
 		public String getVariantId() {
 			return variantId;
+		}
+		
+		@Override
+		public boolean equals(Object o)	// thanks to this overriding, HashSet.contains will find such objects based on their ID
+		{
+			if (this == o)
+				return true;
+			
+			if (o == null || !(o instanceof VariantRunDataId))
+				return false;
+			
+			return getProjectId() == ((VariantRunDataId)o).getProjectId() && getRunName().equals(((VariantRunDataId)o).getRunName()) && getVariantId().equals(((VariantRunDataId)o).getVariantId());
+		}
+
+		@Override
+		public int hashCode()	// thanks to this overriding, HashSet.contains will find such objects based on their ID
+		{
+			return toString().hashCode();
+		}
+		
+		@Override
+		public String toString()
+		{
+			return projectId + "§" + runName + "§" + variantId;
 		}
 	}
 
@@ -190,9 +213,27 @@ public class VariantRunData extends AbstractVariantData
 		if (this == o)
 			return true;
 		
-		if (o == null || !(o instanceof Individual))
+		if (o == null || !(o instanceof VariantRunData))
 			return false;
 		
-		return getId().getProjectId() == ((VariantRunData)o).getId().getProjectId() && getId().getRunName().equals(((VariantRunData)o).getId().getRunName()) && getId().getVariantId() == ((VariantRunData)o).getId().getVariantId();
+		return getId().equals(((VariantRunData)o).getId());
+	}
+    
+	@Override
+	public int hashCode()	// thanks to this overriding, HashSet.contains will find such objects based on their ID
+	{
+		if (getId() == null)
+			return super.hashCode();
+
+		return getId().hashCode();
+	}
+	
+	@Override
+	public String toString()
+	{
+		if (getId() == null)
+			return super.toString();
+
+		return getId().toString();
 	}
 }

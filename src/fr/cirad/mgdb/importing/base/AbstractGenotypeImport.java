@@ -186,7 +186,7 @@ public class AbstractGenotypeImport {
 		return !fLooksLikePreprocessedVariantList;
 	}	
 
-    public void persistVariantsAndGenotypes(HashMap<String, String> existingVariantIDs, MongoTemplate mongoTemplate, List<VariantData> unsavedVariants, List<VariantRunData> unsavedRuns)
+    public void persistVariantsAndGenotypes(HashMap<String, String> existingVariantIDs, MongoTemplate mongoTemplate, Collection<VariantData> unsavedVariants, Collection<VariantRunData> unsavedRuns)
     {
         if (existingVariantIDs.size() == 0) {	// we benefit from the fact that it's the first variant import into this database to use bulk insert which is much faster
         	mongoTemplate.insert(unsavedVariants, VariantData.class);

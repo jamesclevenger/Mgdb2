@@ -108,4 +108,13 @@ public class VariantData extends AbstractVariantData
 		
 		return getId().equals(((VariantData)o).getId());
 	}
+	
+	@Override
+	public int hashCode()	// thanks to this overriding, HashSet.contains will find such objects based on their ID
+	{
+		if (getId() == null)
+			return super.hashCode();
+
+		return getId().hashCode();
+	}
 }
