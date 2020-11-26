@@ -667,4 +667,19 @@ public class MongoTemplateManager implements ApplicationContextAware {
 		
 		return splitTaxonDetails.length > 2 ? splitTaxonDetails[2] : null;
 	}
+	
+    public static String getModuleHost(String sModule) {
+        ResourceBundle bundle = ResourceBundle.getBundle(resource, resourceControl);
+        mongoClients = applicationContext.getBeansOfType(MongoClient.class);
+        Enumeration<String> bundleKeys = bundle.getKeys();
+        while (bundleKeys.hasMoreElements()) {
+            String key = bundleKeys.nextElement();
+            
+            if (sModule.equals(key.replaceAll("\\*", ""))) {
+            	String[] datasourceInfo = bundle.getString(key).split(",");
+            	return datasourceInfo[0];
+            }
+        }
+        return null;
+    }
 }
