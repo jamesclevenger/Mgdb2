@@ -70,6 +70,8 @@ public class PlinkImport extends AbstractGenotypeImport {
 	
 	private boolean fImportUnknownVariants = false;
 	
+    public boolean m_fCloseContextOpenAfterImport = false;
+    
 	/**
 	 * Instantiates a new PLINK import.
 	 */
@@ -86,6 +88,22 @@ public class PlinkImport extends AbstractGenotypeImport {
 	{
 		m_processID = processID;
 	}
+
+	/**
+     * Instantiates a new vcf import.
+     */
+    public PlinkImport(boolean fCloseContextOpenAfterImport) {
+        this();
+    	m_fCloseContextOpenAfterImport = fCloseContextOpenAfterImport;
+    }
+
+    /**
+     * Instantiates a new vcf import.
+     */
+    public PlinkImport(String processID, boolean fCloseContextOpenAfterImport) {
+        this(processID);
+    	m_fCloseContextOpenAfterImport = fCloseContextOpenAfterImport;
+    }
 
 	/**
 	 * The main method.
@@ -224,7 +242,7 @@ public class PlinkImport extends AbstractGenotypeImport {
 		}
 		finally
 		{
-			if (ctx != null)
+			if (m_fCloseContextOpenAfterImport && ctx != null)
 				ctx.close();
 		}
 	}

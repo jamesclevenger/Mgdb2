@@ -58,6 +58,8 @@ public class HapMapImport extends AbstractGenotypeImport {
 
 	/** The Constant LOG. */
 	private static final Logger LOG = Logger.getLogger(VariantData.class);
+	
+    public boolean m_fCloseContextOpenAfterImport = false;
 
 	/** The m_process id. */
 	private String m_processID;
@@ -96,6 +98,23 @@ public class HapMapImport extends AbstractGenotypeImport {
 	{
 		m_processID = processID;
 	}
+	
+	/**
+     * Instantiates a new vcf import.
+     */
+    public HapMapImport(boolean fCloseContextOpenAfterImport) {
+        this();
+    	m_fCloseContextOpenAfterImport = fCloseContextOpenAfterImport;
+    }
+
+    /**
+     * Instantiates a new vcf import.
+     */
+    public HapMapImport(String processID, boolean fCloseContextOpenAfterImport) {
+        this(processID);
+    	m_fCloseContextOpenAfterImport = fCloseContextOpenAfterImport;
+    }
+
 
 	/**
 	 * The main method.
@@ -306,7 +325,7 @@ public class HapMapImport extends AbstractGenotypeImport {
 		}
 		finally
 		{
-			if (ctx != null)
+			if (m_fCloseContextOpenAfterImport && ctx != null)
 				ctx.close();
 
 			reader.close();

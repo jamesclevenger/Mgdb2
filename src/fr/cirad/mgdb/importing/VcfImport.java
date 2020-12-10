@@ -78,6 +78,8 @@ public class VcfImport extends AbstractGenotypeImport {
     public static final String ANNOTATION_FIELDNAME_ANN = "ANN";
     public static final String ANNOTATION_FIELDNAME_CSQ = "CSQ";
     
+    public boolean m_fCloseContextOpenAfterImport = false;
+    
     /**
      * The m_process id.
      */
@@ -89,6 +91,14 @@ public class VcfImport extends AbstractGenotypeImport {
     public VcfImport() {
         this("random_process_" + System.currentTimeMillis() + "_" + Math.random());
     }
+    
+    /**
+     * Instantiates a new vcf import.
+     */
+    public VcfImport(boolean fCloseContextOpenAfterImport) {
+        this();
+    	m_fCloseContextOpenAfterImport = fCloseContextOpenAfterImport;
+    }
 
     /**
      * Instantiates a new vcf import.
@@ -99,6 +109,14 @@ public class VcfImport extends AbstractGenotypeImport {
         m_processID = processID;
     }
 
+    /**
+     * Instantiates a new vcf import.
+     */
+    public VcfImport(String processID, boolean fCloseContextOpenAfterImport) {
+        this(processID);
+    	m_fCloseContextOpenAfterImport = fCloseContextOpenAfterImport;
+    }
+    
     /**
      * The main method.
      *
@@ -356,7 +374,7 @@ public class VcfImport extends AbstractGenotypeImport {
         {
         	currentlyImportedProjects.remove(sModule);
 
-            if (ctx != null)
+			if (m_fCloseContextOpenAfterImport && ctx != null)
                 ctx.close();
 
             reader.close();
