@@ -18,12 +18,23 @@ package fr.cirad.mgdb.exporting;
 
 import java.util.List;
 
+import org.bson.Document;
+
+import com.mongodb.client.model.Collation;
+
+import fr.cirad.mgdb.model.mongo.maintypes.VariantData;
+import fr.cirad.mgdb.model.mongo.subtypes.AbstractVariantData;
+import fr.cirad.mgdb.model.mongo.subtypes.ReferencePosition;
+
 /**
  * The Interface IExportHandler.
  */
 public interface IExportHandler
 {
-	
+	static final Document projectionDoc = new Document(VariantData.FIELDNAME_REFERENCE_POSITION + "." + ReferencePosition.FIELDNAME_SEQUENCE, 1).append(VariantData.FIELDNAME_REFERENCE_POSITION + "." + ReferencePosition.FIELDNAME_START_SITE, 1);	
+	static final Document sortDoc = new Document(AbstractVariantData.FIELDNAME_REFERENCE_POSITION + "." + ReferencePosition.FIELDNAME_SEQUENCE, 1).append(AbstractVariantData.FIELDNAME_REFERENCE_POSITION + "." + ReferencePosition.FIELDNAME_START_SITE, 1);
+	static final Collation collationObj = Collation.builder().numericOrdering(true).locale("en_US").build();
+    
 	/** The Constant nMaxChunkSizeInMb. */
 	static final int nMaxChunkSizeInMb = 5;
 	

@@ -20,8 +20,10 @@ import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileReader;
 import java.io.FileWriter;
+import java.net.HttpURLConnection;
 import java.net.SocketException;
 import java.net.URI;
+import java.net.URL;
 import java.net.URLEncoder;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -51,7 +53,7 @@ import org.springframework.data.mongodb.core.query.Query;
 import org.springframework.data.mongodb.core.query.Update;
 
 import com.mongodb.BasicDBObject;
-import com.mongodb.WriteResult;
+import com.mongodb.client.result.DeleteResult;
 
 import fr.cirad.io.brapi.BrapiClient;
 import fr.cirad.io.brapi.BrapiClient.Pager;
@@ -347,12 +349,12 @@ public class BrapiImport extends AbstractGenotypeImport {
 					{
 						Collection<String> skippedVariants = CollectionUtils.disjunction(variantsToQueryGenotypesFor, variantsToCreate.keySet());
 //						List<Comparable> fixedSkippedVariantIdList = skippedVariants.stream().map(str -> ObjectId.isValid(str) ? new ObjectId(str) : str).collect(Collectors.toList());
-						project.getVariantTypes().addAll(mongoTemplate.getCollection(mongoTemplate.getCollectionName(VariantData.class)).distinct(VariantData.FIELDNAME_TYPE, new Query(Criteria.where("_id").in(skippedVariants)).getQueryObject()));
+						project.getVariantTypes().addAll(mongoTemplate.getCollection(mongoTemplate.getCollectionName(VariantData.class)).distinct(VariantData.FIELDNAME_TYPE, new Query(Criteria.where("_id").in(skippedVariants)).getQueryObject(), String.class).into(new ArrayList()));
 					}
 					catch (Exception e)
 					{	// on big DBs querying just the ones we need leads to a query > 16 Mb
 						LOG.warn("DB too big for efficiently finding distinct variant types", e);
-						project.getVariantTypes().addAll(mongoTemplate.getCollection(mongoTemplate.getCollectionName(VariantData.class)).distinct(VariantData.FIELDNAME_TYPE));
+						project.getVariantTypes().addAll(mongoTemplate.getCollection(mongoTemplate.getCollectionName(VariantData.class)).distinct(VariantData.FIELDNAME_TYPE, String.class).into(new ArrayList()));
 					}
 				}
 				
@@ -383,7 +385,7 @@ public class BrapiImport extends AbstractGenotypeImport {
 			{
 				List<String> profiles = germplasmToProfilesMap.get(gp);
 				if (profiles.size() > 1)
-					throw new Exception("Only one markerprofile per germplasm is allowed when importing a run. Found " + profiles.size() + " for " + gp);
+					throw new Exception("Only one markerprofile per germplasm is supported when importing a run. Found " + profiles.size() + " for " + gp);
 				profileToGermplasmMap.put(profiles.get(0), gp);
 			}
 
@@ -415,7 +417,7 @@ public class BrapiImport extends AbstractGenotypeImport {
 				String extractId = statusList != null && statusList.size() > 0 && statusList.get(0).getCode().equals("asynchid") ? statusList.get(0).getMessage() : null;
 				
 				while (genotypePager.isPaging())
-				{	
+				{
 					Call<BrapiBaseResource<Object>> statusCall = service.getAlleleMatrixStatus(extractId);
 
 					// Make an initial call to check the status on the resource
@@ -455,7 +457,21 @@ public class BrapiImport extends AbstractGenotypeImport {
 						progress.moveToNextStep();
 						
 						URI uri = new URI(statusPoll.getMetadata().getDatafiles().get(0));
-						FileUtils.copyURLToFile(uri.toURL(), tempFile);
+						HttpURLConnection httpConn = ((HttpURLConnection) uri.toURL().openConnection());
+						httpConn.setInstanceFollowRedirects(true);
+						
+						if (Arrays.asList(HttpURLConnection.HTTP_OK, HttpURLConnection.HTTP_MOVED_PERM, HttpURLConnection.HTTP_MOVED_TEMP).contains(httpConn.getResponseCode()) && HttpURLConnection.HTTP_OK != httpConn.getResponseCode())
+						{	// there's a redirection: try and handle it
+							String sNewUrl = httpConn.getHeaderField("Location");
+							if (sNewUrl == null || !sNewUrl.toLowerCase().startsWith("http"))
+							{
+								progress.setError("Unable to handle redirected URL for TSV file (http code " + httpConn.getResponseCode() + ")");
+								break;
+							}
+							else
+								httpConn = ((HttpURLConnection) new URL(sNewUrl).openConnection());
+						}
+				        FileUtils.copyInputStreamToFile(httpConn.getInputStream(), tempFile);
 
 						if (existingVariantIDs.isEmpty())
 							existingVariantIDs = buildSynonymToIdMapForExistingVariants(mongoTemplate, true);	// update it
@@ -570,11 +586,11 @@ public class BrapiImport extends AbstractGenotypeImport {
 			}
 			
 	        // last, remove any variants that have no associated alleles
-	        WriteResult wr = mongoTemplate.remove(new Query(Criteria.where(VariantData.FIELDNAME_KNOWN_ALLELE_LIST + ".0").exists(false)), VariantData.class);
-	        if (wr.getN() > 0)
+	        DeleteResult dr = mongoTemplate.remove(new Query(Criteria.where(VariantData.FIELDNAME_KNOWN_ALLELE_LIST + ".0").exists(false)), VariantData.class);
+	        if (dr.getDeletedCount() > 0)
 	        {
-	        	LOG.debug("Removed " + wr.getN() + " variants without known alleles");
-	        	count -= wr.getN();
+	        	LOG.debug("Removed " + dr.getDeletedCount() + " variants without known alleles");
+	        	count -= dr.getDeletedCount();
 	        	if (count == 0)
 	        		LOG.error("Unable to get alleles for this dataset's variants (database " + sModule + ")");
 	        }
@@ -627,7 +643,7 @@ public class BrapiImport extends AbstractGenotypeImport {
 					throw new Exception("DATASOURCE '" + sModule + "' does not exist!");
 			}
 			
-			mongoTemplate.getDb().command(new BasicDBObject("profile", 0));	// disable profiling
+			mongoTemplate.getDb().runCommand(new BasicDBObject("profile", 0));	// disable profiling
 			
 			// Find out ploidy level
 			in.readLine();	// skip header line
@@ -696,6 +712,9 @@ public class BrapiImport extends AbstractGenotypeImport {
 				progress.setCurrentStepProgress((int) ++lineCount);
 			}
 			while (sLine != null);
+			
+			if (nVariantSaveCount == 0)
+				throw new Exception("No variation data could be imported. Please check the logs.");
 
             project.getSequences().addAll(affectedSequences);
 			

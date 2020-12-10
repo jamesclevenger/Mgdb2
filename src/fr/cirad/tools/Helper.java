@@ -29,8 +29,10 @@ import java.util.List;
 
 import org.apache.commons.lang.StringUtils;
 import org.apache.log4j.Logger;
+import org.bson.Document;
+import org.springframework.data.mongodb.core.MongoTemplate;
 
-import com.mongodb.DBObject;
+import fr.cirad.tools.mongo.MongoTemplateManager;
 
 /**
  * The Class Helper.
@@ -263,18 +265,19 @@ public class Helper {
     /**
      * Read possibly nested field.
      *
-     * @param record the record
+     * @param doc the record
      * @param fieldPath the field path
+     * @param listFieldSeparator separator to use for list fields
      * @return the object
      */
-    public static Object readPossiblyNestedField(DBObject record, String fieldPath) {
-        DBObject slidingRecord = record;
+    public static Object readPossiblyNestedField(Document doc, String fieldPath, String listFieldSeparator) {
+    	Document slidingRecord = doc;
         String[] splitFieldName = fieldPath.split("\\.");
         Object o = null, result;
         for (String s : splitFieldName) {
             o = slidingRecord.get(s);
-            if (o != null && DBObject.class.isAssignableFrom(o.getClass())) {
-                slidingRecord = ((DBObject) o);
+            if (o != null && Document.class.isAssignableFrom(o.getClass())) {
+                slidingRecord = ((Document) o);
             }
         }
         if (o != null && List.class.isAssignableFrom(o.getClass())) {
@@ -286,7 +289,7 @@ public class Helper {
                     ((ArrayList<Object>) result).add(o2);
                 }
             }
-            result = StringUtils.join(((ArrayList<Object>) result), "; ");
+            result = StringUtils.join(((ArrayList<Object>) result), listFieldSeparator);
         } else {
             result = o;
         }
@@ -316,4 +319,21 @@ public class Helper {
         }
         return buf.toString();
     }
+    
+    public static long estimDocCount(MongoTemplate mongoTemplate, String collName) {
+    	return mongoTemplate.getCollection(collName).estimatedDocumentCount();
+    }
+    
+    public static long estimDocCount(MongoTemplate mongoTemplate, Class documentClass) {
+    	return estimDocCount(mongoTemplate, mongoTemplate.getCollectionName(documentClass));
+    }
+    
+    public static long estimDocCount(String sModule,String collName) {
+    	return estimDocCount(MongoTemplateManager.get(sModule), collName);
+    }
+    
+    public static long estimDocCount(String sModule, Class documentClass) {
+    	return estimDocCount(MongoTemplateManager.get(sModule), documentClass);
+    }
+
 }

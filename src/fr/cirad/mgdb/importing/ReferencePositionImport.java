@@ -30,7 +30,7 @@ import org.springframework.data.mongodb.core.query.Criteria;
 import org.springframework.data.mongodb.core.query.Query;
 import org.springframework.data.mongodb.core.query.Update;
 
-import com.mongodb.WriteResult;
+import com.mongodb.client.result.UpdateResult;
 
 import fr.cirad.mgdb.model.mongo.maintypes.VariantData;
 import fr.cirad.mgdb.model.mongo.subtypes.ReferencePosition;
@@ -168,8 +168,8 @@ public class ReferencePositionImport {
 									q = new Query(Criteria.where("_id").is(cells.get(nMarkerNameColNum))).addCriteria(Criteria.where(VariantData.FIELDNAME_VERSION).is(variant.getVersion()));
 									try
 									{
-										WriteResult wr = mongoTemplate.updateFirst(q, new Update().set(VariantData.FIELDNAME_REFERENCE_POSITION, chromPos), VariantData.class);
-										if (wr.getN() == 0)
+										UpdateResult ur = mongoTemplate.updateFirst(q, new Update().set(VariantData.FIELDNAME_REFERENCE_POSITION, chromPos), VariantData.class);
+										if (ur.getModifiedCount() == 0)
 											throw new Exception("Not written: " + cells.get(nMarkerNameColNum) + " (" + nVariantIndex + ")");
 										else if (nVariantIndex % 5000 == 0)
 											LOG.info(nVariantIndex + " variants processed for file n." + (i+1));

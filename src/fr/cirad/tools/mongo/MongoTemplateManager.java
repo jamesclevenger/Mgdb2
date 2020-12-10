@@ -38,26 +38,19 @@ import java.util.TreeSet;
 
 import org.apache.log4j.Logger;
 import org.springframework.beans.BeansException;
-import org.springframework.beans.factory.NoSuchBeanDefinitionException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.ApplicationContextAware;
 import org.springframework.core.io.ClassPathResource;
-import org.springframework.data.authentication.UserCredentials;
 import org.springframework.data.mongodb.core.MongoTemplate;
-import org.springframework.data.mongodb.core.SimpleMongoDbFactory;
 import org.springframework.data.mongodb.core.convert.MappingMongoConverter;
 import org.springframework.data.mongodb.core.mapping.Document;
 import org.springframework.stereotype.Component;
 
 import com.mongodb.BasicDBObject;
-import com.mongodb.DBCollection;
-import com.mongodb.Mongo;
-import com.mongodb.MongoClient;
-import com.mongodb.MongoClientOptions;
-import com.mongodb.MongoCredential;
-import com.mongodb.MongoTimeoutException;
-import com.mongodb.ServerAddress;
+import com.mongodb.client.MongoClient;
+import com.mongodb.client.MongoCollection;
+import com.mongodb.connection.ServerDescription;
 
 import fr.cirad.tools.AppConfig;
 import fr.cirad.tools.Helper;
@@ -104,7 +97,12 @@ public class MongoTemplateManager implements ApplicationContextAware {
     static private Map<String, MongoClient> mongoClients = new HashMap<>();
 
     /**
-     * The resource.
+     * The resource bundle
+     */
+    static private ResourceBundle dataSourceBundle;
+
+    /**
+     * The datasource resource (properties filename)
      */
     static private String resource = "datasources";
 
@@ -132,6 +130,8 @@ public class MongoTemplateManager implements ApplicationContextAware {
      * The app config.
      */
     @Autowired private AppConfig appConfig;
+    
+    private static final List<String> addressesConsideredLocal = Arrays.asList("127.0.0.1", "localhost");
 
     /**
      * The resource control.
@@ -159,10 +159,9 @@ public class MongoTemplateManager implements ApplicationContextAware {
 
         // we do this cleanup here because it only happens when the webapp is being (re)started
         for (String sModule : templateMap.keySet()) {
-
+        	List<ServerDescription> serverDescriptions = mongoClients.get(getModuleHost(sModule)).getClusterDescription().getServerDescriptions();
             MongoTemplate mongoTemplate = templateMap.get(sModule);
-            String connectPoint = mongoTemplate.getDb().getMongo().getConnectPoint();
-            if (authorizedCleanupServers == null || authorizedCleanupServers.contains(connectPoint)) {
+            if (authorizedCleanupServers == null || (serverDescriptions.size() == 1 && authorizedCleanupServers.contains(serverDescriptions.get(0).getAddress().toString()))) {
                 for (String collName : mongoTemplate.getCollectionNames()) {
                     if (collName.startsWith(TEMP_COLL_PREFIX)) {
                         mongoTemplate.dropCollection(collName);
@@ -197,12 +196,10 @@ public class MongoTemplateManager implements ApplicationContextAware {
     static public void clearExpiredDatabases() {
         try
         {
-            ResourceBundle bundle = ResourceBundle.getBundle(resource, resourceControl);
-            Enumeration<String> bundleKeys = bundle.getKeys();
-
+            Enumeration<String> bundleKeys = dataSourceBundle.getKeys();
             while (bundleKeys.hasMoreElements()) {
 				String key = bundleKeys.nextElement();
-				String[] datasourceInfo = bundle.getString(key).split(",");
+				String[] datasourceInfo = dataSourceBundle.getString(key).split(",");
 				
 				if (datasourceInfo.length < 2) {
 				    LOG.error("Unable to deal with datasource info for key " + key + ". Datasource definition requires at least 2 comma-separated strings: mongo host bean name (defined in Spring application context) and database name");
@@ -234,34 +231,13 @@ public class MongoTemplateManager implements ApplicationContextAware {
         publicDatabases.clear();
         hiddenDatabases.clear();
         try {
-            ResourceBundle bundle = ResourceBundle.getBundle(resource, resourceControl);
-            Map<String, Mongo> mongoHosts = applicationContext.getBeansOfType(Mongo.class);
+            mongoClients = applicationContext.getBeansOfType(MongoClient.class);
 
-            for (String sHost : mongoHosts.keySet())
-	            try
-	            {
-	                Mongo host = mongoHosts.get(sHost);
-	                ServerAddress serverAddress = new ServerAddress(host.getAddress().getHost(), host.getAddress().getPort());
-	                UserCredentials uc = null;
-	                try {
-	                    uc = applicationContext.getBean(sHost + "Credentials", UserCredentials.class);
-	                } catch (NoSuchBeanDefinitionException nsbde) {
-	                    LOG.warn("No user credentials configured for host " + sHost + "! You might want to create a bean UserCredentials named " + sHost + "Credentials");
-	                }
-	                MongoClientOptions mco = new MongoClientOptions.Builder()/*.maxConnectionIdleTime(0).maxConnectionLifeTime(0)*/.build();	                
-	                MongoClient client = uc != null ? new MongoClient(serverAddress, MongoCredential.createCredential(uc.getUsername(), "admin", uc.getPassword().toCharArray()), mco) : new MongoClient(serverAddress, mco);
-	                mongoClients.put(sHost, client);
-	            }
-	            catch (MongoTimeoutException mte)
-	            {
-	                LOG.warn("Unable to connect to host " + sHost, mte);
-	            }
-            Enumeration<String> bundleKeys = bundle.getKeys();
-
+            dataSourceBundle = ResourceBundle.getBundle(resource, resourceControl);
+            Enumeration<String> bundleKeys = dataSourceBundle.getKeys();
             while (bundleKeys.hasMoreElements()) {
-
                 String key = bundleKeys.nextElement();
-                String[] datasourceInfo = bundle.getString(key).split(",");
+                String[] datasourceInfo = dataSourceBundle.getString(key).split(",");
 
                 if (datasourceInfo.length < 2) {
                     LOG.error("Unable to deal with datasource info for key " + key + ". Datasource definition requires at least 2 comma-separated strings: mongo host bean name (defined in Spring application context) and database name");
@@ -270,8 +246,7 @@ public class MongoTemplateManager implements ApplicationContextAware {
 
                 boolean fHidden = key.endsWith("*"), fPublic = key.startsWith("*");
                 String cleanKey = key.replaceAll("\\*", "");
-                if (cleanKey.length() == 0)
-                {
+                if (cleanKey.length() == 0) {
                 	LOG.warn("Skipping unnamed datasource");
                 	continue;
                 }
@@ -281,36 +256,20 @@ public class MongoTemplateManager implements ApplicationContextAware {
                     continue;
                 }
 
-                try
-                {
+                try {
                 	if (datasourceInfo.length > 2)
                 		setTaxon(cleanKey, datasourceInfo[2]);
                     templateMap.put(cleanKey, createMongoTemplate(datasourceInfo[0], datasourceInfo[1]));
-                    if (fPublic) {
+                    if (fPublic)
                         publicDatabases.add(cleanKey);
-                    }
-                    if (fHidden) {
+                    if (fHidden)
                         hiddenDatabases.add(cleanKey);
-                    }
                     LOG.info("Datasource " + cleanKey + " loaded as " + (fPublic ? "public" : "private") + " and " + (fHidden ? "hidden" : "exposed"));
-
-//                    if (datasourceInfo[1].contains(EXPIRY_PREFIX)) {
-//                        long expiryDate = Long.valueOf((datasourceInfo[1].substring(datasourceInfo[1].lastIndexOf(EXPIRY_PREFIX) + EXPIRY_PREFIX.length())));
-//                        if (System.currentTimeMillis() > expiryDate) {
-//
-//                            removeDataSource(key, true);
-//                            LOG.info("Removed expired datasource entry: " + key);
-//                            LOG.info("Dropped expired temporary database: " + datasourceInfo[1]);
-//                        }
-//                    }
-
                 }
-                catch (UnknownHostException e)
-                {
+                catch (UnknownHostException e) {
                     LOG.warn("Unable to create MongoTemplate for module " + cleanKey + " (no such host)");
                 }
-                catch (Exception e)
-                {
+                catch (Exception e) {
                     LOG.warn("Unable to create MongoTemplate for module " + cleanKey, e);
                 }
             }
@@ -327,16 +286,14 @@ public class MongoTemplateManager implements ApplicationContextAware {
      * @return the mongo template
      * @throws Exception the exception
      */
-    static public MongoTemplate createMongoTemplate(String sHost, String sDbName) throws Exception {
+    public static MongoTemplate createMongoTemplate(String sHost, String sDbName) throws Exception {
         MongoClient client = mongoClients.get(sHost);
-        if (client == null) {
-            throw new UnknownHostException("Unknown host: " + sHost);
-        }
+        if (client == null)
+            throw new IOException("Unknown host: " + sHost);
 
-        SimpleMongoDbFactory factory = new SimpleMongoDbFactory(client, sDbName);
-        MongoTemplate mongoTemplate = new MongoTemplate(factory);
+        MongoTemplate mongoTemplate = new MongoTemplate(client, sDbName);
         ((MappingMongoConverter) mongoTemplate.getConverter()).setMapKeyDotReplacement(DOT_REPLACEMENT_STRING);
-		mongoTemplate.getDb().command(new BasicDBObject("profile", 0));
+		mongoTemplate.getDb().runCommand(new BasicDBObject("profile", 0));
 
         return mongoTemplate;
     }
@@ -359,8 +316,7 @@ public class MongoTemplateManager implements ApplicationContextAware {
      */
     synchronized static public boolean saveOrUpdateDataSource(ModuleAction action, String sModule, boolean fPublic, boolean fHidden, String sHost, String ncbiTaxonIdNameAndSpecies, Long expiryDate) throws Exception
     {	// as long as we keep all write operations in a single synchronized method, we should be safe
-    	if (get(sModule) == null)
-    	{
+    	if (get(sModule) == null) {
     		if (!action.equals(ModuleAction.CREATE))
     			throw new Exception("Module " + sModule + " does not exist!");
     	}
@@ -488,7 +444,7 @@ public class MongoTemplateManager implements ApplicationContextAware {
         	saveOrUpdateDataSource(ModuleAction.DELETE, key, false, false, null, null, null);	// only this unique synchronized method may write to file safely
 
             if (fAlsoDropDatabase)
-                templateMap.get(key).getDb().dropDatabase();
+                templateMap.get(key).getDb().drop();
             templateMap.remove(key);
             publicDatabases.remove(key);
             hiddenDatabases.remove(key);
@@ -551,7 +507,7 @@ public class MongoTemplateManager implements ApplicationContextAware {
     	if (token == null)
     		return;
     	
-        DBCollection tmpColl;
+        MongoCollection<org.bson.Document> tmpColl;
         String tempCollName = MongoTemplateManager.TEMP_COLL_PREFIX + Helper.convertToMD5(token);
         for (String module : MongoTemplateManager.getTemplateMap().keySet()) {
             // drop all temp collections associated to this token
@@ -669,17 +625,23 @@ public class MongoTemplateManager implements ApplicationContextAware {
 	}
 	
     public static String getModuleHost(String sModule) {
-        ResourceBundle bundle = ResourceBundle.getBundle(resource, resourceControl);
-        mongoClients = applicationContext.getBeansOfType(MongoClient.class);
-        Enumeration<String> bundleKeys = bundle.getKeys();
+        Enumeration<String> bundleKeys = dataSourceBundle.getKeys();
         while (bundleKeys.hasMoreElements()) {
             String key = bundleKeys.nextElement();
             
             if (sModule.equals(key.replaceAll("\\*", ""))) {
-            	String[] datasourceInfo = bundle.getString(key).split(",");
+            	String[] datasourceInfo = dataSourceBundle.getString(key).split(",");
             	return datasourceInfo[0];
             }
         }
         return null;
+    }
+    
+    public static boolean isModuleOnLocalHost(String sModule) {
+    	List<ServerDescription> descs = mongoClients.get(getModuleHost(sModule)).getClusterDescription().getServerDescriptions();
+    	for (ServerDescription desc : descs)
+    		if (!addressesConsideredLocal.contains(desc.getAddress().getHost()))
+    			return false;
+    	return true;
     }
 }

@@ -17,22 +17,17 @@
 package fr.cirad.mgdb.model.mongo.maintypes;
 
 import java.util.ArrayList;
-//import java.util.Collection;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.TreeMap;
 import java.util.TreeSet;
 
-import org.apache.log4j.Logger;
 import org.springframework.data.annotation.Id;
 import org.springframework.data.annotation.TypeAlias;
 import org.springframework.data.mongodb.core.mapping.Document;
 import org.springframework.data.mongodb.core.mapping.Field;
-//
-//import fr.cirad.mgdb.model.mongo.subtypes.GenotypingSample;
-//import fr.cirad.mgdb.model.mongo.subtypes.SampleId;
+
 import fr.cirad.tools.AlphaNumericComparator;
 
 /**
@@ -41,21 +36,10 @@ import fr.cirad.tools.AlphaNumericComparator;
 @Document(collection = "projects")
 @TypeAlias("GP")
 public class GenotypingProject {
-
-    /**
-     * The Constant LOG.
-     */
-    private static final Logger LOG = Logger.getLogger(GenotypingProject.class);
-
     /**
      * The Constant FIELDNAME_NAME.
      */
     public final static String FIELDNAME_NAME = "nm";
-
-    /**
-     * The Constant FIELDNAME_OWNER.
-     */
-    public final static String FIELDNAME_OWNER = "ow";
 
     /**
      * The Constant FIELDNAME_TYPE.
@@ -134,12 +118,6 @@ public class GenotypingProject {
      */
     @Field(FIELDNAME_TYPE)
     private String type;
-
-    /**
-     * The owner.
-     */
-    @Field(FIELDNAME_OWNER)
-    private String owner;
 
     /**
      * The description.
@@ -242,24 +220,6 @@ public class GenotypingProject {
      */
     public void setOrigin(int origin) {
         this.origin = origin;
-    }
-
-    /**
-     * Gets the known alleles.
-     *
-     * @return the known alleles
-     */
-    public String getKnownAlleles() {
-        return owner;
-    }
-
-    /**
-     * Sets the known alleles.
-     *
-     * @param owner the new known alleles
-     */
-    public void setKnownAlleles(String owner) {
-        this.owner = owner;
     }
 
     /**
@@ -371,24 +331,6 @@ public class GenotypingProject {
      */
     public void setAdditionalInfo(HashMap<String, Comparable> additionalInfo) {
         this.additionalInfo = additionalInfo;
-    }
-
-    /**
-     * Gets the owner.
-     *
-     * @return the owner
-     */
-    public String getOwner() {
-        return owner;
-    }
-
-    /**
-     * Sets the owner.
-     *
-     * @param owner the new owner
-     */
-    public void setOwner(String owner) {
-        this.owner = owner;
     }
 
     /**

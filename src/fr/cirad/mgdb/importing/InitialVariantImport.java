@@ -125,7 +125,7 @@ public class InitialVariantImport {
 					throw new Exception("DATASOURCE '" + args[0] + "' is not supported!");
 			}
 
-			if (mongoTemplate.count(null, VariantData.class) > 0)
+			if (Helper.estimDocCount(mongoTemplate,VariantData.class) > 0)
 				throw new Exception("There are already some variants in this database!");
 			
 			long before = System.currentTimeMillis();

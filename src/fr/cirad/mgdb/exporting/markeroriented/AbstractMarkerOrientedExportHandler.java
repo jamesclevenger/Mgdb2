@@ -27,11 +27,12 @@ import java.util.Map;
 import java.util.TreeMap;
 
 import org.apache.log4j.Logger;
+import org.bson.Document;
 import org.springframework.beans.factory.config.BeanDefinition;
 import org.springframework.context.annotation.ClassPathScanningCandidateComponentProvider;
 import org.springframework.core.type.filter.AssignableTypeFilter;
 
-import com.mongodb.DBCursor;
+import com.mongodb.client.MongoCollection;
 
 import fr.cirad.mgdb.exporting.IExportHandler;
 import fr.cirad.mgdb.model.mongo.maintypes.GenotypingSample;
@@ -57,7 +58,8 @@ public abstract class AbstractMarkerOrientedExportHandler implements IExportHand
 	 * @param sampleIDs1 the sample ids for group 1
 	 * @param sampleIDs2 the sample ids for group 2
 	 * @param progress the progress
-	 * @param markerCursor the marker cursor
+	 * @param varColl the variant collection (main or temp)
+	 * @param varQuery query to apply on varColl
 	 * @param markerSynonyms the marker synonyms
 	 * @param nMinimumReadDepth the n minimum read depth
 	 * @param annotationFieldThresholds the annotation field thresholds for group 1
@@ -66,7 +68,7 @@ public abstract class AbstractMarkerOrientedExportHandler implements IExportHand
 	 * @param readyToExportFiles files to export along with the genotyping data
 	 * @throws Exception the exception
 	 */
-	abstract public void exportData(OutputStream outputStream, String sModule, Collection<GenotypingSample> samples1, Collection<GenotypingSample> samples2, ProgressIndicator progress, DBCursor markerCursor, Map<String, String> markerSynonyms, HashMap<String, Float> annotationFieldThresholds, HashMap<String, Float> annotationFieldThresholds2, List<GenotypingSample> samplesToExport, Map<String, InputStream> readyToExportFiles) throws Exception;
+	abstract public void exportData(OutputStream outputStream, String sModule, Collection<GenotypingSample> samples1, Collection<GenotypingSample> samples2, ProgressIndicator progress, MongoCollection<Document> varColl, Document varQuery, Map<String, String> markerSynonyms, HashMap<String, Float> annotationFieldThresholds, HashMap<String, Float> annotationFieldThresholds2, List<GenotypingSample> samplesToExport, Map<String, InputStream> readyToExportFiles) throws Exception;
 
 //	/**
 //	 * Gets the individuals from samples.

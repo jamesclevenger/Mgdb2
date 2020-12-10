@@ -177,7 +177,7 @@ public class VcfImport extends AbstractGenotypeImport {
                 m_processID = "IMPORT__" + sModule + "__" + sProject + "__" + sRun + "__" + System.currentTimeMillis();
             }
 
-            mongoTemplate.getDb().command(new BasicDBObject("profile", 0));	// disable profiling
+            mongoTemplate.getDb().runCommand(new BasicDBObject("profile", 0));	// disable profiling
             GenotypingProject project = mongoTemplate.findOne(new Query(Criteria.where(GenotypingProject.FIELDNAME_NAME).is(sProject)), GenotypingProject.class);
             
             Iterator<VariantContext> variantIterator = reader.iterator();

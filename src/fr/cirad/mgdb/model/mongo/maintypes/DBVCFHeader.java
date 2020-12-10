@@ -339,18 +339,17 @@ public class DBVCFHeader
 	/**
 	 * From db object.
 	 *
-	 * @param dbHeader the db header
+	 * @param document the db header
 	 * @return the DBVCF header
 	 */
-	static public DBVCFHeader fromDBObject(DBObject dbHeader)
+	static public DBVCFHeader fromDocument(org.bson.Document document)
 	{
 		DBVCFHeader header = new DBVCFHeader();
-		DBObject idDbObj = (DBObject) dbHeader.get("_id");
+		org.bson.Document idDbObj = (org.bson.Document) document.get("_id");
 		header.setId(new VcfHeaderId((Integer) idDbObj.get(VcfHeaderId.FIELDNAME_PROJECT), (String) idDbObj.get(VcfHeaderId.FIELDNAME_RUN)));
-		Map map = dbHeader.toMap();
-		for (Object key : map.keySet())
+		for (Object key : document.keySet())
 		{
-			Object val = map.get(key);
+			Object val = document.get(key);
 			//System.out.println("-----" + key + ": " + map.get(key).getClass().getName() + "------");
 			if (java.lang.Boolean.class.equals(val.getClass()))
 			{
@@ -361,48 +360,48 @@ public class DBVCFHeader
 				else
 					LOG.info("Unable to deal with boolean header attribute: " + key);
 			}
-			else if (BasicDBObject.class.equals(val.getClass()))
+			else if (org.bson.Document.class.equals(val.getClass()))
 			{
 				if ("mInfoMetaData".equals(key))
-					for (String subKey : ((BasicDBObject) val).keySet())
+					for (String subKey : ((org.bson.Document) val).keySet())
 					{
-						BasicDBObject subVal = (BasicDBObject) ((BasicDBObject) val).get(subKey);
+						org.bson.Document subVal = (org.bson.Document) ((org.bson.Document) val).get(subKey);
 						VCFHeaderLineCount countType = VCFHeaderLineCount.valueOf(subVal.getString("countType"));
 						if (countType.equals(VCFHeaderLineCount.INTEGER))
-							header.getmInfoMetaData().put(subKey, new VCFInfoHeaderLine(subVal.getString("name"), subVal.getInt("count"), VCFHeaderLineType.valueOf(subVal.getString("type")), subVal.getString("description")));
+							header.getmInfoMetaData().put(subKey, new VCFInfoHeaderLine(subVal.getString("name"), subVal.getInteger("count"), VCFHeaderLineType.valueOf(subVal.getString("type")), subVal.getString("description")));
 						else
 							header.getmInfoMetaData().put(subKey, new VCFInfoHeaderLine(subVal.getString("name"), countType, VCFHeaderLineType.valueOf(subVal.getString("type")), subVal.getString("description")));
 					}
 				else if ("mFilterMetaData".equals(key))
-					for (String subKey : ((BasicDBObject) val).keySet())
+					for (String subKey : ((org.bson.Document) val).keySet())
 					{
-						BasicDBObject subVal = (BasicDBObject) ((BasicDBObject) ((BasicDBObject) val).get(subKey)).get("genericFields");
+						org.bson.Document subVal = (org.bson.Document) ((org.bson.Document) ((org.bson.Document) val).get(subKey)).get("genericFields");
 						header.getmFilterMetaData().put(subKey, new VCFFilterHeaderLine(subVal.getString("ID"), subVal.getString("Description")));
 					}
 				else if ("mFormatMetaData".equals(key))
-					for (String subKey : ((BasicDBObject) val).keySet())
+					for (String subKey : ((org.bson.Document) val).keySet())
 					{
-						BasicDBObject subVal = (BasicDBObject) ((BasicDBObject) val).get(subKey);
+						org.bson.Document subVal = (org.bson.Document) ((org.bson.Document) val).get(subKey);
 						VCFHeaderLineCount countType = VCFHeaderLineCount.valueOf(subVal.getString("countType"));
 						if (countType.equals(VCFHeaderLineCount.INTEGER))
-							header.getmFormatMetaData().put(subKey, new VCFFormatHeaderLine(subVal.getString("name"), subVal.getInt("count"), VCFHeaderLineType.valueOf(subVal.getString("type")), subVal.getString("description")));
+							header.getmFormatMetaData().put(subKey, new VCFFormatHeaderLine(subVal.getString("name"), subVal.getInteger("count"), VCFHeaderLineType.valueOf(subVal.getString("type")), subVal.getString("description")));
 						else
 							header.getmFormatMetaData().put(subKey, new VCFFormatHeaderLine(subVal.getString("name"), countType, VCFHeaderLineType.valueOf(subVal.getString("type")), subVal.getString("description")));
 					}
 				else if ("mOtherMetaData".equals(key))
-					for (String subKey : ((BasicDBObject) val).keySet())
+					for (String subKey : ((org.bson.Document) val).keySet())
 					{
-						BasicDBObject subVal = (BasicDBObject) ((BasicDBObject) val).get(subKey);
+						org.bson.Document subVal = (org.bson.Document) ((org.bson.Document) val).get(subKey);
 						header.getmOtherMetaData().put(subKey, new VCFHeaderLine(subVal.getString("mKey"), subVal.getString("mValue")));
 					}
 				else if ("mMetaData".equals(key))
-					for (String subKey : ((BasicDBObject) val).keySet())
+					for (String subKey : ((org.bson.Document) val).keySet())
 					{
-						BasicDBObject subVal = (BasicDBObject) ((BasicDBObject) ((BasicDBObject) val).get(subKey)).get("genericFields");
+						org.bson.Document subVal = (org.bson.Document) ((org.bson.Document) ((org.bson.Document) val).get(subKey)).get("genericFields");
 						header.getmMetaData().put(subKey, new VCFSimpleHeaderLine(subKey, subVal.getString("ID"), subVal.getString("Description")));
 					}
 				else if (!"_id".equals(key))
-					LOG.info("Unable to deal with BasicDBObject header attribute: " + key);
+					LOG.info("Unable to deal with org.bson.Document header attribute: " + key);
 			}
 		}
 		return header;

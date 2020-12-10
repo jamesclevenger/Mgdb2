@@ -22,13 +22,12 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentSkipListMap;
-import java.util.concurrent.atomic.AtomicInteger;
 
 import org.apache.log4j.Logger;
+import org.bson.Document;
 import org.springframework.data.mongodb.core.MongoTemplate;
 
-import com.mongodb.DBCursor;
-import com.mongodb.DBObject;
+import com.mongodb.client.MongoCursor;
 
 import fr.cirad.mgdb.exporting.markeroriented.AbstractMarkerOrientedExportHandler;
 import fr.cirad.mgdb.model.mongo.maintypes.GenotypingSample;
@@ -44,7 +43,7 @@ public class AsyncExportTool {
 	// This is a compromise: 3 seems to be enough for hand-coded variant oriented formats, VCF seems happy with 4, and individual oriented formats would probably benefit from 10 or more... make it dynamic?
     public static final int WRITING_QUEUE_CAPACITY = 4;
 
-	private DBCursor markerCursor;
+	private MongoCursor<Document> markerCursor;
 	private MongoTemplate mongoTemplate;
 	private int nQueryChunkSize;
 	private List<GenotypingSample> samples;
@@ -57,7 +56,7 @@ public class AsyncExportTool {
 	
 	private int nNumberOfChunks;
 
-	public AsyncExportTool(DBCursor markerCursor, int nTotalMarkerCount, int nQueryChunkSize, MongoTemplate mongoTemplate, List<GenotypingSample> samples, AbstractDataOutputHandler<Integer, LinkedHashMap<VariantData, Collection<VariantRunData>>> dataOutputHandler, ProgressIndicator progress) throws Exception
+	public AsyncExportTool(MongoCursor<Document> markerCursor, long nTotalMarkerCount, int nQueryChunkSize, MongoTemplate mongoTemplate, List<GenotypingSample> samples, AbstractDataOutputHandler<Integer, LinkedHashMap<VariantData, Collection<VariantRunData>>> dataOutputHandler, ProgressIndicator progress) throws Exception
 	{
 		if (!markerCursor.hasNext())
 			throw new Exception("markerCursor contains no data!");
@@ -101,7 +100,7 @@ public class AsyncExportTool {
 		List<Object> currentMarkers = new ArrayList<>();
 		while (markerCursor.hasNext() && (fStartingNewChunk || nLoadedMarkerCountInLoop%nQueryChunkSize != 0))
 		{
-			DBObject exportVariant = markerCursor.next();
+			Document exportVariant = markerCursor.next();
 			currentMarkers.add((Comparable) exportVariant.get("_id"));
 			nLoadedMarkerCountInLoop++;
 			fStartingNewChunk = false;
