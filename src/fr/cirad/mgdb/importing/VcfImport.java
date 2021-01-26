@@ -513,9 +513,6 @@ public class VcfImport extends AbstractGenotypeImport {
             List<String> gtAllelesAsStrings = genotype.getAlleles().stream().map(allele -> allele.getBaseString()).collect(Collectors.toList());
             
             String gtCode = VariantData.rebuildVcfFormatGenotype(knownAlleleList, gtAllelesAsStrings, isPhased, false);
-            if (gtCode == null)
-            	continue;
-
             if ("1/0".equals(gtCode))
             	gtCode = "0/1";	// convert to "0/1" so that MAF queries can work reliably
 
