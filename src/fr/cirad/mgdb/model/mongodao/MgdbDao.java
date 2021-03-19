@@ -35,6 +35,8 @@ import org.springframework.data.mongodb.core.query.Query;
 import com.mongodb.BasicDBObject;
 import com.mongodb.MongoCommandException;
 import com.mongodb.client.MongoCollection;
+import com.mongodb.client.model.Collation;
+import com.mongodb.client.model.IndexOptions;
 import com.mongodb.client.result.DeleteResult;
 
 import fr.cirad.mgdb.model.mongo.maintypes.CachedCount;
@@ -99,9 +101,8 @@ public class MgdbDao
 				throw mce;	// otherwise we have nothing to do because it already exists anyway
 		}
 		LOG.debug("Creating index on fields " + VariantData.FIELDNAME_REFERENCE_POSITION + "." + ReferencePosition.FIELDNAME_SEQUENCE + ", " + VariantData.FIELDNAME_REFERENCE_POSITION + "." + ReferencePosition.FIELDNAME_START_SITE + " of collection " + variantColl.getNamespace());
-		BasicDBObject variantCollIndexKeys = new BasicDBObject(VariantData.FIELDNAME_REFERENCE_POSITION + "." + ReferencePosition.FIELDNAME_SEQUENCE, 1);
-		variantCollIndexKeys.put(VariantData.FIELDNAME_REFERENCE_POSITION + "." + ReferencePosition.FIELDNAME_START_SITE, 1);
-		variantColl.createIndex(variantCollIndexKeys);
+		BasicDBObject variantCollIndexKeys = new BasicDBObject(VariantData.FIELDNAME_REFERENCE_POSITION + "." + ReferencePosition.FIELDNAME_SEQUENCE, 1).append(VariantData.FIELDNAME_REFERENCE_POSITION + "." + ReferencePosition.FIELDNAME_START_SITE, 1);
+		variantColl.createIndex(variantCollIndexKeys, new IndexOptions().collation(Collation.builder().locale("en_US").numericOrdering(true).build()));
 		LOG.debug("Creating index on field " + VariantRunData.SECTION_ADDITIONAL_INFO + "." + VariantRunData.FIELDNAME_ADDITIONAL_INFO_EFFECT_GENE + " of collection " + runColl.getNamespace());
 		runColl.createIndex(new BasicDBObject(VariantRunData.SECTION_ADDITIONAL_INFO + "." + VariantRunData.FIELDNAME_ADDITIONAL_INFO_EFFECT_GENE, 1));
 		LOG.debug("Creating index on field " + VariantRunData.SECTION_ADDITIONAL_INFO + "." + VariantRunData.FIELDNAME_ADDITIONAL_INFO_EFFECT_NAME + " of collection " + runColl.getNamespace());

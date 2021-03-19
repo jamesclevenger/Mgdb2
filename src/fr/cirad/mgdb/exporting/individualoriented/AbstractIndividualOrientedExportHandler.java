@@ -211,9 +211,9 @@ public abstract class AbstractIndividualOrientedExportHandler implements IExport
 		};
 
 		long markerCount = varColl.countDocuments(varQuery);
-		try (MongoCursor<Document> markerCursor = varColl.find(varQuery).projection(projectionDoc).sort(sortDoc).noCursorTimeout(true).collation(collationObj).batchSize(nQueryChunkSize).iterator()) {
-			AsyncExportTool syncExportTool = new AsyncExportTool(markerCursor, markerCount, nQueryChunkSize, mongoTemplate, samplesToExport, dataOutputHandler, progress);
-			syncExportTool.launch();
+		try (MongoCursor<Document> markerCursor = IExportHandler.getMarkerCursorWithCorrectCollation(varColl, varQuery, nQueryChunkSize)) {
+			AsyncExportTool asyncExportTool = new AsyncExportTool(markerCursor, markerCount, nQueryChunkSize, mongoTemplate, samplesToExport, dataOutputHandler, progress);
+			asyncExportTool.launch();
 	
 			while (progress.getCurrentStepProgress() < 100 && !progress.isAborted())
 				Thread.sleep(500);
@@ -224,7 +224,7 @@ public abstract class AbstractIndividualOrientedExportHandler implements IExport
 		
 		return files;
 	}
-	
+
 	/**
 	 * Gets the individual oriented export handlers.
 	 *

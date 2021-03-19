@@ -18,9 +18,16 @@ package fr.cirad.mgdb.exporting;
 
 import java.util.List;
 
+import org.apache.log4j.Logger;
 import org.bson.Document;
 
+import com.mongodb.BasicDBObject;
+import com.mongodb.MongoCommandException;
+import com.mongodb.MongoQueryException;
+import com.mongodb.client.MongoCollection;
+import com.mongodb.client.MongoCursor;
 import com.mongodb.client.model.Collation;
+import com.mongodb.client.model.IndexOptions;
 
 import fr.cirad.mgdb.model.mongo.maintypes.VariantData;
 import fr.cirad.mgdb.model.mongo.subtypes.AbstractVariantData;
@@ -31,6 +38,10 @@ import fr.cirad.mgdb.model.mongo.subtypes.ReferencePosition;
  */
 public interface IExportHandler
 {
+	
+	/** The Constant LOG. */
+	static final Logger LOG = Logger.getLogger(IExportHandler.class);
+	
 	static final Document projectionDoc = new Document(VariantData.FIELDNAME_REFERENCE_POSITION + "." + ReferencePosition.FIELDNAME_SEQUENCE, 1).append(VariantData.FIELDNAME_REFERENCE_POSITION + "." + ReferencePosition.FIELDNAME_START_SITE, 1);	
 	static final Document sortDoc = new Document(AbstractVariantData.FIELDNAME_REFERENCE_POSITION + "." + ReferencePosition.FIELDNAME_SEQUENCE, 1).append(AbstractVariantData.FIELDNAME_REFERENCE_POSITION + "." + ReferencePosition.FIELDNAME_START_SITE, 1);
 	static final Collation collationObj = Collation.builder().numericOrdering(true).locale("en_US").build();
@@ -89,4 +100,27 @@ public interface IExportHandler
 	 * @return the supported variant types
 	 */
 	public List<String> getSupportedVariantTypes();
+	
+	public static MongoCursor<Document> getMarkerCursorWithCorrectCollation(MongoCollection<Document> varColl, Document varQuery, int nQueryChunkSize) {
+		try {
+			return varColl.find(varQuery).projection(projectionDoc).sort(sortDoc).noCursorTimeout(true).collation(collationObj).batchSize(nQueryChunkSize).iterator();
+		}
+		catch (MongoQueryException mqe) {
+			if (mqe.getMessage().contains("Add an index")) {
+				LOG.info("Creating position index with collation en_US on variants collection");
+				
+				BasicDBObject indexKeys = new BasicDBObject(VariantData.FIELDNAME_REFERENCE_POSITION + "." + ReferencePosition.FIELDNAME_SEQUENCE, 1).append(VariantData.FIELDNAME_REFERENCE_POSITION + "." + ReferencePosition.FIELDNAME_START_SITE, 1);
+				try {
+					varColl.dropIndex(indexKeys);	// it probably exists without the collation
+				}
+				catch (MongoCommandException ignored)
+				{}
+				
+				varColl.createIndex(indexKeys, new IndexOptions().collation(Collation.builder().locale("en_US").numericOrdering(true).build()));
+				
+				return varColl.find(varQuery).projection(projectionDoc).sort(sortDoc).noCursorTimeout(true).collation(collationObj).batchSize(nQueryChunkSize).iterator();
+			}
+			throw mqe;
+		}
+	}
 }
