@@ -20,6 +20,10 @@ import java.util.List;
 
 import org.apache.log4j.Logger;
 import org.bson.Document;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.domain.Sort.Order;
+import org.springframework.data.mongodb.core.MongoTemplate;
+import org.springframework.data.mongodb.core.query.Query;
 
 import com.mongodb.BasicDBObject;
 import com.mongodb.MongoCommandException;
@@ -101,6 +105,33 @@ public interface IExportHandler
 	 */
 	public List<String> getSupportedVariantTypes();
 	
+	public static List<AbstractVariantData> getMarkerListWithCorrectCollation(MongoTemplate mongoTemplate, Class varClass, Query varQuery, int skip, int limit) {
+		varQuery.with(Sort.by(Order.asc(VariantData.FIELDNAME_REFERENCE_POSITION + "." + ReferencePosition.FIELDNAME_SEQUENCE), Order.asc(VariantData.FIELDNAME_REFERENCE_POSITION + "." + ReferencePosition.FIELDNAME_START_SITE)));
+		varQuery.collation(org.springframework.data.mongodb.core.query.Collation.of("en_US")).skip(skip).limit(limit).cursorBatchSize(limit);
+		String varCollName = mongoTemplate.getCollectionName(varClass);
+		try {
+			return mongoTemplate.find(varQuery, varClass, varCollName);
+		}
+		catch (MongoQueryException mqe) {
+			if (mqe.getMessage().contains("Add an index")) {
+				LOG.info("Creating position index with collation en_US on variants collection");
+				
+				MongoCollection<Document> varColl = mongoTemplate.getCollection(varCollName);
+				BasicDBObject indexKeys = new BasicDBObject(VariantData.FIELDNAME_REFERENCE_POSITION + "." + ReferencePosition.FIELDNAME_SEQUENCE, 1).append(VariantData.FIELDNAME_REFERENCE_POSITION + "." + ReferencePosition.FIELDNAME_START_SITE, 1);
+				try {
+					varColl.dropIndex(indexKeys);	// it probably exists without the collation
+				}
+				catch (MongoCommandException ignored)
+				{}
+				
+				varColl.createIndex(indexKeys, new IndexOptions().collation(Collation.builder().locale("en_US").numericOrdering(true).build()));
+				
+				return mongoTemplate.find(varQuery, varClass, varCollName);
+			}
+			throw mqe;
+		}
+	}
+
 	public static MongoCursor<Document> getMarkerCursorWithCorrectCollation(MongoCollection<Document> varColl, Document varQuery, int nQueryChunkSize) {
 		try {
 			return varColl.find(varQuery).projection(projectionDoc).sort(sortDoc).noCursorTimeout(true).collation(collationObj).batchSize(nQueryChunkSize).iterator();
