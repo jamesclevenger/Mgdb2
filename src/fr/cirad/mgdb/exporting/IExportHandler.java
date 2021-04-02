@@ -22,6 +22,7 @@ import org.apache.log4j.Logger;
 import org.bson.Document;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.domain.Sort.Order;
+import org.springframework.data.mongodb.UncategorizedMongoDbException;
 import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.query.Query;
 
@@ -106,14 +107,15 @@ public interface IExportHandler
 	public List<String> getSupportedVariantTypes();
 	
 	public static List<AbstractVariantData> getMarkerListWithCorrectCollation(MongoTemplate mongoTemplate, Class varClass, Query varQuery, int skip, int limit) {
+		varQuery.collation(org.springframework.data.mongodb.core.query.Collation.of("en_US").numericOrderingEnabled());
 		varQuery.with(Sort.by(Order.asc(VariantData.FIELDNAME_REFERENCE_POSITION + "." + ReferencePosition.FIELDNAME_SEQUENCE), Order.asc(VariantData.FIELDNAME_REFERENCE_POSITION + "." + ReferencePosition.FIELDNAME_START_SITE)));
-		varQuery.collation(org.springframework.data.mongodb.core.query.Collation.of("en_US")).skip(skip).limit(limit).cursorBatchSize(limit);
+		varQuery.skip(skip).limit(limit).cursorBatchSize(limit);
 		String varCollName = mongoTemplate.getCollectionName(varClass);
 		try {
 			return mongoTemplate.find(varQuery, varClass, varCollName);
 		}
-		catch (MongoQueryException mqe) {
-			if (mqe.getMessage().contains("Add an index")) {
+		catch (UncategorizedMongoDbException umde) {
+			if (umde.getMessage().contains("Add an index")) {
 				LOG.info("Creating position index with collation en_US on variants collection");
 				
 				MongoCollection<Document> varColl = mongoTemplate.getCollection(varCollName);
@@ -128,7 +130,7 @@ public interface IExportHandler
 				
 				return mongoTemplate.find(varQuery, varClass, varCollName);
 			}
-			throw mqe;
+			throw umde;
 		}
 	}
 

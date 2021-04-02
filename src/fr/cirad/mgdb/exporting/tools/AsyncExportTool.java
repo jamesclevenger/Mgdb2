@@ -145,7 +145,7 @@ public class AsyncExportTool {
 					Thread.sleep(20);
 				long delay = System.currentTimeMillis() - b4;
 				if (lastWrittenChunkIndex > 0 && delay > 100)
-					LOG.debug(progress.getProcessId() + " waited " + delay + "ms before writing chunk " + (lastWrittenChunkIndex + 1));
+					LOG.debug(progress.getProcessId() + " waited " + delay + "ms before writing chunk " + (lastWrittenChunkIndex + 1) + " / " + nNumberOfChunks);
 
 				dataOutputHandler.setVariantDataArray(dataWritingQueue.get(lastWrittenChunkIndex + 1));
 				dataOutputHandler.call();	// invoke data writing
