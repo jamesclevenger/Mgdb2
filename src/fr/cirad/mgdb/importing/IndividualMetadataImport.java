@@ -47,6 +47,7 @@ import fr.cirad.io.brapi.BrapiService;
 import fr.cirad.mgdb.model.mongo.maintypes.CustomIndividualMetadata;
 import fr.cirad.mgdb.model.mongo.maintypes.Individual;
 import fr.cirad.tools.Helper;
+import fr.cirad.tools.ProgressIndicator;
 import fr.cirad.tools.mongo.MongoTemplateManager;
 import jhi.brapi.api.BrapiBaseResource;
 import jhi.brapi.api.BrapiListResource;
@@ -169,7 +170,7 @@ public class IndividualMetadataImport {
 		}
 	}
 
-	public static int importBrapiMetadata(String sModule, String endpointUrl, HashMap<String, String> germplasmDbIdToIndividualMap, String username, String authToken) throws Exception
+	public static int importBrapiMetadata(String sModule, String endpointUrl, HashMap<String, String> germplasmDbIdToIndividualMap, String username, String authToken, ProgressIndicator progress) throws Exception
 	{
 		if (germplasmDbIdToIndividualMap == null || germplasmDbIdToIndividualMap.isEmpty())
 			return 0;	// we must know which individuals to update
@@ -189,19 +190,22 @@ public class IndividualMetadataImport {
 
 		List<BrapiGermplasm> germplasmList = new ArrayList<>();
 		ObjectMapper oMapper = new ObjectMapper();
-		
+				
 		if (client.hasCallSearchGermplasm()) {
+			progress.addStep("Getting germplasm list");
+			progress.moveToNextStep();
+
 			try {
 				Response<BrapiBaseResource<BrapiSearchResult>> response =  service.searchGermplasm(reqBody).execute();
 				handleErrorCode(response.code());
 				BrapiSearchResult bsr = response.body().getResult();
 				
-				Pager callPager = new Pager();
-				while (callPager.isPaging())
+				Pager germplasmPager = new Pager();
+				while (germplasmPager.isPaging())
 				{
-					BrapiListResource<BrapiGermplasm> br = service.searchGermplasmResult(bsr.getSearchResultDbId()).execute().body();
+					BrapiListResource<BrapiGermplasm> br = service.searchGermplasmResult(bsr.getSearchResultDbId(), germplasmPager.getPageSize(), germplasmPager.getPage()).execute().body();
 					germplasmList.addAll(br.data());
-					callPager.paginate(br.getMetadata());
+					germplasmPager.paginate(br.getMetadata());
 				}
 			} catch (Exception e) {	// we did not get a searchResultDbId: see if we actually got results straight away
 				try {
@@ -216,8 +220,9 @@ public class IndividualMetadataImport {
 					}
 				}
 				catch(Exception f) {
-		            LOG.debug(e);
-		            LOG.debug(f);
+					progress.setError("Error invoking BrAPI /search/germplasm call (no searchResultDbId returned and yet unable to directly obtain results)");
+					LOG.error(progress.getError(), f);
+					return 0;
 				}
 			}
 		}
@@ -234,8 +239,12 @@ public class IndividualMetadataImport {
 		}
 		
 		boolean fCanQueryAttributes = client.hasCallGetAttributes();
+		progress.addStep("Getting germplasm information");
+		progress.moveToNextStep();
+
 		BulkOperations bulkOperations = mongoTemplate.bulkOps(BulkOperations.BulkMode.ORDERED, username == null ? Individual.class : CustomIndividualMetadata.class);
-		for (BrapiGermplasm g : germplasmList) {
+		for (int i=0; i<germplasmList.size(); i++) {
+			BrapiGermplasm g = germplasmList.get(i);
 			Map<Object, Object> aiMap = oMapper.convertValue(g, Map.class);
 
 			if (fCanQueryAttributes) {
@@ -261,6 +270,8 @@ public class IndividualMetadataImport {
 			   }
 			}
 	
+			progress.setCurrentStepProgress((long) (i * 100f / germplasmList.size()));
+			
 			if (aiMap.isEmpty()) {
 //				throw new Exception("Cannot import an empty list of attributes");
 				LOG.warn("Found no metadata to import for germplasm " + g.getGermplasmDbId());
@@ -277,6 +288,9 @@ public class IndividualMetadataImport {
 				bulkOperations.upsert(new Query(Criteria.where("_id").is(new CustomIndividualMetadata.CustomIndividualMetadataId(germplasmDbIdToIndividualMap.get(aiMap.get("germplasmDbId")), username))), update);
 			}
 		}
+		
+		progress.addStep("Persisting metadata");
+		progress.moveToNextStep();
 		BulkWriteResult wr = bulkOperations.execute();
 		return wr.getModifiedCount() + wr.getUpserts().size();
 	}
