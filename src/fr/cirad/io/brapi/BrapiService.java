@@ -88,5 +88,5 @@ public interface BrapiService {
     public Call<BrapiListResource<BrapiGermplasm>> searchGermplasmDirectResult(@Body Map<String, Object> body);
     
     @GET(value="search/germplasm/{searchResultDbId}")
-    public Call<BrapiListResource<BrapiGermplasm>> searchGermplasmResult(@Path(value="searchResultDbId") String searchResultDbId);
+    public Call<BrapiListResource<BrapiGermplasm>> searchGermplasmResult(@Path(value="searchResultDbId") String searchResultDbId, @Query(value="pageSize") String var1, @Query(value="page") String var2);
 }
