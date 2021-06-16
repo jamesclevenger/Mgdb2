@@ -23,8 +23,11 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Set;
 import java.util.TreeMap;
+import java.util.TreeSet;
 
+import org.apache.log4j.Level;
 import org.apache.log4j.Logger;
 import org.bson.Document;
 import org.springframework.data.domain.Sort;
@@ -35,11 +38,14 @@ import org.springframework.data.mongodb.core.query.Query;
 import com.mongodb.BasicDBObject;
 import com.mongodb.MongoCommandException;
 import com.mongodb.client.MongoCollection;
-import com.mongodb.client.model.Collation;
+import com.mongodb.client.MongoCursor;
 import com.mongodb.client.model.IndexOptions;
 import com.mongodb.client.result.DeleteResult;
 
+import fr.cirad.mgdb.exporting.IExportHandler;
 import fr.cirad.mgdb.model.mongo.maintypes.CachedCount;
+import fr.cirad.mgdb.model.mongo.maintypes.DBVCFHeader;
+import fr.cirad.mgdb.model.mongo.maintypes.DBVCFHeader.VcfHeaderId;
 import fr.cirad.mgdb.model.mongo.maintypes.GenotypingProject;
 import fr.cirad.mgdb.model.mongo.maintypes.GenotypingSample;
 import fr.cirad.mgdb.model.mongo.maintypes.Individual;
@@ -48,6 +54,10 @@ import fr.cirad.mgdb.model.mongo.maintypes.VariantRunData;
 import fr.cirad.mgdb.model.mongo.maintypes.VariantRunData.VariantRunDataId;
 import fr.cirad.mgdb.model.mongo.subtypes.ReferencePosition;
 import fr.cirad.tools.mongo.MongoTemplateManager;
+import htsjdk.variant.vcf.VCFConstants;
+import htsjdk.variant.vcf.VCFFormatHeaderLine;
+import htsjdk.variant.vcf.VCFHeaderLineCount;
+import htsjdk.variant.vcf.VCFHeaderLineType;
 
 /**
  * The Class MgdbDao.
@@ -100,9 +110,9 @@ public class MgdbDao
 			if (!mce.getMessage().contains("already exists with a different name"))
 				throw mce;	// otherwise we have nothing to do because it already exists anyway
 		}
-		LOG.debug("Creating index on fields " + VariantData.FIELDNAME_REFERENCE_POSITION + "." + ReferencePosition.FIELDNAME_SEQUENCE + ", " + VariantData.FIELDNAME_REFERENCE_POSITION + "." + ReferencePosition.FIELDNAME_START_SITE + " of collection " + variantColl.getNamespace());
-		BasicDBObject variantCollIndexKeys = new BasicDBObject(VariantData.FIELDNAME_REFERENCE_POSITION + "." + ReferencePosition.FIELDNAME_SEQUENCE, 1).append(VariantData.FIELDNAME_REFERENCE_POSITION + "." + ReferencePosition.FIELDNAME_START_SITE, 1);
-		variantColl.createIndex(variantCollIndexKeys, new IndexOptions().collation(Collation.builder().locale("en_US").numericOrdering(true).build()));
+
+		ensurePositionIndexes(mongoTemplate, Arrays.asList(mongoTemplate.getCollection(mongoTemplate.getCollectionName(VariantData.class)), mongoTemplate.getCollection(mongoTemplate.getCollectionName(VariantRunData.class))));
+
 		LOG.debug("Creating index on field " + VariantRunData.SECTION_ADDITIONAL_INFO + "." + VariantRunData.FIELDNAME_ADDITIONAL_INFO_EFFECT_GENE + " of collection " + runColl.getNamespace());
 		runColl.createIndex(new BasicDBObject(VariantRunData.SECTION_ADDITIONAL_INFO + "." + VariantRunData.FIELDNAME_ADDITIONAL_INFO_EFFECT_GENE, 1));
 		LOG.debug("Creating index on field " + VariantRunData.SECTION_ADDITIONAL_INFO + "." + VariantRunData.FIELDNAME_ADDITIONAL_INFO_EFFECT_NAME + " of collection " + runColl.getNamespace());
@@ -163,6 +173,75 @@ public class MgdbDao
 		  		
 		return result;
 	}
+	
+    /**
+     * Ensures position indexes are correct in passed collections. Supports variants, variantRunData and temporary collections
+     * Removes incorrect indexes if necessary
+     *
+     * @param mongoTemplate the mongoTemplate
+     * @param varColls variant collections to ensure indexes on
+     * @return the number of indexes that were created
+     */
+    public static int ensurePositionIndexes(MongoTemplate mongoTemplate, Collection<MongoCollection<Document>> varColls) {
+		int nResult = 0;
+		String rpPath = VariantData.FIELDNAME_REFERENCE_POSITION + ".";
+		BasicDBObject coumpoundIndexKeys = new BasicDBObject(rpPath + ReferencePosition.FIELDNAME_SEQUENCE, 1).append(rpPath + ReferencePosition.FIELDNAME_START_SITE, 1), ssIndexKeys = new BasicDBObject(rpPath + ReferencePosition.FIELDNAME_START_SITE, 1);
+
+		for (MongoCollection<Document> coll : varColls) {
+			if (coll.estimatedDocumentCount() == 0)
+				continue;	// database seems empty: indexes will be created after imports (faster this way) 
+
+			boolean fFoundCoumpoundIndex = false, fFoundCorrectCoumpoundIndex = false, fFoundStartSiteIndex = false, fIsTmpColl = coll.getNamespace().getCollectionName().startsWith(MongoTemplateManager.TEMP_COLL_PREFIX);
+			MongoCursor<Document> indexCursor = coll.listIndexes().cursor();
+			while (indexCursor.hasNext()) {
+				Document doc = (Document) indexCursor.next();
+				Document keyDoc = ((Document) doc.get("key"));
+				Set<String> keyIndex = (Set<String>) keyDoc.keySet();
+				if (keyIndex.size() == 1) {
+					if ((rpPath + ReferencePosition.FIELDNAME_START_SITE).equals(keyIndex.iterator().next()))
+						fFoundStartSiteIndex = true;
+				}
+				else if (keyIndex.size() == 2) {	// compound index
+					String[] compoundIndexItems = keyIndex.toArray(new String[2]);
+					if (compoundIndexItems[0].equals(rpPath + ReferencePosition.FIELDNAME_SEQUENCE) && compoundIndexItems[1].equals(rpPath + ReferencePosition.FIELDNAME_START_SITE)) {
+						fFoundCoumpoundIndex = true;
+						Document collation = (Document) doc.get("collation");
+						fFoundCorrectCoumpoundIndex = collation != null && "en_US".equals(collation.get("locale")) && Boolean.TRUE.equals(collation.get("numericOrdering"));
+					}
+				}
+			}
+			if (!fFoundStartSiteIndex) {					
+				Thread ssIndexCreationThread = new Thread() {
+					public void run() {
+						LOG.log(fIsTmpColl ? Level.DEBUG : Level.INFO, "Creating index " + ssIndexKeys + " on collection " + coll.getNamespace());
+						coll.createIndex(ssIndexKeys);
+					}
+				};
+				ssIndexCreationThread.start();
+				nResult++;
+			}
+			
+			if (!fFoundCoumpoundIndex || (fFoundCoumpoundIndex && !fFoundCorrectCoumpoundIndex)) {
+				final MongoCollection<Document> collToDropCompoundIndexOn = fFoundCoumpoundIndex ? coll : null;
+				Thread ssIndexCreationThread = new Thread() {
+					public void run() {
+						if (collToDropCompoundIndexOn != null) {
+							LOG.log(fIsTmpColl ? Level.DEBUG : Level.INFO, "Dropping wrong index " + coumpoundIndexKeys + " on collection " + collToDropCompoundIndexOn.getNamespace());
+							collToDropCompoundIndexOn.dropIndex(coumpoundIndexKeys);
+						}
+							
+						LOG.log(fIsTmpColl ? Level.DEBUG : Level.INFO, "Creating index " + coumpoundIndexKeys + " on collection " + coll.getNamespace());
+						coll.createIndex(coumpoundIndexKeys, new IndexOptions().collation(IExportHandler.collationObj));
+					}
+				};
+				ssIndexCreationThread.start();
+
+				nResult++;
+				
+			}
+		}
+		return nResult;
+    }
 	
 	public static boolean idLooksGenerated(String id)
 	{
@@ -302,8 +381,8 @@ public class MgdbDao
 		return result;
 	}
 	    
-    public static List<String> getProjectIndividuals(String sModule, int projId) {
-    	return new ArrayList<>(getSamplesByIndividualForProject(sModule, projId, null).keySet());
+    public static Set<String> getProjectIndividuals(String sModule, int projId) {
+    	return getSamplesByIndividualForProject(sModule, projId, null).keySet();
     }
     
 	/**
@@ -362,5 +441,26 @@ public class MgdbDao
     public static String getIndividualPopulation(final String sModule, final String individual) {
         MongoTemplate mongoTemplate = MongoTemplateManager.get(sModule);
         return mongoTemplate.findById(individual, Individual.class).getPopulation();
+    }
+    
+	public static TreeSet<String> getAnnotationFields(MongoTemplate mongoTemplate, int projId, boolean fOnlySearchableFields) {
+    	TreeSet<String> result = new TreeSet<>();
+
+        // we can't use Spring queries here (leads to "Failed to instantiate htsjdk.variant.vcf.VCFInfoHeaderLine using constructor NO_CONSTRUCTOR with arguments")
+		MongoCollection<org.bson.Document> vcfHeaderColl = mongoTemplate.getCollection(MongoTemplateManager.getMongoCollectionName(DBVCFHeader.class));
+		Document vcfHeaderQuery = new Document("_id." + VcfHeaderId.FIELDNAME_PROJECT, projId);
+		MongoCursor<Document> headerCursor = vcfHeaderColl.find(vcfHeaderQuery).iterator();
+
+		while (headerCursor.hasNext())
+		{
+			DBVCFHeader vcfHeader = DBVCFHeader.fromDocument(headerCursor.next());
+        	for (String key : vcfHeader.getmFormatMetaData().keySet()) {
+        		VCFFormatHeaderLine vcfFormatHeaderLine = vcfHeader.getmFormatMetaData().get(key);
+        		if (!fOnlySearchableFields || (!key.equals(VCFConstants.GENOTYPE_KEY) && vcfFormatHeaderLine.getType().equals(VCFHeaderLineType.Integer) && vcfFormatHeaderLine.getCountType() == VCFHeaderLineCount.INTEGER && vcfFormatHeaderLine.getCount() == 1))
+        			result.add(key);
+        	}
+		}
+		headerCursor.close();
+        return result;
     }
 }

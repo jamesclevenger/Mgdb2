@@ -66,7 +66,16 @@ public class VariantData extends AbstractVariantData
 	 * @param id the id
 	 */
 	public VariantData(String id) {
-		super();
+		setId(id);
+	}
+
+	/**
+	 * Sets the id.
+	 *
+	 * @param id the new id
+	 */
+	public void setId(String id) {
+		super.setId(id);
 		this.id = id;
 	}
 	
@@ -77,6 +86,10 @@ public class VariantData extends AbstractVariantData
 	 */
 	public String getId() {
 		return (String) id;
+	}
+	
+	public String getVariantId() {
+		return getId();
 	}
 
 	/**

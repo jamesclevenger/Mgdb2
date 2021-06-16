@@ -32,8 +32,6 @@ import org.springframework.beans.factory.config.BeanDefinition;
 import org.springframework.context.annotation.ClassPathScanningCandidateComponentProvider;
 import org.springframework.core.type.filter.AssignableTypeFilter;
 
-import com.mongodb.client.MongoCollection;
-
 import fr.cirad.mgdb.exporting.IExportHandler;
 import fr.cirad.mgdb.model.mongo.maintypes.GenotypingSample;
 import fr.cirad.tools.ProgressIndicator;
@@ -55,20 +53,20 @@ public abstract class AbstractMarkerOrientedExportHandler implements IExportHand
 	 *
 	 * @param outputStream the output stream
 	 * @param sModule the module
-	 * @param sampleIDs1 the sample ids for group 1
-	 * @param sampleIDs2 the sample ids for group 2
+	 * @param individuals1 the individuals in group 1
+	 * @param individuals2 the individuals in group 2
 	 * @param progress the progress
-	 * @param varColl the variant collection (main or temp)
+	 * @param tmpVarCollName the variant collection name (null if not temporary)
 	 * @param varQuery query to apply on varColl
+	 * @param markerCount number of variants to export
 	 * @param markerSynonyms the marker synonyms
-	 * @param nMinimumReadDepth the n minimum read depth
 	 * @param annotationFieldThresholds the annotation field thresholds for group 1
 	 * @param annotationFieldThresholds2 the annotation field thresholds for group 2
 	 * @param samplesToExport the samples to export genotyping data for
 	 * @param readyToExportFiles files to export along with the genotyping data
 	 * @throws Exception the exception
 	 */
-	abstract public void exportData(OutputStream outputStream, String sModule, Collection<GenotypingSample> samples1, Collection<GenotypingSample> samples2, ProgressIndicator progress, MongoCollection<Document> varColl, Document varQuery, Map<String, String> markerSynonyms, HashMap<String, Float> annotationFieldThresholds, HashMap<String, Float> annotationFieldThresholds2, List<GenotypingSample> samplesToExport, Map<String, InputStream> readyToExportFiles) throws Exception;
+	abstract public void exportData(OutputStream outputStream, String sModule, Collection<String> individuals1, Collection<String> individuals2, ProgressIndicator progress, String tmpVarCollName, Document varQuery, long markerCount, Map<String, String> markerSynonyms, HashMap<String, Float> annotationFieldThresholds, HashMap<String, Float> annotationFieldThresholds2, List<GenotypingSample> samplesToExport, Map<String, InputStream> readyToExportFiles) throws Exception;
 
 //	/**
 //	 * Gets the individuals from samples.

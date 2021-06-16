@@ -18,6 +18,7 @@
 
 import java.util.HashMap;
 
+import org.bson.codecs.pojo.annotations.BsonProperty;
 import org.springframework.data.mongodb.core.mapping.Field;
 
 /**
@@ -33,20 +34,27 @@ public class SampleGenotype
 	public final static String SECTION_ADDITIONAL_INFO = "ai";
 	
 	/** The code. */
+	@BsonProperty(FIELDNAME_GENOTYPECODE)
 	@Field(FIELDNAME_GENOTYPECODE)
 	private String code;
 	
 	/** The additional info. */
+	@BsonProperty(SECTION_ADDITIONAL_INFO)
 	@Field(SECTION_ADDITIONAL_INFO)
 	private HashMap<String, Object> additionalInfo = null;
 
+	/**
+	 * Instantiates a new sample genotype.
+	 */
+	public SampleGenotype() {
+	}
+	
 	/**
 	 * Instantiates a new sample genotype.
 	 *
 	 * @param code the code
 	 */
 	public SampleGenotype(String code) {
-		super();
 		if (code != null)
 			this.code = code.intern();
 	}

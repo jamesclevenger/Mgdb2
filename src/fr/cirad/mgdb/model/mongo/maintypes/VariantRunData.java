@@ -17,11 +17,13 @@
 package fr.cirad.mgdb.model.mongo.maintypes;
 
 import java.util.HashMap;
+import java.util.List;
+import java.util.NoSuchElementException;
 
+import org.bson.codecs.pojo.annotations.BsonProperty;
 import org.springframework.data.annotation.Id;
 import org.springframework.data.annotation.TypeAlias;
-//import org.springframework.data.mongodb.core.index.CompoundIndex;
-//import org.springframework.data.mongodb.core.index.CompoundIndexes;
+import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.mapping.Document;
 import org.springframework.data.mongodb.core.mapping.Field;
 
@@ -60,16 +62,25 @@ public class VariantRunData extends AbstractVariantData
 		public final static String FIELDNAME_VARIANT_ID = "vi";
 
 		/** The project id. */
+		@BsonProperty(FIELDNAME_PROJECT_ID)   
 		@Field(FIELDNAME_PROJECT_ID)
 		private int projectId;
 
 		/** The run name. */
+		@BsonProperty(FIELDNAME_RUNNAME)   
 		@Field(FIELDNAME_RUNNAME)
 		private String runName;
 
 		/** The variant id. */
+		@BsonProperty(FIELDNAME_VARIANT_ID)   
 		@Field(FIELDNAME_VARIANT_ID)
 		private String variantId;
+		
+		/**
+		 * Instantiates a new variant run data id.
+		 */
+		public VariantRunDataId( ) {
+		}
 
 		/**
 		 * Instantiates a new variant run data id.
@@ -81,6 +92,18 @@ public class VariantRunData extends AbstractVariantData
 		public VariantRunDataId(int projectId, String runName, String variantId) {
 			this.projectId = projectId;
 			this.runName = runName.intern();
+			this.variantId = variantId;
+		}
+		
+		public void setProjectId(int projectId) {
+			this.projectId = projectId;
+		}
+
+		public void setRunName(String runName) {
+			this.runName = runName;
+		}
+
+		public void setVariantId(String variantId) {
 			this.variantId = variantId;
 		}
 
@@ -137,10 +160,12 @@ public class VariantRunData extends AbstractVariantData
 	}
 
 	/** The id. */
+	@BsonProperty("_id")
 	@Id
 	private VariantRunDataId id;
 
 	/** The sample genotypes. */
+	@BsonProperty(FIELDNAME_SAMPLEGENOTYPES)
 	@Field(FIELDNAME_SAMPLEGENOTYPES)
 	private HashMap<Integer, SampleGenotype> sampleGenotypes = new HashMap<Integer, SampleGenotype>();
 
@@ -156,7 +181,7 @@ public class VariantRunData extends AbstractVariantData
 	 * @param id the id
 	 */
 	public VariantRunData(VariantRunDataId id) {
-		this.id = id;
+		setId(id);
 	}
 
 	/**
@@ -174,7 +199,12 @@ public class VariantRunData extends AbstractVariantData
 	 * @param id the new id
 	 */
 	public void setId(VariantRunDataId id) {
+		super.setId(id);
 		this.id = id;
+	}
+	
+	public String getVariantId() {
+		return getId().getVariantId();
 	}
 
 	/**
@@ -235,5 +265,30 @@ public class VariantRunData extends AbstractVariantData
 			return super.toString();
 
 		return getId().toString();
+	}
+
+	/**
+	 * Gets the alleles from genotype code.
+	 *
+	 * @param code the code
+	 * @param mongoTemplate the MongoTemplate to use for fixing allele list if incomplete
+	 * @return the alleles from genotype code
+	 * @throws Exception the exception
+	 */
+	public List<String> safelyGetAllelesFromGenotypeCode(String code, MongoTemplate mongoTemplate) throws NoSuchElementException
+	{
+		try {
+			return staticGetAllelesFromGenotypeCode(knownAlleleList, code);
+		}
+		catch (NoSuchElementException e1) {
+			setKnownAlleleList(mongoTemplate.findById(getId().getVariantId(), VariantData.class).getKnownAlleleList());
+			mongoTemplate.save(this);
+			try {
+				return staticGetAllelesFromGenotypeCode(knownAlleleList, code);
+			}
+			catch (NoSuchElementException e2) {
+				throw new NoSuchElementException("Variant " + this + " - " + e2.getMessage());
+			}
+		}
 	}
 }

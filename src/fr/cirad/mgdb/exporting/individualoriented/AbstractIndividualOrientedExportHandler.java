@@ -26,11 +26,9 @@ import java.lang.reflect.Modifier;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
-import java.util.stream.Collectors;
 
 import org.apache.commons.lang.StringUtils;
 import org.apache.log4j.Logger;
@@ -41,16 +39,14 @@ import org.springframework.core.type.filter.AssignableTypeFilter;
 import org.springframework.data.mongodb.core.MongoTemplate;
 
 import com.mongodb.client.MongoCollection;
-import com.mongodb.client.MongoCursor;
 
+import fr.cirad.mgdb.exporting.AbstractExportWritingThread;
 import fr.cirad.mgdb.exporting.IExportHandler;
-import fr.cirad.mgdb.exporting.tools.AsyncExportTool;
-import fr.cirad.mgdb.exporting.tools.AsyncExportTool.AbstractDataOutputHandler;
+import fr.cirad.mgdb.exporting.tools.ExportManager;
 import fr.cirad.mgdb.model.mongo.maintypes.GenotypingSample;
 import fr.cirad.mgdb.model.mongo.maintypes.VariantData;
 import fr.cirad.mgdb.model.mongo.maintypes.VariantRunData;
 import fr.cirad.mgdb.model.mongo.subtypes.SampleGenotype;
-import fr.cirad.mgdb.model.mongodao.MgdbDao;
 import fr.cirad.tools.AlphaNumericComparator;
 import fr.cirad.tools.ProgressIndicator;
 import fr.cirad.tools.mongo.MongoTemplateManager;
@@ -66,7 +62,7 @@ public abstract class AbstractIndividualOrientedExportHandler implements IExport
 	
 	/** The individual oriented export handlers. */
 	static private TreeMap<String, AbstractIndividualOrientedExportHandler> individualOrientedExportHandlers = null;
-	
+		
 	/**
 	 * Export data.
 	 *
@@ -75,22 +71,25 @@ public abstract class AbstractIndividualOrientedExportHandler implements IExport
 	 * @param individualExportFiles the individual export files
 	 * @param fDeleteSampleExportFilesOnExit whether or not to delete sample export files on exit
 	 * @param progress the progress
-	 * @param varColl the variant collection (main or temp)
+	 * @param tmpVarCollName the variant collection name (null if not temporary)
 	 * @param varQuery query to apply on varColl
+	 * @param markerCount number of variants to export
 	 * @param markerSynonyms the marker synonyms
 	 * @param readyToExportFiles the ready to export files
 	 * @throws Exception the exception
 	 */
-	abstract public void exportData(OutputStream outputStream, String sModule, Collection<File> individualExportFiles, boolean fDeleteSampleExportFilesOnExit, ProgressIndicator progress, MongoCollection<Document> varColl, Document varQuery, Map<String, String> markerSynonyms, Map<String, InputStream> readyToExportFiles) throws Exception;
+	abstract public void exportData(OutputStream outputStream, String sModule, Collection<File> individualExportFiles, boolean fDeleteSampleExportFilesOnExit, ProgressIndicator progress, String tmpVarCollName, Document varQuery, long markerCount, Map<String, String> markerSynonyms, Map<String, InputStream> readyToExportFiles) throws Exception;
 
 	/**
 	 * Creates the export files.
 	 *
 	 * @param sModule the module
-	 * @param varColl the variant collection (main or temp)
+	 * @param projId the project ID
+	 * @param tmpVarCollName the variant collection name (null if not temporary)
 	 * @param varQuery query to apply on varColl
-	 * @param samples1 the samples for group 1
-	 * @param samples2 the samples for group 2
+	 * @param markerCount number of variants to export
+	 * @param individuals1 the individuals in group 1
+	 * @param individuals2 the individuals in group 2
 	 * @param exportID the export id
 	 * @param annotationFieldThresholds the annotation field thresholds for group 1
 	 * @param annotationFieldThresholds2 the annotation field thresholds for group 2
@@ -99,12 +98,9 @@ public abstract class AbstractIndividualOrientedExportHandler implements IExport
 	 * @return a map providing one File per individual
 	 * @throws Exception the exception
 	 */
-	public TreeMap<String, File> createExportFiles(String sModule, MongoCollection<Document> varColl, Document varQuery, Collection<GenotypingSample> samples1, Collection<GenotypingSample> samples2, String exportID, HashMap<String, Float> annotationFieldThresholds, HashMap<String, Float> annotationFieldThresholds2, List<GenotypingSample> samplesToExport, final ProgressIndicator progress) throws Exception
+	public TreeMap<String, File> createExportFiles(String sModule, String tmpVarCollName, Document varQuery, long markerCount, Collection<String> individuals1, Collection<String> individuals2, String exportID, HashMap<String, Float> annotationFieldThresholds, HashMap<String, Float> annotationFieldThresholds2, List<GenotypingSample> samplesToExport, final ProgressIndicator progress) throws Exception
 	{
 		long before = System.currentTimeMillis();
-
-		List<String> individuals1 = MgdbDao.getIndividualsFromSamples(sModule, samples1).stream().map(ind -> ind.getId()).collect(Collectors.toList());	
-		List<String> individuals2 = MgdbDao.getIndividualsFromSamples(sModule, samples2).stream().map(ind -> ind.getId()).collect(Collectors.toList());
 
 		TreeMap<String, File> files = new TreeMap<String, File>(new AlphaNumericComparator<String>());
 		int i = 0;
@@ -132,37 +128,49 @@ public abstract class AbstractIndividualOrientedExportHandler implements IExport
 		for (GenotypingSample gs : samplesToExport)
 			sampleIdToIndividualMap.put(gs.getId(), gs.getIndividual());
 
-		Number avgObjSize = (Number) mongoTemplate.getDb().runCommand(new Document("collStats", mongoTemplate.getCollectionName(VariantRunData.class))).get("avgObjSize");
-		int nQueryChunkSize = (int) Math.max(1, (nMaxChunkSizeInMb*1024*1024 / avgObjSize.doubleValue()) / AsyncExportTool.WRITING_QUEUE_CAPACITY);
+		int nQueryChunkSize = IExportHandler.computeQueryChunkSize(mongoTemplate, markerCount);
+		
+		MongoCollection collWithPojoCodec = mongoTemplate.getDb().withCodecRegistry(ExportManager.pojoCodecRegistry).getCollection(tmpVarCollName != null ? tmpVarCollName : mongoTemplate.getCollectionName(VariantRunData.class));
+		List<Document> pipeline = new ArrayList<Document>();
 
-		AbstractDataOutputHandler<Integer, LinkedHashMap<VariantData, Collection<VariantRunData>>> dataOutputHandler = new AbstractDataOutputHandler<Integer, LinkedHashMap<VariantData, Collection<VariantRunData>>>() {				
-			@Override
-			public Void call() {
+		if (!varQuery.isEmpty()) // already checked above
+			pipeline.add(new Document("$match", varQuery));
+
+		AbstractExportWritingThread writingThread = new AbstractExportWritingThread() {
+			public void run() {
+				StringBuffer[] individualGenotypeBuffers = new StringBuffer[sortedIndList.size()];	// keeping all files open leads to failure (see ulimit command), keeping them closed and reopening them each time we need to write a genotype is too time consuming: so our compromise is to reopen them only once per chunk
 				try
 				{
-					StringBuffer[] individualGenotypeBuffers = new StringBuffer[sortedIndList.size()];	// keeping all files open leads to failure (see ulimit command), keeping them closed and reopening them each time we need to write a genotype is too time consuming: so our compromise is to reopen them only once per chunk
-					for (VariantData variant : variantDataChunkMap.keySet())
-					{
+					for (String idOfVarToWrite : markerRunsToWrite.keySet()) {
+						List<VariantRunData> runsToWrite = markerRunsToWrite.get(idOfVarToWrite);
+						if (runsToWrite.isEmpty())
+							continue;
+						
 						if (progress.isAborted())
 							break;
-						
+
+						/*FIXME: handle synonyms?*/
+//		                if (markerSynonyms != null) {
+//		                	String syn = markerSynonyms.get(variantId);
+//		                    if (syn != null)
+//		                        idOfVarToWrite = syn;
+//		                }
 						HashMap<String, List<String>> individualGenotypes = new HashMap<String, List<String>>();
-						
-						Collection<VariantRunData> runs = variantDataChunkMap.get(variant);
-						if (runs != null)
-							for (VariantRunData run : runs)
-								for (Integer sampleId : run.getSampleGenotypes().keySet())
-								{
+		                if (runsToWrite != null)
+		                	for (Object vrd : runsToWrite) {
+		                    	VariantRunData run = (VariantRunData) vrd;
+								for (Integer sampleId : run.getSampleGenotypes().keySet()) {
 									SampleGenotype sampleGenotype = run.getSampleGenotypes().get(sampleId);
-									List<String> alleles = variant.getAllelesFromGenotypeCode(sampleGenotype.getCode());
+									List<String> alleles;
+									alleles = run.safelyGetAllelesFromGenotypeCode(sampleGenotype.getCode(), mongoTemplate);
+
 									String individualId = sampleIdToIndividualMap.get(sampleId);
 
 									if (!VariantData.gtPassesVcfAnnotationFilters(individualId, sampleGenotype, individuals1, annotationFieldThresholds, individuals2, annotationFieldThresholds2))
 										continue;	// skip genotype
 
 									List<String> storedIndividualGenotypes = individualGenotypes.get(individualId);
-									if (storedIndividualGenotypes == null)
-									{
+									if (storedIndividualGenotypes == null) {
 										storedIndividualGenotypes = new ArrayList<String>();
 										individualGenotypes.put(individualId, storedIndividualGenotypes);
 									}
@@ -170,9 +178,9 @@ public abstract class AbstractIndividualOrientedExportHandler implements IExport
 									String sAlleles = StringUtils.join(alleles, ' ');
 									storedIndividualGenotypes.add(sAlleles);
 								}
+		                	}
 
-						for (int i=0; i<sortedIndList.size(); i++)
-						{
+						for (int i=0; i<sortedIndList.size(); i++) {
 							String individual = sortedIndList.get(i);
 							if (individualGenotypeBuffers[i] == null)
 								individualGenotypeBuffers[i] = new StringBuffer();	// we are about to write individual's first genotype for this chunk
@@ -181,8 +189,7 @@ public abstract class AbstractIndividualOrientedExportHandler implements IExport
 							if (storedIndividualGenotypes == null)
 								individualGenotypeBuffers[i].append(LINE_SEPARATOR);	// missing data
 							else
-								for (int j=0; j<storedIndividualGenotypes.size(); j++)
-								{
+								for (int j=0; j<storedIndividualGenotypes.size(); j++) {
 									String storedIndividualGenotype = storedIndividualGenotypes.get(j);
 									individualGenotypeBuffers[i].append(storedIndividualGenotype + (j == storedIndividualGenotypes.size() - 1 ? LINE_SEPARATOR : "|"));
 								}
@@ -190,41 +197,34 @@ public abstract class AbstractIndividualOrientedExportHandler implements IExport
 					}
 
 					// write genotypes collected in this chunk to each individual's file
-					for (int i=0; i<sortedIndList.size(); i++)
-					{
+					for (int i=0; i<sortedIndList.size(); i++) {
 						String individual = sortedIndList.get(i);
 						BufferedOutputStream os = new BufferedOutputStream(new FileOutputStream(files.get(individual), true));
 						if (individualGenotypeBuffers[i] != null)
 							os.write(individualGenotypeBuffers[i].toString().getBytes());
-
+	
 						os.close();
 					}
-	            }
+				}
 				catch (Exception e)
 				{
 					if (progress.getError() == null)	// only log this once
-						LOG.debug("Error creating temp files for export", e);
-					progress.setError("Error creating temp files for export: " + e.getMessage());
+						LOG.debug("Error creating temp files", e);
+					progress.setError("Error creating temp files: " + e.getMessage());
 				}
-				return null;
+				markerRunsToWrite.clear();
 			}
 		};
-
-		long markerCount = varColl.countDocuments(varQuery);
-		try (MongoCursor<Document> markerCursor = IExportHandler.getMarkerCursorWithCorrectCollation(varColl, varQuery, nQueryChunkSize)) {
-			AsyncExportTool asyncExportTool = new AsyncExportTool(markerCursor, markerCount, nQueryChunkSize, mongoTemplate, samplesToExport, dataOutputHandler, progress);
-			asyncExportTool.launch();
-	
-			while (progress.getCurrentStepProgress() < 100 && !progress.isAborted())
-				Thread.sleep(500);
-		}
-
+		
+		ExportManager exportManager = new ExportManager(mongoTemplate, collWithPojoCodec, VariantRunData.class, varQuery, samplesToExport, true, nQueryChunkSize, writingThread, markerCount, null, progress);
+		exportManager.readAndWrite();
+		
 	 	if (!progress.isAborted())
 	 		LOG.info("createExportFiles took " + (System.currentTimeMillis() - before)/1000d + "s to process " + markerCount + " variants and " + files.size() + " individuals");
 		
 		return files;
 	}
-
+	
 	/**
 	 * Gets the individual oriented export handlers.
 	 *

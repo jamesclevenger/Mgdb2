@@ -30,14 +30,17 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.NoSuchElementException;
 import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.stream.Collectors;
 
-import org.springframework.data.annotation.Version;
+import org.bson.codecs.pojo.annotations.BsonProperty;
 import org.springframework.data.mongodb.core.mapping.Field;
 
 import fr.cirad.mgdb.model.mongo.maintypes.GenotypingSample;
@@ -120,29 +123,37 @@ abstract public class AbstractVariantData
 	protected Object id;
 	
 	/** The type. */
+	@BsonProperty(FIELDNAME_TYPE)
 	@Field(FIELDNAME_TYPE)
 	private String type;
 
 	/** The reference position. */
+	@BsonProperty(FIELDNAME_REFERENCE_POSITION)
 	@Field(FIELDNAME_REFERENCE_POSITION)
 	ReferencePosition referencePosition = null;
 	
 	/** The synonyms. */
+	@BsonProperty(FIELDNAME_SYNONYMS)
 	@Field(FIELDNAME_SYNONYMS)
 	private TreeMap<String /*synonym type*/, TreeSet<String>> synonyms;
 
 	/** The analysis methods. */
+	@BsonProperty(FIELDNAME_ANALYSIS_METHODS)
 	@Field(FIELDNAME_ANALYSIS_METHODS)
 	private TreeSet<String> analysisMethods = null;
 
 	/** The known allele list. */
+	@BsonProperty(FIELDNAME_KNOWN_ALLELE_LIST)
 	@Field(FIELDNAME_KNOWN_ALLELE_LIST)
-	private List<String> knownAlleleList;
+	protected List<String> knownAlleleList;
 
 	/** The additional info. */
+	@BsonProperty(SECTION_ADDITIONAL_INFO)
 	@Field(SECTION_ADDITIONAL_INFO)
 	private HashMap<String, Object> additionalInfo = null;
 
+	static private HashSet<String> specificallyTreatedAdditionalInfoFields = new HashSet<String> () {{ add(FIELD_SOURCE); add(FIELD_FULLYDECODED); add(FIELD_FILTERS); add(FIELD_PHREDSCALEDQUAL); }};
+	  
 	/**
 	 * Fixes AD array in the case where provided alleles are different from the order in which we have them in the DB
 	 * @param importedAD
@@ -351,8 +362,6 @@ abstract public class AbstractVariantData
 	 * @return the synonyms
 	 */
 	public TreeMap<String, TreeSet<String>> getSynonyms() {
-		if (synonyms == null)
-			synonyms = new TreeMap<>();
 		return synonyms;
 	}
 
@@ -365,6 +374,18 @@ abstract public class AbstractVariantData
 		this.synonyms = synonyms;
 	}
 	
+	public TreeSet<String> getSynonyms(String type) {
+		if (synonyms == null)
+			return null;
+		return synonyms.get(type);
+	}
+
+	public void putSynonyms(String type, TreeSet<String> synSet) {
+		if (synonyms == null)
+			synonyms = new TreeMap<>();
+		synonyms.put(type, synSet);
+	}
+
 	public TreeSet<String> getAnalysisMethods() {
 		return analysisMethods;
 	}
@@ -459,7 +480,7 @@ abstract public class AbstractVariantData
 	 * @return the list
 	 * @throws Exception the exception
 	 */
-	static public List<String> staticGetAllelesFromGenotypeCode(List<String> alleleList, String code) throws Exception
+	static public List<String> staticGetAllelesFromGenotypeCode(List<String> alleleList, String code) throws NoSuchElementException
 	{
 		ArrayList<String> result = new ArrayList<String>();
 		if (code != null)
@@ -470,7 +491,7 @@ abstract public class AbstractVariantData
 				if (alleleList.size() > nAlleleCodeIndex)
 					result.add(alleleList.get(nAlleleCodeIndex));
 				else
-					throw new Exception("Variant has no allele number " + nAlleleCodeIndex);
+					throw new NoSuchElementException("Variant has no allele number " + nAlleleCodeIndex);
 			}
 		}
 		return result;
@@ -483,15 +504,15 @@ abstract public class AbstractVariantData
 	 * @return the alleles from genotype code
 	 * @throws Exception the exception
 	 */
-	public List<String> getAllelesFromGenotypeCode(String code) throws Exception
+	public List<String> getAllelesFromGenotypeCode(String code) throws NoSuchElementException
 	{
 		try
 		{
 			return staticGetAllelesFromGenotypeCode(knownAlleleList, code);
 		}
-		catch (Exception e)
+		catch (NoSuchElementException e)
 		{
-			throw new Exception("Variant ID: " + id + " - " + e.getMessage());
+			throw new NoSuchElementException("Variant " + this + " - " + e.getMessage());
 		}
 	}
 	
@@ -548,26 +569,25 @@ abstract public class AbstractVariantData
 	public VariantContext toVariantContext(Collection<VariantRunData> runs, boolean exportVariantIDs, Collection<GenotypingSample> samplesToExport, Collection<String> individuals1, Collection<String> individuals2, HashMap<Integer, Object> previousPhasingIds, HashMap<String, Float> annotationFieldThresholds1, HashMap<String, Float> annotationFieldThresholds2, FileWriter warningFileWriter, Comparable synonym) throws Exception
 	{
 		ArrayList<Genotype> genotypes = new ArrayList<Genotype>();
-		String sRefAllele = knownAlleleList.size() == 0 ? "" : knownAlleleList.get(0);
-
-		ArrayList<Allele> variantAlleles = new ArrayList<Allele>();
-		variantAlleles.add(Allele.create(sRefAllele, true));
+		String sRefAllele = null;
 		
 		// collect all genotypes for all individuals
-		Map<String/*individual*/, HashMap<String/*genotype code*/, List<Integer>>> individualSamplesByGenotype = new LinkedHashMap<>();
+		Map<String/*individual*/, HashMap<String/*genotype code*/, LinkedHashSet<Integer>>> individualSamplesByGenotype = new LinkedHashMap<>();
 		
 		HashMap<Integer, SampleGenotype> sampleGenotypes = new HashMap<>();
 		List<VariantRunData> runsWhereDataWasFound = new ArrayList<>();
-		List<String> individualList = new ArrayList<>();
+		LinkedHashSet<String> individualList = new LinkedHashSet<>();
 		for (GenotypingSample sample : samplesToExport)
 		{
 			if (runs == null || runs.size() == 0)
 				continue;
 			
 			Integer sampleIndex = sample.getId();
-			
 			for (VariantRunData run : runs)
 			{
+				if (sRefAllele == null && !run.getKnownAlleleList().isEmpty())
+					sRefAllele = run.knownAlleleList.get(0);
+
 				SampleGenotype sampleGenotype = run.getSampleGenotypes().get(sampleIndex);
 				if (sampleGenotype == null)
 					continue;	// run contains no data for this sample
@@ -581,24 +601,27 @@ abstract public class AbstractVariantData
 				String individualId = sample.getIndividual();
 				if (!individualList.contains(individualId))
 					individualList.add(individualId);
-				HashMap<String, List<Integer>> storedIndividualGenotypes = individualSamplesByGenotype.get(individualId);
+				HashMap<String, LinkedHashSet<Integer>> storedIndividualGenotypes = individualSamplesByGenotype.get(individualId);
 				if (storedIndividualGenotypes == null) {
-					storedIndividualGenotypes = new HashMap<String, List<Integer>>();
+					storedIndividualGenotypes = new HashMap<>();
 					individualSamplesByGenotype.put(individualId, storedIndividualGenotypes);
 				}
-				List<Integer> samplesWithGivenGenotype = storedIndividualGenotypes.get(gtCode);
+				LinkedHashSet<Integer> samplesWithGivenGenotype = storedIndividualGenotypes.get(gtCode);
 				if (samplesWithGivenGenotype == null)
 				{
-					samplesWithGivenGenotype = new ArrayList<Integer>();
+					samplesWithGivenGenotype = new LinkedHashSet<Integer>();
 					storedIndividualGenotypes.put(gtCode, samplesWithGivenGenotype);
 				}
 				samplesWithGivenGenotype.add(sampleIndex);
 			}
 		}
+		
+		ArrayList<Allele> variantAlleles = new ArrayList<Allele>();
+		variantAlleles.add(Allele.create(sRefAllele, true));
 			
-		individualLoop : for (String individualName : individualList)
+		for (String individualName : individualList)
 		{
-			HashMap<String, List<Integer>> samplesWithGivenGenotype = individualSamplesByGenotype.get(individualName);
+			HashMap<String, LinkedHashSet<Integer>> samplesWithGivenGenotype = individualSamplesByGenotype.get(individualName);
 			HashMap<Object, Integer> genotypeCounts = new HashMap<Object, Integer>(); // will help us to keep track of missing genotypes
 				
 			int highestGenotypeCount = 0;
@@ -620,17 +643,19 @@ abstract public class AbstractVariantData
 			if (mostFrequentGenotype == null)
 				continue;	// no genotype for this individual
 			
+			Integer spId = samplesWithGivenGenotype.get(mostFrequentGenotype).iterator().next(); // any will do (FIXME: maybe not because gtPassesVcfAnnotationFilters gets invoked afterwards...)
+			SampleGenotype sampleGenotype = sampleGenotypes.get(spId);
+			if (!gtPassesVcfAnnotationFilters(individualName, sampleGenotype, individuals1, annotationFieldThresholds1, individuals2, annotationFieldThresholds2))
+				continue;	// skip genotype
+
 			if (warningFileWriter != null && genotypeCounts.size() > 1)
 				warningFileWriter.write("- Dissimilar genotypes found for variant " + (synonym == null ? id : synonym) + ", individual " + individualName + ". Exporting most frequent: " + mostFrequentGenotype + "\n");
-			
-			Integer spId = samplesWithGivenGenotype.get(mostFrequentGenotype).get(0);	// any will do
-			SampleGenotype sampleGenotype = sampleGenotypes.get(spId);
 			
 			Object currentPhId = sampleGenotype.getAdditionalInfo().get(GT_FIELD_PHASED_ID);
 			
 			boolean isPhased = currentPhId != null && currentPhId.equals(previousPhasingIds.get(spId));
 
-			List<String> alleles = /*mostFrequentGenotype == null ? new ArrayList<String>() :*/ getAllelesFromGenotypeCode(isPhased ? (String) sampleGenotype.getAdditionalInfo().get(GT_FIELD_PHASED_GT) : mostFrequentGenotype);
+			List<String> alleles = getAllelesFromGenotypeCode(isPhased ? (String) sampleGenotype.getAdditionalInfo().get(GT_FIELD_PHASED_GT) : mostFrequentGenotype);
 			ArrayList<Allele> individualAlleles = new ArrayList<Allele>();
 			previousPhasingIds.put(spId, currentPhId == null ? id : currentPhId);
 			if (alleles.size() == 0)
@@ -662,9 +687,6 @@ abstract public class AbstractVariantData
 				List<String> alleleListAtImportTimeIfDifferentFromNow = null;
 				for (String key : sampleGenotype.getAdditionalInfo().keySet())
 				{
-					if (!gtPassesVcfAnnotationFilters(individualName, sampleGenotype, individuals1, annotationFieldThresholds1, individuals2, annotationFieldThresholds2))
-						continue individualLoop;	// skip genotype
-
 					if (VCFConstants.GENOTYPE_ALLELE_DEPTHS.equals(key))
 					{
 						String ad = (String) sampleGenotype.getAdditionalInfo().get(key);
@@ -715,7 +737,7 @@ abstract public class AbstractVariantData
 		String chr = referencePosition == null ? null : referencePosition.getSequence();
 		VariantContextBuilder vcb = new VariantContextBuilder(source != null ? source : FIELDVAL_SOURCE_MISSING, chr != null ? chr : "", start != null ? start : 0, stop != null ? stop : 0, variantAlleles);
 		if (exportVariantIDs)
-			vcb.id((synonym == null ? id : synonym).toString());
+			vcb.id((synonym == null ? getVariantId() : synonym).toString());
 		vcb.genotypes(genotypes);
 		
 		if (run != null)
@@ -746,9 +768,9 @@ abstract public class AbstractVariantData
     public static boolean gtPassesVcfAnnotationFilters(String individualName, SampleGenotype sampleGenotype, Collection<String> individuals1, HashMap<String, Float> annotationFieldThresholds, Collection<String> individuals2, HashMap<String, Float> annotationFieldThresholds2)
     {
 		List<HashMap<String, Float>> thresholdsToCheck = new ArrayList<HashMap<String, Float>>();
-		if (individuals1.contains(individualName))
+		if (!annotationFieldThresholds.isEmpty() && individuals1.contains(individualName))
 			thresholdsToCheck.add(annotationFieldThresholds);
-		if (individuals2.contains(individualName))
+		if (!annotationFieldThresholds2.isEmpty() && individuals2.contains(individualName))
 			thresholdsToCheck.add(annotationFieldThresholds2);
 		
 		for (HashMap<String, Float> someThresholdsToCheck : thresholdsToCheck)
@@ -836,4 +858,10 @@ abstract public class AbstractVariantData
         // else
         //     return Type.MIXED;
     }
+
+	public void setId(Object id) {
+		this.id = id;
+	}
+	
+	abstract public String getVariantId();
 }

@@ -37,6 +37,7 @@ import java.util.TreeMap;
 import java.util.TreeSet;
 
 import org.apache.log4j.Logger;
+import org.bson.Document;
 import org.springframework.beans.BeansException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationContext;
@@ -44,7 +45,6 @@ import org.springframework.context.ApplicationContextAware;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.convert.MappingMongoConverter;
-import org.springframework.data.mongodb.core.mapping.Document;
 import org.springframework.stereotype.Component;
 
 import com.mongodb.BasicDBObject;
@@ -52,6 +52,9 @@ import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.connection.ServerDescription;
 
+import fr.cirad.mgdb.model.mongo.maintypes.VariantData;
+import fr.cirad.mgdb.model.mongo.maintypes.VariantRunData;
+import fr.cirad.mgdb.model.mongodao.MgdbDao;
 import fr.cirad.tools.AppConfig;
 import fr.cirad.tools.Helper;
 
@@ -295,6 +298,7 @@ public class MongoTemplateManager implements ApplicationContextAware {
         ((MappingMongoConverter) mongoTemplate.getConverter()).setMapKeyDotReplacement(DOT_REPLACEMENT_STRING);
 		mongoTemplate.getDb().runCommand(new BasicDBObject("profile", 0));
 
+		MgdbDao.ensurePositionIndexes(mongoTemplate, Arrays.asList(mongoTemplate.getCollection(mongoTemplate.getCollectionName(VariantData.class)), mongoTemplate.getCollection(mongoTemplate.getCollectionName(VariantRunData.class))));	// make sure we have indexes defined as required in v2.4
         return mongoTemplate;
     }
 
@@ -507,7 +511,7 @@ public class MongoTemplateManager implements ApplicationContextAware {
     	if (token == null)
     		return;
     	
-        MongoCollection<org.bson.Document> tmpColl;
+        MongoCollection<Document> tmpColl;
         String tempCollName = MongoTemplateManager.TEMP_COLL_PREFIX + Helper.convertToMD5(token);
         for (String module : MongoTemplateManager.getTemplateMap().keySet()) {
             // drop all temp collections associated to this token
@@ -574,7 +578,7 @@ public class MongoTemplateManager implements ApplicationContextAware {
      * @return the mongo collection name
      */
     public static String getMongoCollectionName(Class clazz) {
-        Document document = (Document) clazz.getAnnotation(Document.class);
+    	org.springframework.data.mongodb.core.mapping.Document document = (org.springframework.data.mongodb.core.mapping.Document) clazz.getAnnotation(org.springframework.data.mongodb.core.mapping.Document.class);
         if (document != null) {
             return document.collection();
         }
