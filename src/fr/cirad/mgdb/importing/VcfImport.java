@@ -157,9 +157,7 @@ public class VcfImport extends AbstractGenotypeImport {
      */
     public Integer importToMongo(boolean fIsBCF, String sModule, String sProject, String sRun, String sTechnology, URL mainFileUrl, int importMode) throws Exception {
         long before = System.currentTimeMillis();
-        ProgressIndicator progress = ProgressIndicator.get(m_processID);
-        if (progress == null)
-            progress = new ProgressIndicator(m_processID, new String[]{"Initializing import"});	// better to add it straight-away so the JSP doesn't get null in return when it checks for it (otherwise it will assume the process has ended)
+        ProgressIndicator progress = ProgressIndicator.get(m_processID) != null ? ProgressIndicator.get(m_processID) : new ProgressIndicator(m_processID, new String[]{"Initializing import"});	// better to add it straight-away so the JSP doesn't get null in return when it checks for it (otherwise it will assume the process has ended)
         progress.setPercentageEnabled(false);
 
         FeatureReader<VariantContext> reader;
@@ -266,13 +264,15 @@ public class VcfImport extends AbstractGenotypeImport {
             
             List<VariantData> unsavedVariants = new ArrayList<>();
             List<VariantRunData> unsavedRuns = new ArrayList<>();
-            
+
             // loop over each variation
             long count = 0;
             String generatedIdBaseString = Long.toHexString(System.currentTimeMillis());
-            int nMaxChunkSize = existingVariantIDs.size() == 0 ? 10000 /*saved one by one*/ : 50000 /*inserted at once*/;
             Thread asyncThread = null;
             while (variantIterator.hasNext()) {
+				if (progress.getError() != null || progress.isAborted())
+					return null;
+
                 VariantContext vcfEntry = variantIterator.next();
                 if (!vcfEntry.isVariant())
                     continue; // skip non-variant positions				
@@ -295,9 +295,8 @@ public class VcfImport extends AbstractGenotypeImport {
                     
                     unsavedVariants.add(variant);
                     VariantRunData runToSave = addVcfDataToVariant(mongoTemplate, header, variant, vcfEntry, project, sRun, phasingGroups, previouslyCreatedSamples, effectAnnotationPos, geneIdAnnotationPos);
-                    if (!unsavedRuns.contains(runToSave)) {
+                    if (!unsavedRuns.contains(runToSave))
                         unsavedRuns.add(runToSave);
-                    }
 
                     if (count == 0) {
                         nNumberOfVariantsToSaveAtOnce = vcfEntry.getSampleNames().isEmpty() ? nMaxChunkSize : Math.max(1, nMaxChunkSize / vcfEntry.getSampleNames().size());
@@ -310,7 +309,12 @@ public class VcfImport extends AbstractGenotypeImport {
 	                    Thread insertionThread = new Thread() {
 	                        @Override
 	                        public void run() {
-	                        	persistVariantsAndGenotypes(existingVariantIDs, finalMongoTemplate, finalUnsavedVariants, finalUnsavedRuns);
+                        		try {
+									persistVariantsAndGenotypes(!existingVariantIDs.isEmpty(), finalMongoTemplate, finalUnsavedVariants, finalUnsavedRuns);
+								} catch (InterruptedException e) {
+									progress.setError(e.getMessage());
+									LOG.error(e);
+								}
 	                        }
 	                    };
 
@@ -327,7 +331,7 @@ public class VcfImport extends AbstractGenotypeImport {
                         	asyncThread.join();	// make sure previous thread has executed before going further
                         	asyncThread = null;
                         }
-                        
+
 	                    unsavedVariants = new ArrayList<>();
 	                    unsavedRuns = new ArrayList<>();
 	                    
@@ -351,7 +355,7 @@ public class VcfImport extends AbstractGenotypeImport {
             }
             reader.close();
 
-            persistVariantsAndGenotypes(existingVariantIDs, finalMongoTemplate, unsavedVariants, unsavedRuns);
+            persistVariantsAndGenotypes(!existingVariantIDs.isEmpty(), mongoTemplate, unsavedVariants, unsavedRuns);
 
         	// always save project before samples otherwise the sample cleaning procedure in MgdbDao.prepareDatabaseForSearches may remove them if called in the meantime
             if (!project.getRuns().contains(sRun))
@@ -421,17 +425,17 @@ public class VcfImport extends AbstractGenotypeImport {
         if (variantToFeed.getReferencePosition() == null) // otherwise we leave it as it is (had some trouble with overridden end-sites)
             variantToFeed.setReferencePosition(new ReferencePosition(vc.getContig(), vc.getStart(), (long) vc.getEnd()));
 
-        VariantRunData run = new VariantRunData(new VariantRunData.VariantRunDataId(project.getId(), runName, variantToFeed.getId()));
+        VariantRunData vrd = new VariantRunData(new VariantRunData.VariantRunDataId(project.getId(), runName, variantToFeed.getId()));
 
         // main VCF fields that are stored as additional info in the DB
         if (vc.isFullyDecoded())
-            run.getAdditionalInfo().put(VariantData.FIELD_FULLYDECODED, true);
+            vrd.getAdditionalInfo().put(VariantData.FIELD_FULLYDECODED, true);
         if (vc.hasLog10PError())
-        	run.getAdditionalInfo().put(VariantData.FIELD_PHREDSCALEDQUAL, vc.getPhredScaledQual());
+        	vrd.getAdditionalInfo().put(VariantData.FIELD_PHREDSCALEDQUAL, vc.getPhredScaledQual());
         if (!VariantData.FIELDVAL_SOURCE_MISSING.equals(vc.getSource()))
-            run.getAdditionalInfo().put(VariantData.FIELD_SOURCE, vc.getSource());
+            vrd.getAdditionalInfo().put(VariantData.FIELD_SOURCE, vc.getSource());
         if (vc.filtersWereApplied())
-            run.getAdditionalInfo().put(VariantData.FIELD_FILTERS, vc.getFilters().size() > 0 ? Helper.arrayToCsv(",", vc.getFilters()) : VCFConstants.PASSES_FILTERS_v4);
+            vrd.getAdditionalInfo().put(VariantData.FIELD_FILTERS, vc.getFilters().size() > 0 ? Helper.arrayToCsv(",", vc.getFilters()) : VCFConstants.PASSES_FILTERS_v4);
 
         List<String> aiEffect = new ArrayList<String>(), aiGene = new ArrayList<String>();
 
@@ -455,8 +459,8 @@ public class VcfImport extends AbstractGenotypeImport {
                         aiGene.add(fields.get(geneIdAnnotationPos));
                     }
                 }
-                run.getAdditionalInfo().put(VariantRunData.FIELDNAME_ADDITIONAL_INFO_EFFECT_GENE, aiGene);
-                run.getAdditionalInfo().put(VariantRunData.FIELDNAME_ADDITIONAL_INFO_EFFECT_NAME, aiEffect);
+                vrd.getAdditionalInfo().put(VariantRunData.FIELDNAME_ADDITIONAL_INFO_EFFECT_GENE, aiGene);
+                vrd.getAdditionalInfo().put(VariantRunData.FIELDNAME_ADDITIONAL_INFO_EFFECT_NAME, aiEffect);
                 for (String variantEffectAnnotation : aiEffect) {
                     if (variantEffectAnnotation != null && !project.getEffectAnnotations().contains(variantEffectAnnotation)) {
                         project.getEffectAnnotations().add(variantEffectAnnotation);
@@ -466,20 +470,20 @@ public class VcfImport extends AbstractGenotypeImport {
 
             Object attrVal = vc.getAttribute(key);
             if (attrVal instanceof ArrayList) {
-                run.getAdditionalInfo().put(key, Helper.arrayToCsv(",", (ArrayList) attrVal));
+                vrd.getAdditionalInfo().put(key, Helper.arrayToCsv(",", (ArrayList) attrVal));
             } else if (attrVal != null) {
                 if (attrVal instanceof Boolean && ((Boolean) attrVal).booleanValue()) {
-                    run.getAdditionalInfo().put(key, (Boolean) attrVal);
+                    vrd.getAdditionalInfo().put(key, (Boolean) attrVal);
                 } else {
                     try {
                         int intVal = Integer.valueOf(attrVal.toString());
-                        run.getAdditionalInfo().put(key, intVal);
+                        vrd.getAdditionalInfo().put(key, intVal);
                     } catch (NumberFormatException nfe1) {
                         try {
                             double doubleVal = Double.valueOf(attrVal.toString());
-                            run.getAdditionalInfo().put(key, doubleVal);
+                            vrd.getAdditionalInfo().put(key, doubleVal);
                         } catch (NumberFormatException nfe2) {
-                            run.getAdditionalInfo().put(key, attrVal.toString());
+                            vrd.getAdditionalInfo().put(key, attrVal.toString());
                         }
                     }
                 }
@@ -503,7 +507,7 @@ public class VcfImport extends AbstractGenotypeImport {
                 }
 
             	int sampleId = AutoIncrementCounter.getNextSequence(mongoTemplate, MongoTemplateManager.getMongoCollectionName(GenotypingSample.class));
-                usedSamples.put(sIndividual, new GenotypingSample(sampleId, project.getId(), run.getRunName(), sIndividual));	// add a sample for this individual to the project
+                usedSamples.put(sIndividual, new GenotypingSample(sampleId, project.getId(), vrd.getRunName(), sIndividual));	// add a sample for this individual to the project
             }
 
             Comparable phasedGroup = phasingGroup.get(sIndividual);
@@ -554,17 +558,18 @@ public class VcfImport extends AbstractGenotypeImport {
             	}
             }
 
-            if (genotype.isFiltered()) {
+            if (genotype.isFiltered())
                 aGT.getAdditionalInfo().put(VariantData.FIELD_FILTERS, genotype.getFilters());
-            }
 
-            run.getSampleGenotypes().put(usedSamples.get(sIndividual).getId(), aGT);
+            if (genotype.isCalled() || !aGT.getAdditionalInfo().isEmpty())	// otherwise there's no point in persisting an empty object
+            	vrd.getSampleGenotypes().put(usedSamples.get(sIndividual).getId(), aGT);
         }
         
-        run.setKnownAlleleList(variantToFeed.getKnownAlleleList());
-        run.setReferencePosition(variantToFeed.getReferencePosition());
-        run.setType(variantToFeed.getType());
-        return run;
+        vrd.setKnownAlleleList(variantToFeed.getKnownAlleleList());
+        vrd.setReferencePosition(variantToFeed.getReferencePosition());
+        vrd.setType(variantToFeed.getType());
+        vrd.setSynonyms(variantToFeed.getSynonyms());
+        return vrd;
     }
 
 //    public static void printGenotypes(int j, int k, String genotype)

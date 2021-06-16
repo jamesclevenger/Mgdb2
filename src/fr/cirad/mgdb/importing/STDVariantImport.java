@@ -320,7 +320,7 @@ public class STDVariantImport extends AbstractGenotypeImport {
 //			if (!mgdbVariantId.equals(sVariantName))
 //				variant.setSynonyms(markerSynonymMap.get(mgdbVariantId));	// provided id was a synonym
 			
-			VariantRunData run = new VariantRunData(new VariantRunData.VariantRunDataId(project.getId(), runName, mgdbVariantId));
+			VariantRunData vrd = new VariantRunData(new VariantRunData.VariantRunDataId(project.getId(), runName, mgdbVariantId));
 			
 			ArrayList<String> inconsistentIndividuals = inconsistencies.get(mgdbVariantId);
 			for (String individualLine : linesForVariant)
@@ -347,7 +347,7 @@ public class STDVariantImport extends AbstractGenotypeImport {
 					if (fNeedToSave)
 	                    mongoTemplate.save(ind);
 	                int sampleId = AutoIncrementCounter.getNextSequence(mongoTemplate, MongoTemplateManager.getMongoCollectionName(GenotypingSample.class));
-	                usedSamples.put(sIndividual, new GenotypingSample(sampleId, project.getId(), run.getRunName(), sIndividual));	// add a sample for this individual to the project
+	                usedSamples.put(sIndividual, new GenotypingSample(sampleId, project.getId(), vrd.getRunName(), sIndividual));	// add a sample for this individual to the project
 	            }
 
 				String gtCode = null;
@@ -381,7 +381,7 @@ public class STDVariantImport extends AbstractGenotypeImport {
 					continue;	// we don't add missing genotypes
 				
 				SampleGenotype genotype = new SampleGenotype(gtCode);
-				run.getSampleGenotypes().put(usedSamples.get(sIndividual).getId(), genotype);
+				vrd.getSampleGenotypes().put(usedSamples.get(sIndividual).getId(), genotype);
 			}
             project.getAlleleCounts().add(variant.getKnownAlleleList().size());	// it's a TreeSet so it will only be added if it's not already present
 			
@@ -398,10 +398,11 @@ public class STDVariantImport extends AbstractGenotypeImport {
 					mongoTemplate.upsert(new Query(Criteria.where("_id").is(mgdbVariantId)).addCriteria(Criteria.where(VariantData.FIELDNAME_VERSION).is(variant.getVersion())), update, VariantData.class);
 //					System.out.println("updated: " + variant.getId());
 				}
-		        run.setKnownAlleleList(variant.getKnownAlleleList());
-		        run.setReferencePosition(variant.getReferencePosition());
-		        run.setType(Type.SNP.toString());
-				mongoTemplate.save(run);
+		        vrd.setKnownAlleleList(variant.getKnownAlleleList());
+		        vrd.setReferencePosition(variant.getReferencePosition());
+		        vrd.setType(Type.SNP.toString());
+		        vrd.setSynonyms(variant.getSynonyms());
+				mongoTemplate.save(vrd);
 
 				if (j > 0)
 					LOG.info("It took " + j + " retries to save variant " + variant.getId());

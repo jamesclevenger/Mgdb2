@@ -157,9 +157,7 @@ public class HapMapImport extends AbstractGenotypeImport {
 	public Integer importToMongo(String sModule, String sProject, String sRun, String sTechnology, URL mainFileUrl, int importMode) throws Exception
 	{
 		long before = System.currentTimeMillis();
-        ProgressIndicator progress = ProgressIndicator.get(m_processID);
-        if (progress == null)
-            progress = new ProgressIndicator(m_processID, new String[]{"Initializing import"});	// better to add it straight-away so the JSP doesn't get null in return when it checks for it (otherwise it will assume the process has ended)
+        ProgressIndicator progress = ProgressIndicator.get(m_processID) != null ? ProgressIndicator.get(m_processID) : new ProgressIndicator(m_processID, new String[]{"Initializing import"});	// better to add it straight-away so the JSP doesn't get null in return when it checks for it (otherwise it will assume the process has ended)
 		progress.setPercentageEnabled(false);		
 
 		FeatureReader<RawHapMapFeature> reader = AbstractFeatureReader.getFeatureReader(mainFileUrl.toString(), new RawHapMapCodec(), false);
@@ -220,11 +218,13 @@ public class HapMapImport extends AbstractGenotypeImport {
 			Iterator<RawHapMapFeature> it = reader.iterator();
 			progress.addStep("Processing variant lines");
 			progress.moveToNextStep();
-			int nMaxChunkSize = existingVariantIDs.size() == 0 ? 10000 /*saved one by one*/ : 50000 /*inserted at once*/;
 			final MongoTemplate finalMongoTemplate = mongoTemplate;
             Thread asyncThread = null;
 			while (it.hasNext())
 			{
+				if (progress.getError() != null || progress.isAborted())
+					return null;
+
 				RawHapMapFeature hmFeature = it.next();
 				try
 				{
@@ -270,7 +270,12 @@ public class HapMapImport extends AbstractGenotypeImport {
 	                    Thread insertionThread = new Thread() {
 	                        @Override
 	                        public void run() {
-	                        	persistVariantsAndGenotypes(existingVariantIDs, finalMongoTemplate, finalUnsavedVariants, finalUnsavedRuns); 
+                        		try {
+									persistVariantsAndGenotypes(!existingVariantIDs.isEmpty(), finalMongoTemplate, finalUnsavedVariants, finalUnsavedRuns);
+								} catch (InterruptedException e) {
+									progress.setError(e.getMessage());
+									LOG.error(e);
+								}
 	                        }
 	                    };
 
@@ -307,7 +312,7 @@ public class HapMapImport extends AbstractGenotypeImport {
 			}
 			reader.close();
 
-			persistVariantsAndGenotypes(existingVariantIDs, finalMongoTemplate, unsavedVariants, unsavedRuns);
+			persistVariantsAndGenotypes(!existingVariantIDs.isEmpty(), finalMongoTemplate, unsavedVariants, unsavedRuns);
 
 			// save project data
 			if (!project.getRuns().contains(sRun))
@@ -359,10 +364,11 @@ public class HapMapImport extends AbstractGenotypeImport {
 		if (variantToFeed.getKnownAlleleList().size() == 0)
 			variantToFeed.setKnownAlleleList(Arrays.asList(hmFeature.getAlleles()));
 
-		VariantRunData run = new VariantRunData(new VariantRunData.VariantRunDataId(project.getId(), runName, variantToFeed.getId()));
+		VariantRunData vrd = new VariantRunData(new VariantRunData.VariantRunDataId(project.getId(), runName, variantToFeed.getId()));
 		String[] individuals = hmFeature.getSampleIDs();	// don't do this inside the loop as it's an expensive operation
 			
 		// genotype fields
+		HashMap<String, Integer> alleleIndexMap = new HashMap<>();	// should be more efficient not to call indexOf too often...
 		for (int i=0; i<hmFeature.getGenotypes().length; i++)
 		{
 			String genotype = hmFeature.getGenotypes()[i].toUpperCase(), gtCode = null;
@@ -376,17 +382,27 @@ public class HapMapImport extends AbstractGenotypeImport {
 				String allele1 = "" + genotype.charAt(0);
 				String allele2 = "" + genotype.charAt(1);
 
-				int firstAlleleIndex = variantToFeed.getKnownAlleleList().indexOf(allele1);
-				if (firstAlleleIndex == -1 && validNucleotides.contains(allele1))
-				{
+				Integer firstAlleleIndex = alleleIndexMap.get(allele1);
+				if (firstAlleleIndex == null) {
+					firstAlleleIndex = variantToFeed.getKnownAlleleList().indexOf(allele1);
+					if (firstAlleleIndex != null)
+						alleleIndexMap.put(allele1, firstAlleleIndex);
+				}
+				if (firstAlleleIndex == -1 && validNucleotides.contains(allele1)) {	// it's a new allele
 					firstAlleleIndex = variantToFeed.getKnownAlleleList().size();
 					variantToFeed.getKnownAlleleList().add(allele1);
+					alleleIndexMap.put(allele1, firstAlleleIndex);
 				}
-				int secondAlleleIndex = variantToFeed.getKnownAlleleList().indexOf(allele2);
-				if (secondAlleleIndex == -1 && validNucleotides.contains(allele2))
-				{
+				Integer secondAlleleIndex = alleleIndexMap.get(allele2);
+				if (secondAlleleIndex == null) {
+					secondAlleleIndex = variantToFeed.getKnownAlleleList().indexOf(allele2);
+					if (secondAlleleIndex != null)
+						alleleIndexMap.put(allele2, secondAlleleIndex);
+				}
+				if (secondAlleleIndex == -1 && validNucleotides.contains(allele2)) {	// it's a new allele
 					secondAlleleIndex = variantToFeed.getKnownAlleleList().size();
 					variantToFeed.getKnownAlleleList().add(allele2);
+					alleleIndexMap.put(allele2, secondAlleleIndex);
 				}
 				gtCode = firstAlleleIndex <= secondAlleleIndex ? (firstAlleleIndex + "/" + secondAlleleIndex) : (secondAlleleIndex + "/" + firstAlleleIndex);
 			}
@@ -409,15 +425,16 @@ public class HapMapImport extends AbstractGenotypeImport {
                 }
 
                 int sampleId = AutoIncrementCounter.getNextSequence(mongoTemplate, MongoTemplateManager.getMongoCollectionName(GenotypingSample.class));
-                usedSamples.put(individuals[i], new GenotypingSample(sampleId, project.getId(), run.getRunName(), individuals[i]));	// add a sample for this individual to the project
+                usedSamples.put(individuals[i], new GenotypingSample(sampleId, project.getId(), vrd.getRunName(), individuals[i]));	// add a sample for this individual to the project
             }			
 
-			run.getSampleGenotypes().put(usedSamples.get(individuals[i]).getId(), aGT);
+			vrd.getSampleGenotypes().put(usedSamples.get(individuals[i]).getId(), aGT);
 		}
 		
-        run.setKnownAlleleList(variantToFeed.getKnownAlleleList());
-        run.setReferencePosition(variantToFeed.getReferencePosition());
-        run.setType(variantToFeed.getType());
-		return run;
+        vrd.setKnownAlleleList(variantToFeed.getKnownAlleleList());
+        vrd.setReferencePosition(variantToFeed.getReferencePosition());
+        vrd.setType(variantToFeed.getType());
+        vrd.setSynonyms(variantToFeed.getSynonyms());
+		return vrd;
 	}
 }

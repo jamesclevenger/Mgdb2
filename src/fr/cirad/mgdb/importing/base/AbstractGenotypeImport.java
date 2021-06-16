@@ -22,10 +22,13 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.stream.Collectors;
 
 import org.apache.commons.lang3.StringUtils;
 import org.apache.log4j.Logger;
 import org.bson.Document;
+import org.springframework.dao.DuplicateKeyException;
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.query.Criteria;
@@ -49,6 +52,8 @@ import fr.cirad.tools.mongo.MongoTemplateManager;
 public class AbstractGenotypeImport {
 	
 	private static final Logger LOG = Logger.getLogger(AbstractGenotypeImport.class);
+	
+	protected static final int nMaxChunkSize = 10000;
 
 	private boolean m_fAllowDbDropIfNoGenotypingData = true;
 
@@ -62,8 +67,7 @@ public class AbstractGenotypeImport {
 		ArrayList<String> result = new ArrayList<String>();
 		
 		if (idAndSynonyms != null)
-			for (String name : idAndSynonyms)
-				result.add(name.toUpperCase());
+			result.addAll(idAndSynonyms.stream().map(s -> s.toUpperCase()).collect(Collectors.toList()));
 
 		if (sSeq != null && nStartPos != null)
 			result.add(sType + "¤" + sSeq + "¤" + nStartPos);
@@ -183,21 +187,60 @@ public class AbstractGenotypeImport {
 		boolean fLooksLikePreprocessedVariantList = firstId != null && firstId.endsWith("001") && mongoTemplate.count(new Query(Criteria.where("_id").not().regex("^\\*?" + StringUtils.getCommonPrefix(new String[] {firstId, lastId}) + ".*")), VariantData.class) == 0;
 //		LOG.debug("Database " + sModule + " does " + (fLooksLikePreprocessedVariantList ? "not " : "") + "support importing unknown variants");
 		return !fLooksLikePreprocessedVariantList;
-	}	
+	}
 
-    public void persistVariantsAndGenotypes(HashMap<String, String> existingVariantIDs, MongoTemplate mongoTemplate, Collection<VariantData> unsavedVariants, Collection<VariantRunData> unsavedRuns)
+    public void persistVariantsAndGenotypes(boolean fDBAlreadyContainsVariants, MongoTemplate mongoTemplate, Collection<VariantData> unsavedVariants, Collection<VariantRunData> unsavedRuns) throws InterruptedException
     {
-        if (existingVariantIDs.size() == 0) {	// we benefit from the fact that it's the first variant import into this database to use bulk insert which is much faster
-        	mongoTemplate.insert(unsavedVariants, VariantData.class);
-        	mongoTemplate.insert(unsavedRuns, VariantRunData.class);
-        }
-        else
-        {
-            for (VariantData vd : unsavedVariants)
-            	mongoTemplate.save(vd);
-            for (VariantRunData run : unsavedRuns)
-            	mongoTemplate.save(run);
-        }  
+//    	long b4 = System.currentTimeMillis();
+		Thread vdAsyncThread = new Thread() {	// using 2 threads is faster when calling save, but slower when calling insert 
+			public void run() {
+				if (!fDBAlreadyContainsVariants)	// we benefit from the fact that it's the first variant import into this database to use bulk insert which is much faster
+					mongoTemplate.insert(unsavedVariants, VariantData.class);
+		        else
+			    	for (VariantData vd : unsavedVariants)
+			        	try {
+			        		mongoTemplate.save(vd);
+			        	}
+						catch (OptimisticLockingFailureException olfe) {
+							mongoTemplate.save(vd);	// try again
+						}
+			}
+		};
+		vdAsyncThread.start();
+    	
+//		long t1 = System.currentTimeMillis() - b4;
+//		b4 = System.currentTimeMillis();
+		
+		List<VariantRunData> syncList = new ArrayList<>(), asyncList = new ArrayList<>();
+		int i = 0;
+		for (VariantRunData vrd : unsavedRuns)
+			(i++ < unsavedRuns.size() / 2 ? syncList : asyncList).add(vrd);
+	    		
+		try {
+			Thread vrdAsyncThread = new Thread() {
+				public void run() {
+			    	mongoTemplate.insert(asyncList, VariantRunData.class);	// this should always work but fails when a same variant is provided several times (using different synonyms)
+				}
+			};
+			vrdAsyncThread.start();
+	    	mongoTemplate.insert(syncList, VariantRunData.class);	// this should always work but fails when a same variant is provided several times (using different synonyms)
+			vrdAsyncThread.join();
+		}
+		catch (DuplicateKeyException dke)
+		{
+			LOG.info("Persisting runs using save() because of synonym variants: " + dke.getMessage());
+			Thread vrdAsyncThread = new Thread() {	// using 2 threads is faster when calling save, but slower when calling insert 
+				public void run() {
+			    	asyncList.stream().forEach(vrd -> mongoTemplate.save(vrd));
+				}
+			};
+			vrdAsyncThread.start();
+    		syncList.stream().forEach(vrd -> mongoTemplate.save(vrd));
+			vrdAsyncThread.join();
+		}
+
+		vdAsyncThread.join();	
+//		System.err.println("VD: " + t1 + " / VRD: " + (System.currentTimeMillis() - b4));
     }
     
     protected void cleanupBeforeImport(MongoTemplate mongoTemplate, String sModule, GenotypingProject project, int importMode, String sRun) {

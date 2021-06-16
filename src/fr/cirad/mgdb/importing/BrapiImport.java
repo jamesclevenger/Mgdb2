@@ -200,7 +200,7 @@ public class BrapiImport extends AbstractGenotypeImport {
 			}
 
 			boolean fMayUseTsv = client.hasAlleleMatrixSearchTSV();
-//			fMayUseTsv=true;
+//			fMayUseTsv=false;
 			client.setMapID(mapDbId);
 			
 			Pager markerPager = new Pager();
@@ -303,11 +303,11 @@ public class BrapiImport extends AbstractGenotypeImport {
 
 							if (marker.getDefaultDisplayName() != null && marker.getDefaultDisplayName().length() > 0)
 							{
-								TreeSet<String> internalSynonyms = variant.getSynonyms().get(VariantData.FIELDNAME_SYNONYM_TYPE_ID_INTERNAL);
+								TreeSet<String> internalSynonyms = variant.getSynonyms(VariantData.FIELDNAME_SYNONYM_TYPE_ID_INTERNAL);
 								if (internalSynonyms == null)
 								{
 									internalSynonyms = new TreeSet<>();
-									variant.getSynonyms().put(VariantData.FIELDNAME_SYNONYM_TYPE_ID_INTERNAL, internalSynonyms);
+									variant.putSynonyms(VariantData.FIELDNAME_SYNONYM_TYPE_ID_INTERNAL, internalSynonyms);
 								}
 								for (String syn : marker.getSynonyms())
 									internalSynonyms.add(syn);
@@ -326,9 +326,10 @@ public class BrapiImport extends AbstractGenotypeImport {
 							// update list of existing variants (FIXME: this should be a separate method in AbstractGenotypeImport) 
 							ArrayList<String> idAndSynonyms = new ArrayList<>();
 							idAndSynonyms.add(variant.getId().toString());
-							for (Collection<String> syns : variant.getSynonyms().values())
-								for (String syn : syns)
-									idAndSynonyms.add(syn.toString());
+							if (variant.getSynonyms() != null)
+								for (Collection<String> syns : variant.getSynonyms().values())
+									for (String syn : syns)
+										idAndSynonyms.add(syn.toString());
 						}
 						subPager.paginate(markerInfo.getMetadata());
 					}
@@ -758,7 +759,7 @@ public class BrapiImport extends AbstractGenotypeImport {
 			
 			String sVariantName = lineForVariant.trim().split("\t")[0];
 			
-			VariantRunData run = new VariantRunData(new VariantRunData.VariantRunDataId(project.getId(), runName, mgdbVariantId));
+			VariantRunData vrd = new VariantRunData(new VariantRunData.VariantRunDataId(project.getId(), runName, mgdbVariantId));
 			
 			ArrayList<String> inconsistentIndividuals = inconsistencies.get(mgdbVariantId);
 			String[] cells = lineForVariant.trim().split("\t");
@@ -776,7 +777,7 @@ public class BrapiImport extends AbstractGenotypeImport {
 	                }
 
 	                int sampleId = AutoIncrementCounter.getNextSequence(mongoTemplate, MongoTemplateManager.getMongoCollectionName(GenotypingSample.class));
-	                usedSamples.put(sIndividual, new GenotypingSample(sampleId, project.getId(), run.getRunName(), sIndividual));	// add a sample for this individual to the project
+	                usedSamples.put(sIndividual, new GenotypingSample(sampleId, project.getId(), vrd.getRunName(), sIndividual));	// add a sample for this individual to the project
 	            }
 
 				String gtString = "";
@@ -817,7 +818,7 @@ public class BrapiImport extends AbstractGenotypeImport {
 						continue;
 
 					SampleGenotype genotype = new SampleGenotype(gtString);
-					run.getSampleGenotypes().put(usedSamples.get(sIndividual).getId(), genotype);
+					vrd.getSampleGenotypes().put(usedSamples.get(sIndividual).getId(), genotype);
 		            if (phasedGT != null) {
 		            	genotype.getAdditionalInfo().put(VariantData.GT_FIELD_PHASED_GT, StringUtils.join(alleleIndexList, "|"));
 		            	genotype.getAdditionalInfo().put(VariantData.GT_FIELD_PHASED_ID, phasingGroup.get(sIndividual));
@@ -840,10 +841,11 @@ public class BrapiImport extends AbstractGenotypeImport {
 				{
 					mongoTemplate.upsert(new Query(Criteria.where("_id").is(mgdbVariantId)).addCriteria(Criteria.where(VariantData.FIELDNAME_VERSION).is(variant.getVersion())), update, VariantData.class);
 				}
-		        run.setKnownAlleleList(variant.getKnownAlleleList());
-		        run.setReferencePosition(variant.getReferencePosition());
-		        run.setType(variant.getType());
-				mongoTemplate.save(run);
+		        vrd.setKnownAlleleList(variant.getKnownAlleleList());
+		        vrd.setReferencePosition(variant.getReferencePosition());
+		        vrd.setType(variant.getType());
+		        vrd.setSynonyms(variant.getSynonyms());
+				mongoTemplate.save(vrd);
 
 				if (j > 0)
 					LOG.info("It took " + j + " retries to save variant " + variant.getId());
