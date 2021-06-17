@@ -38,7 +38,6 @@ import org.springframework.data.mongodb.core.query.Query;
 import org.springframework.data.mongodb.core.query.Update;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.mongodb.BasicDBObject;
 import com.mongodb.bulk.BulkWriteResult;
 
 import fr.cirad.io.brapi.BrapiClient;
@@ -160,7 +159,7 @@ public class IndividualMetadataImport {
 				LOG.info("Database " + sModule + ": metadata was deleted for " + wr.getModifiedCount() + " individuals");
 			else
 				LOG.info("Database " + sModule + ": " + wr.getModifiedCount() + " individuals updated with metadata, out of " + wr.getMatchedCount() + " matched documents");
-			return wr.getModifiedCount() + wr.getUpserts().size();
+			return wr.getModifiedCount() + wr.getUpserts().size() + wr.getDeletedCount();
 		}
 		finally
 		{
@@ -178,7 +177,7 @@ public class IndividualMetadataImport {
 		BrapiClient client = new BrapiClient();
 
 		// hack to try and make it work with current BMS version
-		client.initService(endpointUrl.replace("Ricegigwa/", ""), authToken);
+		client.initService(endpointUrl/*.replace("Ricegigwa/", "")*/, authToken);
 		client.getCalls();
 		client.ensureGermplasmInfoCanBeImported();
 		client.initService(endpointUrl, authToken);
@@ -192,7 +191,7 @@ public class IndividualMetadataImport {
 		ObjectMapper oMapper = new ObjectMapper();
 				
 		if (client.hasCallSearchGermplasm()) {
-			progress.addStep("Getting germplasm list");
+			progress.addStep("Getting germplasm list from " + endpointUrl);
 			progress.moveToNextStep();
 
 			try {
@@ -239,7 +238,7 @@ public class IndividualMetadataImport {
 		}
 		
 		boolean fCanQueryAttributes = client.hasCallGetAttributes();
-		progress.addStep("Getting germplasm information");
+		progress.addStep("Getting germplasm information from " + endpointUrl);
 		progress.moveToNextStep();
 
 		BulkOperations bulkOperations = mongoTemplate.bulkOps(BulkOperations.BulkMode.ORDERED, username == null ? Individual.class : CustomIndividualMetadata.class);
@@ -248,8 +247,8 @@ public class IndividualMetadataImport {
 			Map<Object, Object> aiMap = oMapper.convertValue(g, Map.class);
 
 			if (fCanQueryAttributes) {
-				Response<BrapiBaseResource<BrapiGermplasmAttributes>> response = service.getAttributes(aiMap.get("germplasmDbId").toString()).execute();
-				if (response.code() != 404) {	// TODO: remove this hack when this call is correctly implemented in BMS
+				Response<BrapiBaseResource<BrapiGermplasmAttributes>> response = service.getAttributes(aiMap.get(BrapiService.BRAPI_FIELD_germplasmDbId).toString()).execute();
+				if (response.code() != 404) {
 					handleErrorCode(response.code());
 					BrapiBaseResource<BrapiGermplasmAttributes> moreAttributes = response.body();
 					moreAttributes.getResult().getData().forEach(k -> aiMap.put(k.getAttributeDbId(), k.getValue()));
@@ -277,19 +276,20 @@ public class IndividualMetadataImport {
 				LOG.warn("Found no metadata to import for germplasm " + g.getGermplasmDbId());
 				continue;
 			}
+			aiMap.remove(BrapiService.BRAPI_FIELD_germplasmDbId); // we don't want to persist this field as it's internal to the remote source but not to Gigwa
 
 			Update update = new Update();			
 			if (username == null) {
 		        aiMap.forEach((k,v)->update.set(Individual.SECTION_ADDITIONAL_INFO + "." + k, v));
-		        bulkOperations.updateMulti(new Query(Criteria.where("_id").is(germplasmDbIdToIndividualMap.get(aiMap.get("germplasmDbId")))), update);
+		        bulkOperations.updateMulti(new Query(Criteria.where("_id").is(germplasmDbIdToIndividualMap.get(g.getGermplasmDbId()))), update);
 			}
 			else {
 		        aiMap.forEach((k,v)->update.set(CustomIndividualMetadata.SECTION_ADDITIONAL_INFO + "." + k, v));		        
-				bulkOperations.upsert(new Query(Criteria.where("_id").is(new CustomIndividualMetadata.CustomIndividualMetadataId(germplasmDbIdToIndividualMap.get(aiMap.get("germplasmDbId")), username))), update);
+				bulkOperations.upsert(new Query(Criteria.where("_id").is(new CustomIndividualMetadata.CustomIndividualMetadataId(germplasmDbIdToIndividualMap.get(g.getGermplasmDbId()), username))), update);
 			}
 		}
 		
-		progress.addStep("Persisting metadata");
+		progress.addStep("Persisting metadata found at " + endpointUrl);
 		progress.moveToNextStep();
 		BulkWriteResult wr = bulkOperations.execute();
 		return wr.getModifiedCount() + wr.getUpserts().size();

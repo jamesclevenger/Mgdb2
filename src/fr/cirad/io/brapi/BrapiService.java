@@ -33,7 +33,9 @@ import retrofit2.Call;
 import retrofit2.http.*;
 
 public interface BrapiService {
-    public static final String BRAPI_FIELD_germplasmDbId = "germplasmDbId";
+	public static final String BRAPI_FIELD_germplasmDbId = "germplasmDbId";
+    public static final String BRAPI_FIELD_germplasmExternalReferenceId = "extRefId";
+    public static final String BRAPI_FIELD_germplasmExternalReferenceSource = "extRefSrc";
 
 	@GET(value="calls")
     public Call<BrapiListResource<BrapiCall>> getCalls(@Query(value="pageSize") String var1, @Query(value="page") String var2);
