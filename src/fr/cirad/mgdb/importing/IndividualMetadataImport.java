@@ -220,6 +220,7 @@ public class IndividualMetadataImport {
 				}
 				catch(Exception f) {
 					progress.setError("Error invoking BrAPI /search/germplasm call (no searchResultDbId returned and yet unable to directly obtain results)");
+					LOG.error(e);
 					LOG.error(progress.getError(), f);
 					return 0;
 				}
