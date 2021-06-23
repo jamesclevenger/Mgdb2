@@ -241,6 +241,9 @@ public class IndividualMetadataImport {
 		boolean fCanQueryAttributes = client.hasCallGetAttributes();
 		progress.addStep("Getting germplasm information from " + endpointUrl);
 		progress.moveToNextStep();
+		
+		if (germplasmList.isEmpty())
+			return 0;
 
 		BulkOperations bulkOperations = mongoTemplate.bulkOps(BulkOperations.BulkMode.ORDERED, username == null ? Individual.class : CustomIndividualMetadata.class);
 		for (int i=0; i<germplasmList.size(); i++) {

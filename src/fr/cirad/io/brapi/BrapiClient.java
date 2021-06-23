@@ -173,12 +173,12 @@ public class BrapiClient
 
 		while (pager.isPaging())
 		{
-			BrapiListResource<BrapiCall> br = service.getCalls(pager.getPageSize(), pager.getPage())
-				.execute()
-				.body();
-
+			retrofit2.Response<BrapiListResource<BrapiCall>> resp = service.getCalls(pager.getPageSize(), pager.getPage()).execute();
+			if (!resp.isSuccessful())
+				throw new Exception("Error " + resp.code() + ": " + resp.errorBody().string());
+			
+			BrapiListResource<BrapiCall> br	= resp.body();
 			calls.addAll(br.data());
-
 			pager.paginate(br.getMetadata());
 		}
 
@@ -233,12 +233,12 @@ public class BrapiClient
 
 		while (pager.isPaging())
 		{
-			BrapiListResource<BrapiMarkerProfile> br = service.getMarkerProfiles(studyID, germplasmDbIDs, pager.getPageSize(), pager.getPage())
-				.execute()
-				.body();
-
+			retrofit2.Response<BrapiListResource<BrapiMarkerProfile>> resp = service.getMarkerProfiles(studyID, germplasmDbIDs, pager.getPageSize(), pager.getPage()).execute();
+			if (!resp.isSuccessful())
+				throw new Exception("Error " + resp.code() + ": " + resp.errorBody().string());
+			
+			BrapiListResource<BrapiMarkerProfile> br = resp.body();
 			list.addAll(br.data());
-
 			pager.paginate(br.getMetadata());
 		}
 
