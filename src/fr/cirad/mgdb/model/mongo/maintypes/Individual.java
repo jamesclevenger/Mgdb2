@@ -56,7 +56,7 @@ public class Individual implements Comparable<Individual>
 	
 	/** The additional info. */
 	@Field(SECTION_ADDITIONAL_INFO)
-	private HashMap<String, Comparable> additionalInfo = null;
+	private LinkedHashMap<String, Comparable> additionalInfo = null;
 	
 	/**
 	 * Instantiates a new individual.
@@ -171,9 +171,9 @@ public class Individual implements Comparable<Individual>
 	 *
 	 * @return the additional info
 	 */
-	public HashMap<String, Comparable> getAdditionalInfo() {
+	public LinkedHashMap<String, Comparable> getAdditionalInfo() {
 		if (additionalInfo == null)
-			additionalInfo = new HashMap<String, Comparable>();
+			additionalInfo = new LinkedHashMap<String, Comparable>();
 		return additionalInfo;
 	}
 
@@ -182,7 +182,7 @@ public class Individual implements Comparable<Individual>
 	 *
 	 * @param additionalInfo the additional info
 	 */
-	public void setAdditionalInfo(HashMap<String, Comparable> additionalInfo) {
+	public void setAdditionalInfo(LinkedHashMap<String, Comparable> additionalInfo) {
 		this.additionalInfo = additionalInfo;
 	}
 	

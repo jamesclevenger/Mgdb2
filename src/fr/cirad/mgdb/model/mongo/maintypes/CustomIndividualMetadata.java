@@ -1,6 +1,7 @@
 package fr.cirad.mgdb.model.mongo.maintypes;
 
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 
 import org.springframework.data.annotation.Id;
 import org.springframework.data.annotation.TypeAlias;
@@ -68,7 +69,7 @@ public class CustomIndividualMetadata {
 
 	/** The additional info. */
 	@Field(SECTION_ADDITIONAL_INFO)
-	private HashMap<String, Comparable> additionalInfo = null;
+	private LinkedHashMap<String, Comparable> additionalInfo = null;
 	
 	/**
 	 * Gets the id.
@@ -87,7 +88,7 @@ public class CustomIndividualMetadata {
 	 */
 	public HashMap<String, Comparable> getAdditionalInfo() {
 		if (additionalInfo == null)
-			additionalInfo = new HashMap<String, Comparable>();
+			additionalInfo = new LinkedHashMap<String, Comparable>();
 		return additionalInfo;
 	}
 
@@ -96,7 +97,7 @@ public class CustomIndividualMetadata {
 	 *
 	 * @param additionalInfo the additional info
 	 */
-	public void setAdditionalInfo(HashMap<String, Comparable> additionalInfo) {
+	public void setAdditionalInfo(LinkedHashMap<String, Comparable> additionalInfo) {
 		this.additionalInfo = additionalInfo;
 	}
 	

@@ -22,6 +22,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Scanner;
@@ -127,7 +128,7 @@ public class IndividualMetadataImport {
 				}
 
 				// now deal with actual data rows
-				HashMap<String, Comparable> additionalInfo = new HashMap<>();
+				LinkedHashMap<String, Comparable> additionalInfo = new LinkedHashMap<>();
 				for (int col : columnLabels.keySet())
 					if (col != idColumn)
 						additionalInfo.put(columnLabels.get(col), cells.size() > col ? cells.get(col) : "");
@@ -284,11 +285,11 @@ public class IndividualMetadataImport {
 
 			Update update = new Update();			
 			if (username == null) {
-		        aiMap.forEach((k,v)->update.set(Individual.SECTION_ADDITIONAL_INFO + "." + k, v));
+		        aiMap.forEach((k,v) -> update.set(Individual.SECTION_ADDITIONAL_INFO + "." + k, v));
 		        bulkOperations.updateMulti(new Query(Criteria.where("_id").is(germplasmDbIdToIndividualMap.get(g.getGermplasmDbId()))), update);
 			}
 			else {
-		        aiMap.forEach((k,v)->update.set(CustomIndividualMetadata.SECTION_ADDITIONAL_INFO + "." + k, v));		        
+		        aiMap.forEach((k,v) -> update.set(CustomIndividualMetadata.SECTION_ADDITIONAL_INFO + "." + k, v));		        
 				bulkOperations.upsert(new Query(Criteria.where("_id").is(new CustomIndividualMetadata.CustomIndividualMetadataId(germplasmDbIdToIndividualMap.get(g.getGermplasmDbId()), username))), update);
 			}
 		}
