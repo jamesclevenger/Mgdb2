@@ -371,6 +371,7 @@ public class MongoTemplateManager implements ApplicationContextAware {
 		                properties.put(sModuleKey, sHost + "," + sDbName + "," + (ncbiTaxonIdNameAndSpecies == null ? "" : ncbiTaxonIdNameAndSpecies));
 		                fos = new FileOutputStream(f);
 		                properties.store(fos, null);
+		                dataSourceBundle = ResourceBundle.getBundle(resource, resourceControl);	// reload updated datasource list
 
 		                templateMap.put(sModule, mongoTemplate);
 		                if (fPublic)
