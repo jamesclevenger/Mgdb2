@@ -46,6 +46,7 @@ import org.springframework.data.mongodb.core.mapping.Field;
 import fr.cirad.mgdb.model.mongo.maintypes.GenotypingSample;
 import fr.cirad.mgdb.model.mongo.maintypes.VariantData;
 import fr.cirad.mgdb.model.mongo.maintypes.VariantRunData;
+import fr.cirad.tools.AlphaNumericComparator;
 import fr.cirad.tools.Helper;
 
 abstract public class AbstractVariantData
@@ -570,106 +571,97 @@ abstract public class AbstractVariantData
 	{
 		ArrayList<Genotype> genotypes = new ArrayList<Genotype>();
 		String sRefAllele = null;
-		
-		// collect all genotypes for all individuals
-		Map<String/*individual*/, HashMap<String/*genotype code*/, LinkedHashSet<Integer>>> individualSamplesByGenotype = new LinkedHashMap<>();
+
+		Map<String, Integer> individualPositions = new LinkedHashMap<>();
+		for (String ind : samplesToExport.stream().map(gs -> gs.getIndividual()).distinct().sorted(new AlphaNumericComparator<String>()).collect(Collectors.toList()))
+			individualPositions.put(ind, individualPositions.size());
 		
 		HashMap<Integer, SampleGenotype> sampleGenotypes = new HashMap<>();
-		List<VariantRunData> runsWhereDataWasFound = new ArrayList<>();
-		LinkedHashSet<String> individualList = new LinkedHashSet<>();
-		for (GenotypingSample sample : samplesToExport)
-		{
-			if (runs == null || runs.size() == 0)
-				continue;
-			
-			Integer sampleIndex = sample.getId();
-			for (VariantRunData run : runs)
-			{
-				if (sRefAllele == null && !run.getKnownAlleleList().isEmpty())
-					sRefAllele = run.knownAlleleList.get(0);
+		HashSet<VariantRunData> runsWhereDataWasFound = new HashSet<>();
 
-				SampleGenotype sampleGenotype = run.getSampleGenotypes().get(sampleIndex);
-				if (sampleGenotype == null)
-					continue;	// run contains no data for this sample
-				
-				// keep track of SampleGenotype and Run so we can have access to additional info later on
-				sampleGenotypes.put(sampleIndex, sampleGenotype);
-				if (!runsWhereDataWasFound.contains(run))
+		// collect all genotypes from various runs for all individuals
+		HashMap<String/*genotype code*/, LinkedHashSet<Integer/*sample*/>>[] individualGenotypes = new HashMap[individualPositions.size()];
+		if (runs != null && !runs.isEmpty())
+			for (GenotypingSample sample : samplesToExport) {		
+				int nIndividualIndex = individualPositions.get(sample.getIndividual());
+				for (VariantRunData run : runs) {
+					if (sRefAllele == null && !run.getKnownAlleleList().isEmpty())
+						sRefAllele = run.getKnownAlleleList().get(0);
+	
+					SampleGenotype sampleGenotype = run.getSampleGenotypes().get(sample.getId());
+					if (sampleGenotype == null || !gtPassesVcfAnnotationFilters(sample.getIndividual(), sampleGenotype, individuals1, annotationFieldThresholds1, individuals2, annotationFieldThresholds2))
+						continue;	// run contains no data for this sample, or its annotation values are below filter thresholds
+
+					// keep track of SampleGenotype and Run so we can have access to additional info later on
+					sampleGenotypes.put(sample.getId(), sampleGenotype);
 					runsWhereDataWasFound.add(run);
-				
-				String gtCode = /*isPhased ? (String) sampleGenotype.getAdditionalInfo().get(GT_FIELD_PHASED_GT) : */sampleGenotype.getCode();
-				String individualId = sample.getIndividual();
-				if (!individualList.contains(individualId))
-					individualList.add(individualId);
-				HashMap<String, LinkedHashSet<Integer>> storedIndividualGenotypes = individualSamplesByGenotype.get(individualId);
-				if (storedIndividualGenotypes == null) {
-					storedIndividualGenotypes = new HashMap<>();
-					individualSamplesByGenotype.put(individualId, storedIndividualGenotypes);
+
+					if (individualGenotypes[nIndividualIndex] == null)
+						individualGenotypes[nIndividualIndex] = new HashMap<>();
+					LinkedHashSet<Integer> samplesWithGivenGenotype = individualGenotypes[nIndividualIndex].get(sampleGenotype.getCode());
+					if (samplesWithGivenGenotype == null) {
+						samplesWithGivenGenotype = new LinkedHashSet<Integer>();
+						individualGenotypes[nIndividualIndex].put(sampleGenotype.getCode(), samplesWithGivenGenotype);
+					}
+					samplesWithGivenGenotype.add(sample.getId());
 				}
-				LinkedHashSet<Integer> samplesWithGivenGenotype = storedIndividualGenotypes.get(gtCode);
-				if (samplesWithGivenGenotype == null)
-				{
-					samplesWithGivenGenotype = new LinkedHashSet<Integer>();
-					storedIndividualGenotypes.put(gtCode, samplesWithGivenGenotype);
-				}
-				samplesWithGivenGenotype.add(sampleIndex);
 			}
-		}
 		
 		ArrayList<Allele> variantAlleles = new ArrayList<Allele>();
 		variantAlleles.add(Allele.create(sRefAllele, true));
-			
-		for (String individualName : individualList)
-		{
-			HashMap<String, LinkedHashSet<Integer>> samplesWithGivenGenotype = individualSamplesByGenotype.get(individualName);
+
+		HashMap<String, List<String>> genotypeStringCache = new HashMap<>();
+		int nIndividualIndex = -1;
+		for (String individualName : individualPositions.keySet()) {
+			nIndividualIndex++;
 			HashMap<Object, Integer> genotypeCounts = new HashMap<Object, Integer>(); // will help us to keep track of missing genotypes
 				
 			int highestGenotypeCount = 0;
 			String mostFrequentGenotype = null;
-			if (genotypes != null && samplesWithGivenGenotype != null)
-				for (String gtCode : samplesWithGivenGenotype.keySet())
-				{
+			if (individualGenotypes[nIndividualIndex] != null)
+				for (String gtCode : individualGenotypes[nIndividualIndex].keySet()) {
 					if (gtCode == null)
 						continue; /* skip missing genotypes */
 
-					int gtCount = samplesWithGivenGenotype.get(gtCode).size();
+					int gtCount = individualGenotypes[nIndividualIndex].get(gtCode).size();
 					if (gtCount > highestGenotypeCount) {
 						highestGenotypeCount = gtCount;
 						mostFrequentGenotype = gtCode;
 					}
 					genotypeCounts.put(gtCode, gtCount);
 				}
-			
+
 			if (mostFrequentGenotype == null)
 				continue;	// no genotype for this individual
-			
-			Integer spId = samplesWithGivenGenotype.get(mostFrequentGenotype).iterator().next(); // any will do (FIXME: maybe not because gtPassesVcfAnnotationFilters gets invoked afterwards...)
+
+			Integer spId = individualGenotypes[nIndividualIndex].get(mostFrequentGenotype).iterator().next();	// any will do (although ideally we should make sure we export the best annotation values found) 
 			SampleGenotype sampleGenotype = sampleGenotypes.get(spId);
-			if (!gtPassesVcfAnnotationFilters(individualName, sampleGenotype, individuals1, annotationFieldThresholds1, individuals2, annotationFieldThresholds2))
-				continue;	// skip genotype
 
 			if (warningFileWriter != null && genotypeCounts.size() > 1)
 				warningFileWriter.write("- Dissimilar genotypes found for variant " + (synonym == null ? id : synonym) + ", individual " + individualName + ". Exporting most frequent: " + mostFrequentGenotype + "\n");
 			
 			Object currentPhId = sampleGenotype.getAdditionalInfo().get(GT_FIELD_PHASED_ID);
-			
 			boolean isPhased = currentPhId != null && currentPhId.equals(previousPhasingIds.get(spId));
+			String gtCode = isPhased ? (String) sampleGenotype.getAdditionalInfo().get(GT_FIELD_PHASED_GT) : mostFrequentGenotype;
+			List<String> alleles = genotypeStringCache.get(gtCode);
+            if (alleles == null) {
+            	alleles = getAllelesFromGenotypeCode(gtCode);
+            	genotypeStringCache.put(gtCode, alleles);
+            }
 
-			List<String> alleles = getAllelesFromGenotypeCode(isPhased ? (String) sampleGenotype.getAdditionalInfo().get(GT_FIELD_PHASED_GT) : mostFrequentGenotype);
 			ArrayList<Allele> individualAlleles = new ArrayList<Allele>();
 			previousPhasingIds.put(spId, currentPhId == null ? id : currentPhId);
 			if (alleles.size() == 0)
-				continue;	/* skip this sample because there is no genotype for it */
+				continue;	/* skip this individual because there is no genotype for it */
 			
 			boolean fAllAllelesNoCall = true;
 			for (String allele : alleles)
-				if (allele.length() > 0)
-				{
+				if (allele.length() > 0) {
 					fAllAllelesNoCall = false;
 					break;
 				}
-			for (String sAllele : alleles)
-			{
+
+			for (String sAllele : alleles) {
 				Allele allele = Allele.create(sAllele.length() == 0 ? (fAllAllelesNoCall ? Allele.NO_CALL_STRING : "<DEL>") : sAllele, sRefAllele.equals(sAllele));
 				if (!allele.isNoCall() && !variantAlleles.contains(allele))
 					variantAlleles.add(allele);
@@ -730,7 +722,7 @@ abstract public class AbstractVariantData
 			genotypes.add(gb.make());
 		}
 
-		VariantRunData run = runsWhereDataWasFound.size() == 1 ? runsWhereDataWasFound.get(0) : null;	// if there is not exactly one run involved then we do not export meta-data
+		VariantRunData run = runsWhereDataWasFound.size() == 1 ? runsWhereDataWasFound.iterator().next() : null;	// if there is not exactly one run involved then we do not export meta-data
 		String source = run == null ? null : (String) run.getAdditionalInfo().get(FIELD_SOURCE);
 
 		Long start = referencePosition == null ? null : referencePosition.getStartSite(), stop = referencePosition == null ? null : (referencePosition.getEndSite() == null ? start : referencePosition.getEndSite());
@@ -740,8 +732,7 @@ abstract public class AbstractVariantData
 			vcb.id((synonym == null ? getVariantId() : synonym).toString());
 		vcb.genotypes(genotypes);
 		
-		if (run != null)
-		{
+		if (run != null) {
 			Boolean fullDecod = (Boolean) run.getAdditionalInfo().get(FIELD_FULLYDECODED);
 			vcb.fullyDecoded(fullDecod != null && fullDecod);
 	
@@ -767,6 +758,9 @@ abstract public class AbstractVariantData
 	// tells whether applied filters imply to treat this genotype as missing data
     public static boolean gtPassesVcfAnnotationFilters(String individualName, SampleGenotype sampleGenotype, Collection<String> individuals1, HashMap<String, Float> annotationFieldThresholds, Collection<String> individuals2, HashMap<String, Float> annotationFieldThresholds2)
     {
+    	if (annotationFieldThresholds == null && annotationFieldThresholds2 == null)
+    		return true;
+
 		List<HashMap<String, Float>> thresholdsToCheck = new ArrayList<HashMap<String, Float>>();
 		if (!annotationFieldThresholds.isEmpty() && individuals1.contains(individualName))
 			thresholdsToCheck.add(annotationFieldThresholds);
