@@ -20,6 +20,7 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.FileReader;
 import java.io.IOException;
+import java.io.InputStream;
 import java.net.UnknownHostException;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -30,8 +31,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.MissingResourceException;
 import java.util.Properties;
-import java.util.ResourceBundle;
-import java.util.ResourceBundle.Control;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
@@ -50,6 +49,7 @@ import org.springframework.stereotype.Component;
 import com.mongodb.BasicDBObject;
 import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoCollection;
+import com.mongodb.connection.ClusterDescription;
 import com.mongodb.connection.ServerDescription;
 
 import fr.cirad.mgdb.model.mongo.maintypes.VariantData;
@@ -98,17 +98,17 @@ public class MongoTemplateManager implements ApplicationContextAware {
      * The mongo clients.
      */
     static private Map<String, MongoClient> mongoClients = new HashMap<>();
-
+    
     /**
-     * The resource bundle
-     */
-    static private ResourceBundle dataSourceBundle;
-
-    /**
-     * The datasource resource (properties filename)
+     * The datasource  (properties filename)
      */
     static private String resource = "datasources";
-
+    
+    /**
+     * The datasource properties
+     */  
+    static private Properties dataSourceProperties = new Properties();
+    
     /**
      * The expiry prefix.
      */
@@ -136,24 +136,6 @@ public class MongoTemplateManager implements ApplicationContextAware {
     
     private static final List<String> addressesConsideredLocal = Arrays.asList("127.0.0.1", "localhost");
 
-    /**
-     * The resource control.
-     */
-    private static final Control resourceControl = new ResourceBundle.Control() {
-        @Override
-        public boolean needsReload(String baseName, java.util.Locale locale, String format, ClassLoader loader, ResourceBundle bundle, long loadTime) {
-            return true;
-        }
-
-        @Override
-        public long getTimeToLive(String baseName, java.util.Locale locale) {
-            return 0;
-        }
-    };
-
-    /* (non-Javadoc)
-	 * @see org.springframework.context.ApplicationContextAware#setApplicationContext(org.springframework.context.ApplicationContext)
-     */
     @Override
     public void setApplicationContext(ApplicationContext ac) throws BeansException {
         initialize(ac);
@@ -199,10 +181,10 @@ public class MongoTemplateManager implements ApplicationContextAware {
     static public void clearExpiredDatabases() {
         try
         {
-            Enumeration<String> bundleKeys = dataSourceBundle.getKeys();
+            Enumeration<Object> bundleKeys = dataSourceProperties.keys();
             while (bundleKeys.hasMoreElements()) {
-				String key = bundleKeys.nextElement();
-				String[] datasourceInfo = dataSourceBundle.getString(key).split(",");
+				String key = (String) bundleKeys.nextElement();
+				String[] datasourceInfo = dataSourceProperties.getProperty(key).split(",");
 				
 				if (datasourceInfo.length < 2) {
 				    LOG.error("Unable to deal with datasource info for key " + key + ". Datasource definition requires at least 2 comma-separated strings: mongo host bean name (defined in Spring application context) and database name");
@@ -235,12 +217,24 @@ public class MongoTemplateManager implements ApplicationContextAware {
         hiddenDatabases.clear();
         try {
             mongoClients = applicationContext.getBeansOfType(MongoClient.class);
+            
+    	    try (InputStream input = MongoTemplateManager.class.getClassLoader().getResourceAsStream(resource + ".properties")) {
 
-            dataSourceBundle = ResourceBundle.getBundle(resource, resourceControl);
-            Enumeration<String> bundleKeys = dataSourceBundle.getKeys();
+    	    	
+    	        //load a properties file from class path, inside static method
+    	    	dataSourceProperties.load(input);
+    	
+    	        //get the property value and print it out
+    	        LOG.info("*Sorghum-JGI_v1 : " + dataSourceProperties.getProperty("*Sorghum-JGI_v1"));
+    	
+    	    } catch (IOException ex) {
+    	        ex.printStackTrace();
+    	    }
+            
+            Enumeration<Object> bundleKeys = dataSourceProperties.keys();
             while (bundleKeys.hasMoreElements()) {
-                String key = bundleKeys.nextElement();
-                String[] datasourceInfo = dataSourceBundle.getString(key).split(",");
+                String key = (String) bundleKeys.nextElement();
+                String[] datasourceInfo = dataSourceProperties.getProperty(key).split(",");
 
                 if (datasourceInfo.length < 2) {
                     LOG.error("Unable to deal with datasource info for key " + key + ". Datasource definition requires at least 2 comma-separated strings: mongo host bean name (defined in Spring application context) and database name");
@@ -330,22 +324,22 @@ public class MongoTemplateManager implements ApplicationContextAware {
     	FileOutputStream fos = null;
         File f = new ClassPathResource("/" + resource + ".properties").getFile();
     	FileReader fileReader = new FileReader(f);
-        Properties properties = new Properties();
-        properties.load(fileReader);
+
+        dataSourceProperties.load(fileReader);
         
     	try
     	{
     		if (action.equals(ModuleAction.DELETE))
     		{
     	        String sModuleKey = (isModulePublic(sModule) ? "*" : "") + sModule + (isModuleHidden(sModule) ? "*" : "");
-                if (!properties.containsKey(sModuleKey))
+                if (!dataSourceProperties.containsKey(sModuleKey))
                 {
                 	LOG.warn("Module could not be found in datasource.properties: " + sModule);
                 	return false;
                 }
-                properties.remove(sModuleKey);
+                dataSourceProperties.remove(sModuleKey);
                 fos = new FileOutputStream(f);
-                properties.store(fos, null);
+                dataSourceProperties.store(fos, null);
                 return true;
     		}
 	        else if (action.equals(ModuleAction.CREATE))
@@ -360,7 +354,7 @@ public class MongoTemplateManager implements ApplicationContextAware {
 		                nRetries++;	// DB already exists, let's try with a different DB name
 		            else
 		            {
-		                if (properties.containsKey(sModule) || properties.containsKey("*" + sModule) || properties.containsKey(sModule + "*") || properties.containsKey("*" + sModule + "*"))
+		                if (dataSourceProperties.containsKey(sModule) || dataSourceProperties.containsKey("*" + sModule) || dataSourceProperties.containsKey(sModule + "*") || dataSourceProperties.containsKey("*" + sModule + "*"))
 		                {
 		                	LOG.warn("Tried to create a module that already exists in datasource.properties: " + sModule);
 		                	return false;
@@ -368,10 +362,9 @@ public class MongoTemplateManager implements ApplicationContextAware {
 		                String sModuleKey = (fPublic ? "*" : "") + sModule + (fHidden ? "*" : "");
 		                if (ncbiTaxonIdNameAndSpecies != null)
 		                	setTaxon(sModule, ncbiTaxonIdNameAndSpecies);
-		                properties.put(sModuleKey, sHost + "," + sDbName + "," + (ncbiTaxonIdNameAndSpecies == null ? "" : ncbiTaxonIdNameAndSpecies));
+		                dataSourceProperties.put(sModuleKey, sHost + "," + sDbName + "," + (ncbiTaxonIdNameAndSpecies == null ? "" : ncbiTaxonIdNameAndSpecies));
 		                fos = new FileOutputStream(f);
-		                properties.store(fos, null);
-		                dataSourceBundle = ResourceBundle.getBundle(resource, resourceControl);	// reload updated datasource list
+		                dataSourceProperties.store(fos, null);
 
 		                templateMap.put(sModule, mongoTemplate);
 		                if (fPublic)
@@ -386,21 +379,21 @@ public class MongoTemplateManager implements ApplicationContextAware {
 	        else if (action.equals(ModuleAction.UPDATE_STATUS))
 	        {
 	        	String sModuleKey = (isModulePublic(sModule) ? "*" : "") + sModule + (isModuleHidden(sModule) ? "*" : "");
-                if (!properties.containsKey(sModuleKey))
+                if (!dataSourceProperties.containsKey(sModuleKey))
                 {
                 	LOG.warn("Tried to update a module that could not be found in datasource.properties: " + sModule);
                 	return false;
                 }
-                String[] propValues = ((String) properties.get(sModuleKey)).split(",");
-                properties.remove(sModuleKey);
+                String[] propValues = ((String) dataSourceProperties.get(sModuleKey)).split(",");
+                dataSourceProperties.remove(sModuleKey);
                 if (ncbiTaxonIdNameAndSpecies == null && getTaxonId(sModule) != null)
                 {
                 	String taxonName = getTaxonName(sModule), species = getSpecies(sModule);
                 	ncbiTaxonIdNameAndSpecies = getTaxonId(sModule) + ":" + (species != null && species.equals(taxonName) ? "" : taxonName) + ":" + (species != null ? species : "");
                 }
-                properties.put((fPublic ? "*" : "") + sModule + (fHidden ? "*" : ""), propValues[0] + "," + propValues[1] + "," + ncbiTaxonIdNameAndSpecies);
+                dataSourceProperties.put((fPublic ? "*" : "") + sModule + (fHidden ? "*" : ""), propValues[0] + "," + propValues[1] + "," + ncbiTaxonIdNameAndSpecies);
                 fos = new FileOutputStream(f);
-                properties.store(fos, null);
+                dataSourceProperties.store(fos, null);
                 
                 if (fPublic)
                     publicDatabases.add(sModule);
@@ -628,14 +621,14 @@ public class MongoTemplateManager implements ApplicationContextAware {
 		
 		return splitTaxonDetails.length > 2 ? splitTaxonDetails[2] : null;
 	}
-	
+
     public static String getModuleHost(String sModule) {
-        Enumeration<String> bundleKeys = dataSourceBundle.getKeys();
+        Enumeration<Object> bundleKeys = dataSourceProperties.keys();
         while (bundleKeys.hasMoreElements()) {
-            String key = bundleKeys.nextElement();
+            String key = (String) bundleKeys.nextElement();
             
             if (sModule.equals(key.replaceAll("\\*", ""))) {
-            	String[] datasourceInfo = dataSourceBundle.getString(key).split(",");
+            	String[] datasourceInfo = dataSourceProperties.getProperty(key).split(",");
             	return datasourceInfo[0];
             }
         }
@@ -643,7 +636,10 @@ public class MongoTemplateManager implements ApplicationContextAware {
     }
     
     public static boolean isModuleOnLocalHost(String sModule) {
-    	List<ServerDescription> descs = mongoClients.get(getModuleHost(sModule)).getClusterDescription().getServerDescriptions();
+    	String sHost = getModuleHost(sModule);
+    	MongoClient client = mongoClients.get(sHost);
+    	ClusterDescription clusterDesc = client.getClusterDescription();
+    	List<ServerDescription> descs = clusterDesc.getServerDescriptions();
     	for (ServerDescription desc : descs)
     		if (!addressesConsideredLocal.contains(desc.getAddress().getHost()))
     			return false;
