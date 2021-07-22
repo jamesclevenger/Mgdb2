@@ -262,7 +262,7 @@ public class MongoTemplateManager implements ApplicationContextAware {
                 }
             }
         } catch (IOException ioe) {
-            LOG.error("Unable to find load " + resource + ".properties, you may need to adjust your classpath", ioe);
+            LOG.error("Unable to load " + resource + ".properties, you may need to adjust your classpath", ioe);
         }
     }
 
