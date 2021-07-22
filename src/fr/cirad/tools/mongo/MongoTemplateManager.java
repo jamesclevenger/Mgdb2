@@ -218,18 +218,9 @@ public class MongoTemplateManager implements ApplicationContextAware {
         try {
             mongoClients = applicationContext.getBeansOfType(MongoClient.class);
             
-    	    try (InputStream input = MongoTemplateManager.class.getClassLoader().getResourceAsStream(resource + ".properties")) {
-
-    	    	
-    	        //load a properties file from class path, inside static method
-    	    	dataSourceProperties.load(input);
-    	
-    	        //get the property value and print it out
-    	        LOG.info("*Sorghum-JGI_v1 : " + dataSourceProperties.getProperty("*Sorghum-JGI_v1"));
-    	
-    	    } catch (IOException ex) {
-    	        ex.printStackTrace();
-    	    }
+    	    InputStream input = MongoTemplateManager.class.getClassLoader().getResourceAsStream(resource + ".properties");
+    	    dataSourceProperties.load(input);
+    	    input.close();
             
             Enumeration<Object> bundleKeys = dataSourceProperties.keys();
             while (bundleKeys.hasMoreElements()) {
@@ -270,8 +261,8 @@ public class MongoTemplateManager implements ApplicationContextAware {
                     LOG.warn("Unable to create MongoTemplate for module " + cleanKey, e);
                 }
             }
-        } catch (MissingResourceException mre) {
-            LOG.error("Unable to find file " + resource + ".properties, you may need to adjust your classpath", mre);
+        } catch (IOException ioe) {
+            LOG.error("Unable to find load " + resource + ".properties, you may need to adjust your classpath", ioe);
         }
     }
 
