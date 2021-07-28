@@ -186,12 +186,13 @@ public class MgdbDao
 		int nResult = 0;
 		String rpPath = VariantData.FIELDNAME_REFERENCE_POSITION + ".";
 		BasicDBObject coumpoundIndexKeys = new BasicDBObject(rpPath + ReferencePosition.FIELDNAME_SEQUENCE, 1).append(rpPath + ReferencePosition.FIELDNAME_START_SITE, 1), ssIndexKeys = new BasicDBObject(rpPath + ReferencePosition.FIELDNAME_START_SITE, 1);
-
+		
 		for (MongoCollection<Document> coll : varColls) {
-			if (coll.estimatedDocumentCount() == 0)
+			boolean fIsTmpColl = coll.getNamespace().getCollectionName().startsWith(MongoTemplateManager.TEMP_COLL_PREFIX);
+			if (!fIsTmpColl && coll.estimatedDocumentCount() == 0)
 				continue;	// database seems empty: indexes will be created after imports (faster this way) 
 
-			boolean fFoundCoumpoundIndex = false, fFoundCorrectCoumpoundIndex = false, fFoundStartSiteIndex = false, fIsTmpColl = coll.getNamespace().getCollectionName().startsWith(MongoTemplateManager.TEMP_COLL_PREFIX);
+			boolean fFoundCoumpoundIndex = false, fFoundCorrectCoumpoundIndex = false, fFoundStartSiteIndex = false;
 			MongoCursor<Document> indexCursor = coll.listIndexes().cursor();
 			while (indexCursor.hasNext()) {
 				Document doc = (Document) indexCursor.next();
