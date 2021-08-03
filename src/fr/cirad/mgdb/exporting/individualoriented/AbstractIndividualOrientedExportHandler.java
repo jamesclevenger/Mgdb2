@@ -78,10 +78,11 @@ public abstract class AbstractIndividualOrientedExportHandler implements IExport
 	 * @param varQuery query to apply on varColl
 	 * @param markerCount number of variants to export
 	 * @param markerSynonyms the marker synonyms
+	 * @param individualMetadataFieldsToExport metadata fields to export for individuals 
 	 * @param readyToExportFiles the ready to export files
 	 * @throws Exception the exception
 	 */
-	abstract public void exportData(OutputStream outputStream, String sModule, File[] individualExportFiles, boolean fDeleteSampleExportFilesOnExit, ProgressIndicator progress, String tmpVarCollName, Document varQuery, long markerCount, Map<String, String> markerSynonyms, Map<String, InputStream> readyToExportFiles) throws Exception;
+	abstract public void exportData(OutputStream outputStream, String sModule, File[] individualExportFiles, boolean fDeleteSampleExportFilesOnExit, ProgressIndicator progress, String tmpVarCollName, Document varQuery, long markerCount, Map<String, String> markerSynonyms, Collection<String> individualMetadataFieldsToExport, Map<String, InputStream> readyToExportFiles) throws Exception;
 
 	/**
 	 * Creates the export files.

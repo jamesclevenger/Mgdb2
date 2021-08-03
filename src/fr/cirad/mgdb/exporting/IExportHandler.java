@@ -19,6 +19,8 @@ package fr.cirad.mgdb.exporting;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.util.Collection;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.zip.ZipEntry;
@@ -27,15 +29,20 @@ import java.util.zip.ZipOutputStream;
 import org.apache.log4j.Logger;
 import org.bson.Document;
 import org.springframework.data.mongodb.core.MongoTemplate;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoCursor;
 import com.mongodb.client.model.Collation;
 
+import fr.cirad.mgdb.model.mongo.maintypes.Individual;
 import fr.cirad.mgdb.model.mongo.maintypes.VariantData;
 import fr.cirad.mgdb.model.mongo.maintypes.VariantRunData;
 import fr.cirad.mgdb.model.mongo.subtypes.AbstractVariantData;
 import fr.cirad.mgdb.model.mongo.subtypes.ReferencePosition;
+import fr.cirad.mgdb.model.mongodao.MgdbDao;
+import fr.cirad.tools.Helper;
 
 /**
  * The Interface IExportHandler.
@@ -132,4 +139,24 @@ public interface IExportHandler
 		Number avgObjSize = (Number) mongoTemplate.getDb().runCommand(new Document("collStats", mongoTemplate.getCollectionName(VariantRunData.class))).get("avgObjSize");
 		return (int) Math.min(nExportedVariantCount / 20 /* no more than 5% at a time */, Math.max(1, (nMaxChunkSizeInMb*1024*1024 / avgObjSize.doubleValue())));
 	}
+	
+	public static void writeMetadataFile(String sModule, Collection<String> exportedIndividuals, Collection<String> individualMetadataFieldsToExport, OutputStream os) throws IOException {
+		Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+    	String sCurrentUser = auth == null || "anonymousUser".equals(auth.getName()) ? "anonymousUser" : auth.getName();
+        Collection<Individual> listInd = MgdbDao.loadIndividualsWithAllMetadata(sModule, sCurrentUser, null, exportedIndividuals).values();
+        LinkedHashSet<String> mdHeaders = new LinkedHashSet<>();	// definite header collection (avoids empty columns)
+        for (Individual ind : listInd)
+        	for (String key : individualMetadataFieldsToExport)
+        		if (!mdHeaders.contains(key) && !Helper.isNullOrEmptyString(ind.getAdditionalInfo().get(key)))
+        			mdHeaders.add(key);
+        for (String headerKey : mdHeaders)
+        	os.write(("\t" + headerKey).getBytes());
+        os.write("\n".getBytes());
+        
+        for (Individual ind : listInd) {
+        	 os.write(ind.getId().getBytes());
+            for (String headerKey : mdHeaders)
+            	os.write(("\t" + Helper.nullToEmptyString(ind.getAdditionalInfo().get(headerKey))).getBytes());
+            os.write("\n".getBytes());
+        }	}
 }

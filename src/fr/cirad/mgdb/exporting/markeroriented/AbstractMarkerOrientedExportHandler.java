@@ -63,10 +63,11 @@ public abstract class AbstractMarkerOrientedExportHandler implements IExportHand
 	 * @param annotationFieldThresholds the annotation field thresholds for group 1
 	 * @param annotationFieldThresholds2 the annotation field thresholds for group 2
 	 * @param samplesToExport the samples to export genotyping data for
+	 * @param individualMetadataFieldsToExport metadata fields to export for individuals
 	 * @param readyToExportFiles files to export along with the genotyping data
 	 * @throws Exception the exception
 	 */
-	abstract public void exportData(OutputStream outputStream, String sModule, Collection<String> individuals1, Collection<String> individuals2, ProgressIndicator progress, String tmpVarCollName, Document varQuery, long markerCount, Map<String, String> markerSynonyms, HashMap<String, Float> annotationFieldThresholds, HashMap<String, Float> annotationFieldThresholds2, List<GenotypingSample> samplesToExport, Map<String, InputStream> readyToExportFiles) throws Exception;
+	abstract public void exportData(OutputStream outputStream, String sModule, Collection<String> individuals1, Collection<String> individuals2, ProgressIndicator progress, String tmpVarCollName, Document varQuery, long markerCount, Map<String, String> markerSynonyms, HashMap<String, Float> annotationFieldThresholds, HashMap<String, Float> annotationFieldThresholds2, List<GenotypingSample> samplesToExport, Collection<String> individualMetadataFieldsToExport, Map<String, InputStream> readyToExportFiles) throws Exception;
 
 //	/**
 //	 * Gets the individuals from samples.

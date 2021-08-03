@@ -23,9 +23,11 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
+import java.util.stream.Collectors;
 
 import org.apache.log4j.Level;
 import org.apache.log4j.Logger;
@@ -44,6 +46,7 @@ import com.mongodb.client.result.DeleteResult;
 
 import fr.cirad.mgdb.exporting.IExportHandler;
 import fr.cirad.mgdb.model.mongo.maintypes.CachedCount;
+import fr.cirad.mgdb.model.mongo.maintypes.CustomIndividualMetadata;
 import fr.cirad.mgdb.model.mongo.maintypes.DBVCFHeader;
 import fr.cirad.mgdb.model.mongo.maintypes.DBVCFHeader.VcfHeaderId;
 import fr.cirad.mgdb.model.mongo.maintypes.GenotypingProject;
@@ -51,6 +54,7 @@ import fr.cirad.mgdb.model.mongo.maintypes.GenotypingSample;
 import fr.cirad.mgdb.model.mongo.maintypes.Individual;
 import fr.cirad.mgdb.model.mongo.maintypes.VariantData;
 import fr.cirad.mgdb.model.mongo.maintypes.VariantRunData;
+import fr.cirad.mgdb.model.mongo.maintypes.CustomIndividualMetadata.CustomIndividualMetadataId;
 import fr.cirad.mgdb.model.mongo.maintypes.VariantRunData.VariantRunDataId;
 import fr.cirad.mgdb.model.mongo.subtypes.ReferencePosition;
 import fr.cirad.tools.mongo.MongoTemplateManager;
@@ -464,4 +468,32 @@ public class MgdbDao
 		headerCursor.close();
         return result;
     }
+
+	/**
+	 * 
+	 * @param module the database name (mandatory)
+	 * @param sCurrentUser username for whom to get custom metadata (optional)
+	 * @param projIDs a list of project IDs (optional)
+	 * @param indIDs a list of individual IDs (optional)
+	 * @return Individual IDs mapped to Individual objects with static metada + custom metadata (if available). If indIDs is specified the list is restricted by it, otherwise if projIDs is specified the list is restricted by it, otherwise all database Individuals are returned
+	 */
+	public static LinkedHashMap<String, Individual> loadIndividualsWithAllMetadata(String module, String sCurrentUser, Collection<Integer> projIDs, Collection<String> indIDs) {
+		MongoTemplate mongoTemplate = MongoTemplateManager.get(module);
+		
+		// build the initial list of Individual objects
+		if (indIDs == null)
+			indIDs = mongoTemplate.findDistinct(projIDs == null || projIDs.isEmpty() ? new Query() : new Query(Criteria.where(GenotypingSample.FIELDNAME_PROJECT_ID).in(projIDs)), GenotypingSample.FIELDNAME_INDIVIDUAL, GenotypingSample.class, String.class);
+		Query q = new Query(Criteria.where("_id").in(indIDs));
+		q.with(Sort.by(Sort.Direction.ASC, "_id"));
+		Map<String, Individual> indMap = mongoTemplate.find(q, Individual.class).stream().collect(Collectors.toMap(Individual::getId, ind -> ind));
+		LinkedHashMap<String, Individual> result = new LinkedHashMap<>();	// this one will be sorted according to the provided list
+		for (String indId : indIDs)
+			result.put(indId, indMap.get(indId));
+
+		if (sCurrentUser != null)	// merge with custom metadata if available
+			for (CustomIndividualMetadata cimd : mongoTemplate.find(new Query(Criteria.where("_id." + CustomIndividualMetadataId.FIELDNAME_USER).is(sCurrentUser)), CustomIndividualMetadata.class))
+                if (cimd.getAdditionalInfo() != null && !cimd.getAdditionalInfo().isEmpty())
+                	result.get(cimd.getId().getIndividualId()).getAdditionalInfo().putAll(cimd.getAdditionalInfo());
+		return result;
+	}
 }

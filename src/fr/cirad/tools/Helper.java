@@ -261,12 +261,22 @@ public class Helper {
     /**
      * Null to empty string.
      *
-     * @param s the s
+     * @param s the string
      * @return the object
      */
     public static Object nullToEmptyString(Object s) {
         return s == null ? "" : s;
     }
+
+    /**
+     * 
+     * @param o the potential string
+     * @return true if the passed object is null or an empty string (after trimming)
+     */
+    public static boolean isNullOrEmptyString(Object o) {
+        return o == null || (o instanceof String && ((String) o).trim().isEmpty());
+    }
+
 
     /**
      * Read possibly nested field.
