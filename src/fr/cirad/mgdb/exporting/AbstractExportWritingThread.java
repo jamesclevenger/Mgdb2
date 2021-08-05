@@ -16,7 +16,7 @@
  *******************************************************************************/
 package fr.cirad.mgdb.exporting;
 
-import java.util.LinkedHashMap;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 
@@ -32,10 +32,10 @@ public abstract class AbstractExportWritingThread extends Thread
 	/** The Constant LOG. */
 	static final Logger LOG = Logger.getLogger(AbstractExportWritingThread.class);
 	
-	protected LinkedHashMap<String, List<VariantRunData>> markerRunsToWrite;
+	protected List<List<VariantRunData>> markerRunsToWrite;
 	
-	public CompletableFuture<Void> writeRuns(LinkedHashMap<String /* variant ID*/, List<VariantRunData>> markerRunsToWrite) {
-		this.markerRunsToWrite = new LinkedHashMap(markerRunsToWrite);	// duplicate it to avoid concurrent modifications
+	public CompletableFuture<Void> writeRuns(List<List<VariantRunData>> markerRunsToWrite) {
+		this.markerRunsToWrite = new ArrayList(markerRunsToWrite);	// duplicate it to avoid concurrent modifications
 		return CompletableFuture.runAsync(this);
 	}
 	

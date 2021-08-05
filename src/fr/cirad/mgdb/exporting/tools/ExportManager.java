@@ -164,7 +164,7 @@ public class ExportManager
      */
 	private void exportFromTempColl() throws IOException, InterruptedException, ExecutionException {
 		CompletableFuture<Void> future = null;
-		LinkedHashMap<String, List<VariantRunData>> tempMarkerRunsToWrite = new LinkedHashMap<>(nQueryChunkSize);
+		List<List<VariantRunData>> tempMarkerRunsToWrite = new ArrayList<>(nQueryChunkSize);
 		List<VariantRunData> currentMarkerRuns = new ArrayList<>();
 		List<String> currentMarkerIDs = new ArrayList<>();
 		String varId = null, previousVarId = null;
@@ -195,13 +195,13 @@ public class ExportManager
 					varId = vrd.getId().getVariantId();
 					
 					if (previousVarId != null && !varId.equals(previousVarId)) {
-						tempMarkerRunsToWrite.put(previousVarId, currentMarkerRuns);
+						tempMarkerRunsToWrite.add(currentMarkerRuns);
 						currentMarkerRuns = new ArrayList<>();
 						nWrittenmarkerCount++;
 					}
 					currentMarkerRuns.add(vrd);
 					if (!markerCursor.hasNext())
-						tempMarkerRunsToWrite.put(varId, currentMarkerRuns);	// special case, when the end of the cursor is being reached
+						tempMarkerRunsToWrite.add(currentMarkerRuns);	// special case, when the end of the cursor is being reached
 
 					previousVarId = varId;
 				}
@@ -232,7 +232,7 @@ public class ExportManager
 
 	private void exportDirectlyFromRuns() throws IOException, InterruptedException, ExecutionException {
 		CompletableFuture<Void> future = null;
-		LinkedHashMap<String, List<VariantRunData>> tempMarkerRunsToWrite = new LinkedHashMap<>(nQueryChunkSize);
+		List<List<VariantRunData>> tempMarkerRunsToWrite = new ArrayList<>(nQueryChunkSize);
 		List<VariantRunData> currentMarkerRuns = new ArrayList<>();
 		String varId = null, previousVarId = null;
 		int nWrittenmarkerCount = 0;
@@ -248,7 +248,7 @@ public class ExportManager
 			varId = vrd.getId().getVariantId();
 
 			if (previousVarId != null && !varId.equals(previousVarId)) {
-				tempMarkerRunsToWrite.put(previousVarId, currentMarkerRuns);
+				tempMarkerRunsToWrite.add(currentMarkerRuns);
 				currentMarkerRuns = new ArrayList<>();
 				nWrittenmarkerCount++;
 			}
@@ -256,7 +256,7 @@ public class ExportManager
 			currentMarkerRuns.add(vrd);
 
 			if (!markerCursor.hasNext())
-				tempMarkerRunsToWrite.put(varId, currentMarkerRuns);	// special case, when the end of the cursor is being reached
+				tempMarkerRunsToWrite.add(currentMarkerRuns);	// special case, when the end of the cursor is being reached
 
 			if (tempMarkerRunsToWrite.size() >= nQueryChunkSize || !markerCursor.hasNext()) {
 				if (future != null && !future.isDone()) {

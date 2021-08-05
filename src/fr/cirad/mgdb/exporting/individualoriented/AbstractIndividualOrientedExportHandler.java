@@ -23,7 +23,6 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Modifier;
-import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -129,33 +128,20 @@ public abstract class AbstractIndividualOrientedExportHandler implements IExport
 			sampleIdToIndividualMap.put(gs.getId(), gs.getIndividual());
 
 		int nQueryChunkSize = IExportHandler.computeQueryChunkSize(mongoTemplate, markerCount);
-
 		MongoCollection collWithPojoCodec = mongoTemplate.getDb().withCodecRegistry(ExportManager.pojoCodecRegistry).getCollection(tmpVarCollName != null ? tmpVarCollName : mongoTemplate.getCollectionName(VariantRunData.class));
-		List<Document> pipeline = new ArrayList<Document>();
-
-		if (!varQuery.isEmpty()) // already checked above
-			pipeline.add(new Document("$match", varQuery));
 
 		AbstractExportWritingThread writingThread = new AbstractExportWritingThread() {
 			public void run() {
 				StringBuffer[] individualGenotypeBuffers = new StringBuffer[individualPositions.size()];	// keeping all files open leads to failure (see ulimit command), keeping them closed and reopening them each time we need to write a genotype is too time consuming: so our compromise is to reopen them only once per chunk
 				try
 				{
-					for (String idOfVarToWrite : markerRunsToWrite.keySet()) {
-						List<VariantRunData> runsToWrite = markerRunsToWrite.get(idOfVarToWrite);
-						if (runsToWrite.isEmpty())
-							continue;
-						
+					for (List<VariantRunData> runsToWrite : markerRunsToWrite) {
+//						if (runsToWrite.isEmpty())
+//							continue;
+
 						if (progress.isAborted())
 							break;
 
-						/*FIXME: handle synonyms?*/
-//		                if (markerSynonyms != null) {
-//		                	String syn = markerSynonyms.get(variantId);
-//		                    if (syn != null)
-//		                        idOfVarToWrite = syn;
-//		                }
-						
 						HashMap<String, String> genotypeStringCache = new HashMap<>();
 						LinkedHashSet<String>[] individualGenotypes = new LinkedHashSet[individualPositions.size()];
 		                if (runsToWrite != null)
@@ -211,7 +197,6 @@ public abstract class AbstractIndividualOrientedExportHandler implements IExport
 						LOG.debug("Error creating temp files", e);
 					progress.setError("Error creating temp files: " + e.getMessage());
 				}
-				markerRunsToWrite.clear();
 			}
 		};
 		
