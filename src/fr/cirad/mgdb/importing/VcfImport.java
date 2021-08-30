@@ -246,10 +246,9 @@ public class VcfImport extends AbstractGenotypeImport {
 
             mongoTemplate.save(new DBVCFHeader(new VcfHeaderId(project.getId(), sRun), header));
 
-            String info = "Header was written for project " + sProject + " and run " + sRun;
-            LOG.info(info);
-            progress.addStep(info);
+            progress.addStep("Header was written for project " + sProject + " and run " + sRun);
             progress.moveToNextStep();
+            LOG.info(progress.getProgressDescription());
 
             HashMap<String, String> existingVariantIDs = buildSynonymToIdMapForExistingVariants(mongoTemplate, false);
 
@@ -259,16 +258,18 @@ public class VcfImport extends AbstractGenotypeImport {
             variantIterator = reader.iterator();
             progress.addStep("Processing variant lines");
             progress.moveToNextStep();
-            
-            final MongoTemplate finalMongoTemplate = mongoTemplate;
-            
+
             List<VariantData> unsavedVariants = new ArrayList<>();
             List<VariantRunData> unsavedRuns = new ArrayList<>();
 
-            // loop over each variation
-            long count = 0;
+            int count = 0;
             String generatedIdBaseString = Long.toHexString(System.currentTimeMillis());
-            Thread asyncThread = null;
+
+            final ArrayList<Thread> threadsToWaitFor = new ArrayList<>();
+            int chunkIndex = 0, nNConcurrentThreads = Math.max(1, Runtime.getRuntime().availableProcessors());
+            LOG.debug("Importing project '" + sProject + "' into " + sModule + " using " + nNConcurrentThreads + " threads");
+
+            // loop over each variation
             while (variantIterator.hasNext()) {
 				if (progress.getError() != null || progress.isAborted())
 					return null;
@@ -302,45 +303,11 @@ public class VcfImport extends AbstractGenotypeImport {
                         nNumberOfVariantsToSaveAtOnce = vcfEntry.getSampleNames().isEmpty() ? nMaxChunkSize : Math.max(1, nMaxChunkSize / vcfEntry.getSampleNames().size());
                         LOG.info("Importing by chunks of size " + nNumberOfVariantsToSaveAtOnce);
                     }
-                    if (count % nNumberOfVariantsToSaveAtOnce == 0) {
-                        List<VariantData> finalUnsavedVariants = unsavedVariants;
-                        List<VariantRunData> finalUnsavedRuns = unsavedRuns;
-                        
-	                    Thread insertionThread = new Thread() {
-	                        @Override
-	                        public void run() {
-                        		try {
-									persistVariantsAndGenotypes(!existingVariantIDs.isEmpty(), finalMongoTemplate, finalUnsavedVariants, finalUnsavedRuns);
-								} catch (InterruptedException e) {
-									progress.setError(e.getMessage());
-									LOG.error(e);
-								}
-	                        }
-	                    };
-
-	                    if (asyncThread == null)
-                        {	// every second insert is run asynchronously for better speed
-//                        	System.out.println("async");
-                        	asyncThread = insertionThread;
-                        	asyncThread.start();
-                        }
-                        else
-                        {
-//                        	System.out.println("sync");
-                        	insertionThread.run();
-                        	asyncThread.join();	// make sure previous thread has executed before going further
-                        	asyncThread = null;
-                        }
-
-	                    unsavedVariants = new ArrayList<>();
-	                    unsavedRuns = new ArrayList<>();
-	                    
-	                    progress.setCurrentStepProgress(count);
-	                    if (count > 0 && count % (nNumberOfVariantsToSaveAtOnce*10) == 0) {
-	                        info = count + " lines processed"/*"(" + (System.currentTimeMillis() - before) / 1000 + ")\t"*/;
-	                        LOG.debug(info);
-	                    }
-                    }
+					else if (count % nNumberOfVariantsToSaveAtOnce == 0) {
+						saveChunk(unsavedVariants, unsavedRuns, existingVariantIDs, mongoTemplate, progress, nNumberOfVariantsToSaveAtOnce, count, null, threadsToWaitFor, nNConcurrentThreads, chunkIndex++);
+				        unsavedVariants = new ArrayList<>();
+				        unsavedRuns = new ArrayList<>();
+					}
 
                     project.getAlleleCounts().add(variant.getKnownAlleleList().size());	// it's a Set so it will only be added if it's not already present
                     project.getVariantTypes().add(vcfEntry.getType().toString());	// it's a Set so it will only be added if it's not already present 
@@ -356,6 +323,8 @@ public class VcfImport extends AbstractGenotypeImport {
             reader.close();
 
             persistVariantsAndGenotypes(!existingVariantIDs.isEmpty(), mongoTemplate, unsavedVariants, unsavedRuns);
+            for (Thread t : threadsToWaitFor) // wait for all threads before moving to next phase
+           		t.join();
 
         	// always save project before samples otherwise the sample cleaning procedure in MgdbDao.prepareDatabaseForSearches may remove them if called in the meantime
             if (!project.getRuns().contains(sRun))
@@ -366,11 +335,11 @@ public class VcfImport extends AbstractGenotypeImport {
             	mongoTemplate.insert(project);
             mongoTemplate.insert(previouslyCreatedSamples.values(), GenotypingSample.class);
 
-            LOG.info("VariantImport took " + (System.currentTimeMillis() - before) / 1000 + "s for " + count + " records");
-
             progress.addStep("Preparing database for searches");
             progress.moveToNextStep();
             MgdbDao.prepareDatabaseForSearches(mongoTemplate);
+
+            LOG.info("VcfImport took " + (System.currentTimeMillis() - before) / 1000 + "s for " + count + " records");
             progress.markAsComplete();
             return createdProject;
         }

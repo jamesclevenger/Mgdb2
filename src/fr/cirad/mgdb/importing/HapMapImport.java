@@ -208,8 +208,7 @@ public class HapMapImport extends AbstractGenotypeImport {
 			if (!project.getVariantTypes().contains(Type.SNP.toString()))
 				project.getVariantTypes().add(Type.SNP.toString());
 
-			// loop over each variation
-			long count = 0;
+			int count = 0;
 			String generatedIdBaseString = Long.toHexString(System.currentTimeMillis());
 			int nNumberOfVariantsToSaveAtOnce = 1;
 			ArrayList<VariantData> unsavedVariants = new ArrayList<VariantData>();
@@ -218,8 +217,12 @@ public class HapMapImport extends AbstractGenotypeImport {
 			Iterator<RawHapMapFeature> it = reader.iterator();
 			progress.addStep("Processing variant lines");
 			progress.moveToNextStep();
-			final MongoTemplate finalMongoTemplate = mongoTemplate;
-            Thread asyncThread = null;
+            
+            final ArrayList<Thread> threadsToWaitFor = new ArrayList<>();
+            int chunkIndex = 0, nNConcurrentThreads = Math.max(1, Runtime.getRuntime().availableProcessors());
+            LOG.debug("Importing project '" + sProject + "' into " + sModule + " using " + nNConcurrentThreads + " threads");
+            
+			// loop over each variation
 			while (it.hasNext())
 			{
 				if (progress.getError() != null || progress.isAborted())
@@ -257,52 +260,16 @@ public class HapMapImport extends AbstractGenotypeImport {
 							unsavedRuns.add(runToSave);
 					}
 
-					if (count == 0)
-					{
+					if (count == 0) {
 						nNumberOfVariantsToSaveAtOnce = hmFeature.getSampleIDs().length == 0 ? nMaxChunkSize : Math.max(1, nMaxChunkSize / hmFeature.getSampleIDs().length);
 						LOG.info("Importing by chunks of size " + nNumberOfVariantsToSaveAtOnce);
 					}
-					if (count % nNumberOfVariantsToSaveAtOnce == 0)
-					{
-                        List<VariantData> finalUnsavedVariants = unsavedVariants;
-                        List<VariantRunData> finalUnsavedRuns = unsavedRuns;
-                        
-	                    Thread insertionThread = new Thread() {
-	                        @Override
-	                        public void run() {
-                        		try {
-									persistVariantsAndGenotypes(!existingVariantIDs.isEmpty(), finalMongoTemplate, finalUnsavedVariants, finalUnsavedRuns);
-								} catch (InterruptedException e) {
-									progress.setError(e.getMessage());
-									LOG.error(e);
-								}
-	                        }
-	                    };
-
-	                    if (asyncThread == null)
-                        {	// every second insert is run asynchronously for better speed
-//                        	System.out.println("async");
-                        	asyncThread = insertionThread;
-                        	asyncThread.start();
-                        }
-                        else
-                        {
-//                        	System.out.println("sync");
-                        	insertionThread.run();
-                        	asyncThread.join();	// make sure previous thread has executed before going further
-                        	asyncThread = null;
-                        }
-                        
-	                    unsavedVariants = new ArrayList<>();
-	                    unsavedRuns = new ArrayList<>();
-
-						progress.setCurrentStepProgress(count);
-						if (count > 0)
-						{
-							String info = count + " lines processed"/*"(" + (System.currentTimeMillis() - before) / 1000 + ")\t"*/;
-							LOG.debug(info);
-						}
+					else if (count % nNumberOfVariantsToSaveAtOnce == 0) {
+						saveChunk(unsavedVariants, unsavedRuns, existingVariantIDs, mongoTemplate, progress, nNumberOfVariantsToSaveAtOnce, count, null, threadsToWaitFor, nNConcurrentThreads, chunkIndex++);
+				        unsavedVariants = new ArrayList<>();
+				        unsavedRuns = new ArrayList<>();
 					}
+
 					count++;
 				}
 				catch (Exception e)
@@ -312,7 +279,9 @@ public class HapMapImport extends AbstractGenotypeImport {
 			}
 			reader.close();
 
-			persistVariantsAndGenotypes(!existingVariantIDs.isEmpty(), finalMongoTemplate, unsavedVariants, unsavedRuns);
+			persistVariantsAndGenotypes(!existingVariantIDs.isEmpty(), mongoTemplate, unsavedVariants, unsavedRuns);
+            for (Thread t : threadsToWaitFor) // wait for all threads before moving to next phase
+           		t.join();
 
 			// save project data
 			if (!project.getRuns().contains(sRun))
@@ -320,11 +289,11 @@ public class HapMapImport extends AbstractGenotypeImport {
 			mongoTemplate.save(project);	// always save project before samples otherwise the sample cleaning procedure in MgdbDao.prepareDatabaseForSearches may remove them if called in the meantime
             mongoTemplate.insert(previouslyCreatedSamples.values(), GenotypingSample.class);
 
-			LOG.info("HapMapImport took " + (System.currentTimeMillis() - before) / 1000 + "s for " + count + " records");
-
 			progress.addStep("Preparing database for searches");
 			progress.moveToNextStep();
 			MgdbDao.prepareDatabaseForSearches(mongoTemplate);
+
+			LOG.info("HapMapImport took " + (System.currentTimeMillis() - before) / 1000 + "s for " + count + " records");
 			progress.markAsComplete();
 			return createdProject;
 		}

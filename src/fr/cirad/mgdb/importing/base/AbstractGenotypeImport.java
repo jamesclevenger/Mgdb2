@@ -47,6 +47,7 @@ import fr.cirad.mgdb.model.mongo.maintypes.VariantRunData.VariantRunDataId;
 import fr.cirad.mgdb.model.mongo.subtypes.ReferencePosition;
 import fr.cirad.mgdb.model.mongodao.MgdbDao;
 import fr.cirad.tools.Helper;
+import fr.cirad.tools.ProgressIndicator;
 import fr.cirad.tools.mongo.MongoTemplateManager;
 
 public class AbstractGenotypeImport {
@@ -187,6 +188,39 @@ public class AbstractGenotypeImport {
 		boolean fLooksLikePreprocessedVariantList = firstId != null && firstId.endsWith("001") && mongoTemplate.count(new Query(Criteria.where("_id").not().regex("^\\*?" + StringUtils.getCommonPrefix(new String[] {firstId, lastId}) + ".*")), VariantData.class) == 0;
 //		LOG.debug("Database " + sModule + " does " + (fLooksLikePreprocessedVariantList ? "not " : "") + "support importing unknown variants");
 		return !fLooksLikePreprocessedVariantList;
+	}	
+	
+	protected void saveChunk(Collection<VariantData> unsavedVariants, Collection<VariantRunData> unsavedRuns, HashMap<String, String> existingVariantIDs, MongoTemplate finalMongoTemplate, ProgressIndicator progress, int nNumberOfVariantsToSaveAtOnce, int nProcessedVariantCount, Integer nTotalVariantCount, ArrayList<Thread> threadsToWaitFor, int nNConcurrentThreads, int chunkIndex) throws InterruptedException {
+		Collection<VariantData> finalUnsavedVariants = unsavedVariants;
+        Collection<VariantRunData> finalUnsavedRuns = unsavedRuns;
+        
+        Thread insertionThread = new Thread() {
+            @Override
+            public void run() {
+        		try {
+					persistVariantsAndGenotypes(!existingVariantIDs.isEmpty(), finalMongoTemplate, finalUnsavedVariants, finalUnsavedRuns);
+				} catch (InterruptedException e) {
+					progress.setError(e.getMessage());
+					LOG.error(e);
+				}
+            }
+        };
+
+        if (chunkIndex % nNConcurrentThreads == (nNConcurrentThreads - 1)) {
+            threadsToWaitFor.add(insertionThread); // only needed to have an accurate count
+            insertionThread.run();	// run synchronously
+            
+            for (Thread t : threadsToWaitFor) // wait for all previously launched async threads
+           		t.join();
+            threadsToWaitFor.clear();
+        }
+        else {
+            insertionThread.start();	// run asynchronously for better speed
+        }
+
+        progress.setCurrentStepProgress(nTotalVariantCount != null ? nProcessedVariantCount * 100 / nTotalVariantCount : nProcessedVariantCount);
+        if (nProcessedVariantCount % (nNumberOfVariantsToSaveAtOnce*10) == 0)
+            LOG.debug(nProcessedVariantCount + " lines processed");
 	}
 
     public void persistVariantsAndGenotypes(boolean fDBAlreadyContainsVariants, MongoTemplate mongoTemplate, Collection<VariantData> unsavedVariants, Collection<VariantRunData> unsavedRuns) throws InterruptedException

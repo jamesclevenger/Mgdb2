@@ -240,12 +240,16 @@ public class PlinkImport extends AbstractGenotypeImport {
 			if (progress.getError() != null)
 				return 0;
 			
-			long count = importTempFileContents(progress, mongoTemplate, tempFiles, variantsAndPositions, existingVariantIDs, project, sRun, inconsistencies, userIndividualToPopulationMapToFill);
-			LOG.info("Import took " + (System.currentTimeMillis() - before) / 1000 + "s for " + count + " records");
+			
+			int nNConcurrentThreads = Math.max(1, Runtime.getRuntime().availableProcessors());
+            LOG.debug("Importing project '" + sProject + "' into " + sModule + " using " + nNConcurrentThreads + " threads");
+			long count = importTempFileContents(progress, nNConcurrentThreads, mongoTemplate, tempFiles, variantsAndPositions, existingVariantIDs, project, sRun, inconsistencies, userIndividualToPopulationMapToFill);
 
 			progress.addStep("Preparing database for searches");
 			progress.moveToNextStep();
 			MgdbDao.prepareDatabaseForSearches(mongoTemplate);
+
+			LOG.info("PlinkImport took " + (System.currentTimeMillis() - before) / 1000 + "s for " + count + " records");
 			progress.markAsComplete();
 			return createdProject;
 		}
@@ -256,12 +260,12 @@ public class PlinkImport extends AbstractGenotypeImport {
 		}
 	}
 
-	public long importTempFileContents(ProgressIndicator progress, MongoTemplate mongoTemplate, File[] tempFiles, LinkedHashMap<String, String> variantsAndPositions, HashMap<String, String> existingVariantIDs, GenotypingProject project, String sRun, HashMap<String, ArrayList<String>> inconsistencies, Map<String, String> userIndividualToPopulationMap) throws Exception			
+	public long importTempFileContents(ProgressIndicator progress, int nNConcurrentThreads, MongoTemplate mongoTemplate, File[] tempFiles, LinkedHashMap<String, String> variantsAndPositions, HashMap<String, String> existingVariantIDs, GenotypingProject project, String sRun, HashMap<String, ArrayList<String>> inconsistencies, Map<String, String> userIndividualToPopulationMap) throws Exception			
 	{
 		String[] individuals = userIndividualToPopulationMap.keySet().toArray(new String[userIndividualToPopulationMap.size()]);
 		HashSet<VariantData> unsavedVariants = new HashSet<VariantData>();	// HashSet allows no duplicates
 		HashSet<VariantRunData> unsavedRuns = new HashSet<VariantRunData>();
-		long count = 0;
+		int count = 0;
 		
 		// loop over each variation and write to DB
 		Scanner scanner = null;
@@ -276,11 +280,11 @@ public class PlinkImport extends AbstractGenotypeImport {
 			int nNumberOfVariantsToSaveAtOnce = 1;
 			HashMap<String /*individual*/, GenotypingSample> previouslyCreatedSamples = new HashMap<>();
 			
+            final ArrayList<Thread> threadsToWaitFor = new ArrayList<>();
+            int chunkIndex = 0;
+            
 			for (File tempFile : tempFiles) {
 				scanner = new Scanner(tempFile);
-				long nPreviousProgressPercentage = -1;
-				final MongoTemplate finalMongoTemplate = mongoTemplate;
-	            Thread asyncThread = null;
 				while (scanner.hasNextLine())
 				{
 					if (progress.getError() != null || progress.isAborted())
@@ -357,68 +361,24 @@ public class PlinkImport extends AbstractGenotypeImport {
 								unsavedRuns.add(runToSave);
 						}
 
-						if (count == 0)
-						{
+						if (count == 0) {
 							nNumberOfVariantsToSaveAtOnce = Math.max(1, nMaxChunkSize / individuals.length);
 							LOG.info("Importing by chunks of size " + nNumberOfVariantsToSaveAtOnce);
 						}
-						if (count % nNumberOfVariantsToSaveAtOnce == 0)
-						{
-	                        HashSet<VariantData> finalUnsavedVariants = unsavedVariants;
-	                        HashSet<VariantRunData> finalUnsavedRuns = unsavedRuns;
-	                        
-		                    Thread insertionThread = new Thread() {
-		                        @Override
-		                        public void run() {
-	                        		try {
-										persistVariantsAndGenotypes(!existingVariantIDs.isEmpty(), finalMongoTemplate, finalUnsavedVariants, finalUnsavedRuns);
-									} catch (InterruptedException e) {
-										progress.setError(e.getMessage());
-										LOG.error(e);
-									}
-		                        }
-		                    };
-
-		                    if (asyncThread == null)
-	                        {	// every second insert is run asynchronously for better speed
-	                        	asyncThread = insertionThread;
-	                        	asyncThread.start();
-	                        }
-	                        else
-	                        {
-	                        	insertionThread.run();
-	                        	asyncThread.join();	// make sure previous thread has executed before going further
-	                        	asyncThread = null;
-	                        }
-	                        
-		                    unsavedVariants = new HashSet<>();
-		                    unsavedRuns = new HashSet<>();
-
-							if (count > 0)
-							{
-								info = count + " lines processed"/*"(" + (System.currentTimeMillis() - before) / 1000 + ")\t"*/;
-								LOG.debug(info);
-							}
-		
-							long nProgressPercentage = count * 100 / variantsAndPositions.size();
-							if (nPreviousProgressPercentage != nProgressPercentage)
-							{
-								progress.setCurrentStepProgress(nProgressPercentage);
-								if (count > 0 && (count % (10 * nNumberOfVariantsToSaveAtOnce) == 0))
-								{
-									info = count + " lines processed (" + nProgressPercentage + "%)"/*"(" + (System.currentTimeMillis() - before) / 1000 + ")\t"*/;
-									LOG.debug(info);
-								}
-								nPreviousProgressPercentage = nProgressPercentage;
-							}
+						else if (count % nNumberOfVariantsToSaveAtOnce == 0) {
+							saveChunk(unsavedVariants, unsavedRuns, existingVariantIDs, mongoTemplate, progress, nNumberOfVariantsToSaveAtOnce, count, variantsAndPositions.size(), threadsToWaitFor, nNConcurrentThreads, chunkIndex++);
+					        unsavedVariants = new HashSet<>();
+					        unsavedRuns = new HashSet<>();
 						}
 					}
 					count++;
 				}
 				scanner.close();
 				
-				persistVariantsAndGenotypes(!existingVariantIDs.isEmpty(), finalMongoTemplate, unsavedVariants, unsavedRuns);
-			}
+				persistVariantsAndGenotypes(!existingVariantIDs.isEmpty(), mongoTemplate, unsavedVariants, unsavedRuns);
+	            for (Thread t : threadsToWaitFor) // wait for all threads before moving to next phase
+	           		t.join();
+	        }
 
 			// save project data
 			if (!project.getRuns().contains(sRun))
