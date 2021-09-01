@@ -199,7 +199,6 @@ public class VariantRunData extends AbstractVariantData
 	 * @param id the new id
 	 */
 	public void setId(VariantRunDataId id) {
-		super.setId(id);
 		this.id = id;
 	}
 	

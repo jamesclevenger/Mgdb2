@@ -119,10 +119,7 @@ abstract public class AbstractVariantData
 	
 	/** The Constant GT_FIELDVAL_ID_MISSING. */
 	public static final String GT_FIELDVAL_ID_MISSING = ".";
-	
-	/** The id. */
-	protected Object id;
-	
+
 	/** The type. */
 	@BsonProperty(FIELDNAME_TYPE)
 	@Field(FIELDNAME_TYPE)
@@ -638,7 +635,7 @@ abstract public class AbstractVariantData
 			SampleGenotype sampleGenotype = sampleGenotypes.get(spId);
 
 			if (warningFileWriter != null && genotypeCounts.size() > 1)
-				warningFileWriter.write("- Dissimilar genotypes found for variant " + (synonym == null ? id : synonym) + ", individual " + individualName + ". Exporting most frequent: " + mostFrequentGenotype + "\n");
+				warningFileWriter.write("- Dissimilar genotypes found for variant " + (synonym == null ? getVariantId() : synonym) + ", individual " + individualName + ". Exporting most frequent: " + mostFrequentGenotype + "\n");
 			
 			Object currentPhId = sampleGenotype.getAdditionalInfo().get(GT_FIELD_PHASED_ID);
 			boolean isPhased = currentPhId != null && currentPhId.equals(previousPhasingIds.get(spId));
@@ -650,7 +647,7 @@ abstract public class AbstractVariantData
             }
 
 			ArrayList<Allele> individualAlleles = new ArrayList<Allele>();
-			previousPhasingIds.put(spId, currentPhId == null ? id : currentPhId);
+			previousPhasingIds.put(spId, currentPhId == null ? getVariantId() : currentPhId);
 			if (alleles.size() == 0)
 				continue;	/* skip this individual because there is no genotype for it */
 			
@@ -853,9 +850,5 @@ abstract public class AbstractVariantData
         //     return Type.MIXED;
     }
 
-	public void setId(Object id) {
-		this.id = id;
-	}
-	
 	abstract public String getVariantId();
 }

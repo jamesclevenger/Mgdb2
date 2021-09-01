@@ -75,7 +75,6 @@ public class VariantData extends AbstractVariantData
 	 * @param id the new id
 	 */
 	public void setId(String id) {
-		super.setId(id);
 		this.id = id;
 	}
 	
@@ -88,6 +87,7 @@ public class VariantData extends AbstractVariantData
 		return (String) id;
 	}
 	
+	@Override
 	public String getVariantId() {
 		return getId();
 	}
