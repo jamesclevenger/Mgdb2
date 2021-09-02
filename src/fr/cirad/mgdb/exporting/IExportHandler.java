@@ -137,7 +137,7 @@ public interface IExportHandler
 	
 	public static int computeQueryChunkSize(MongoTemplate mongoTemplate, long nExportedVariantCount) {
 		Number avgObjSize = (Number) mongoTemplate.getDb().runCommand(new Document("collStats", mongoTemplate.getCollectionName(VariantRunData.class))).get("avgObjSize");
-		return (int) Math.min(nExportedVariantCount / 20 /* no more than 5% at a time */, Math.max(1, (nMaxChunkSizeInMb*1024*1024 / avgObjSize.doubleValue())));
+		return (int) Math.max(1, Math.min(nExportedVariantCount / 20 /* no more than 5% at a time */, (nMaxChunkSizeInMb*1024*1024 / avgObjSize.doubleValue())));
 	}
 	
 	public static void writeMetadataFile(String sModule, Collection<String> exportedIndividuals, Collection<String> individualMetadataFieldsToExport, OutputStream os) throws IOException {
