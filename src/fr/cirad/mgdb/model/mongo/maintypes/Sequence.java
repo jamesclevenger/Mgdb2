@@ -16,6 +16,7 @@
  *******************************************************************************/
 package fr.cirad.mgdb.model.mongo.maintypes;
 
+import org.bson.codecs.pojo.annotations.BsonProperty;
 import org.springframework.data.annotation.Id;
 import org.springframework.data.annotation.TypeAlias;
 import org.springframework.data.mongodb.core.mapping.Document;
@@ -54,27 +55,52 @@ public class Sequence {
     /**
      * The sequence.
      */
+    @BsonProperty(FIELDNAME_SEQUENCE)  
     @Field(FIELDNAME_SEQUENCE)
     private String sequence;
 
     /**
      * length of the sequence
      */
+    @BsonProperty(FIELDNAME_LENGTH)
     @Field(FIELDNAME_LENGTH)
     private long length;
 
     /**
      * checksum of the upper-case sequence without spaces
      */
+    @BsonProperty(FIELDNAME_CHECKSUM)
     @Field(FIELDNAME_CHECKSUM)
     private String checksum;
 
     /**
      * location of the fasta file
      */
+    @BsonProperty(FIELDNAME_LOCATION)
     @Field(FIELDNAME_LOCATION)
     private String filePath;
 
+    /**
+     * Instantiates a new sequence.
+     *
+     * @param id the id
+     * @param length
+     */
+    public Sequence() {
+    }
+
+    /**
+     * Instantiates a new sequence.
+     *
+     * @param id the id
+     * @param length
+     */
+    public Sequence(String id, long length) {
+        super();
+        this.id = id;
+        this.length = length;
+    }
+    
     /**
      * Instantiates a new sequence.
      *

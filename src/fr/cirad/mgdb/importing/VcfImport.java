@@ -43,6 +43,7 @@ import fr.cirad.mgdb.model.mongo.maintypes.DBVCFHeader.VcfHeaderId;
 import fr.cirad.mgdb.model.mongo.maintypes.GenotypingProject;
 import fr.cirad.mgdb.model.mongo.maintypes.GenotypingSample;
 import fr.cirad.mgdb.model.mongo.maintypes.Individual;
+import fr.cirad.mgdb.model.mongo.maintypes.Sequence;
 import fr.cirad.mgdb.model.mongo.maintypes.VariantData;
 import fr.cirad.mgdb.model.mongo.maintypes.VariantRunData;
 import fr.cirad.mgdb.model.mongo.subtypes.ReferencePosition;
@@ -59,6 +60,7 @@ import htsjdk.variant.variantcontext.Genotype;
 import htsjdk.variant.variantcontext.VariantContext;
 import htsjdk.variant.vcf.VCFCodec;
 import htsjdk.variant.vcf.VCFConstants;
+import htsjdk.variant.vcf.VCFContigHeaderLine;
 import htsjdk.variant.vcf.VCFFormatHeaderLine;
 import htsjdk.variant.vcf.VCFHeader;
 import htsjdk.variant.vcf.VCFHeaderLineType;
@@ -231,6 +233,12 @@ public class VcfImport extends AbstractGenotypeImport {
                         }
                     }
                 }
+            }
+            
+            for (VCFContigHeaderLine contigLine : header.getContigLines()) {
+            	Map<String, String> lineFields = contigLine.getGenericFields();
+            	if (lineFields.keySet().contains("length"))
+            		mongoTemplate.save(new Sequence(contigLine.getID(), Long.parseLong(lineFields.get("length"))));
             }
 
             Integer createdProject = null;
