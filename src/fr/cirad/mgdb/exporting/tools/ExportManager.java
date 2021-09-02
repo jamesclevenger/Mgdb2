@@ -200,12 +200,11 @@ public class ExportManager
 						nWrittenmarkerCount++;
 					}
 					currentMarkerRuns.add(vrd);
-					if (!markerCursor.hasNext())
-						tempMarkerRunsToWrite.add(currentMarkerRuns);	// special case, when the end of the cursor is being reached
-
 					previousVarId = varId;
 				}
 				
+				if (!markerCursor.hasNext())
+					tempMarkerRunsToWrite.add(currentMarkerRuns);	// special case, when the end of the cursor is being reached
 				currentMarkerIDs.clear();
 
 				if (future != null && !future.isDone()) {
