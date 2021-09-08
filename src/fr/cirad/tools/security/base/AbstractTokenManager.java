@@ -43,8 +43,8 @@ public abstract class AbstractTokenManager {
     abstract public boolean removeToken(String token);
     abstract public String generateToken(Authentication auth) throws IllegalArgumentException, UnsupportedEncodingException;
 
-    abstract public boolean canUserReadProject(String token, String module, Comparable projectId);
-    abstract public boolean canUserReadProject(Authentication authentication, String module, Comparable projectId);
+    abstract public boolean canUserReadProject(String token, String module, int projectId);
+    abstract public boolean canUserReadProject(Authentication authentication, String module, int projectId);
     
     abstract public boolean canUserReadDB(String token, String module) throws ObjectNotFoundException;    
     abstract public boolean canUserReadDB(Authentication authentication, String module) throws ObjectNotFoundException;
