@@ -143,7 +143,7 @@ public interface IExportHandler
 	public static void writeMetadataFile(String sModule, Collection<String> exportedIndividuals, Collection<String> individualMetadataFieldsToExport, OutputStream os) throws IOException {
 		Authentication auth = SecurityContextHolder.getContext().getAuthentication();
     	String sCurrentUser = auth == null || "anonymousUser".equals(auth.getName()) ? "anonymousUser" : auth.getName();
-        Collection<Individual> listInd = MgdbDao.loadIndividualsWithAllMetadata(sModule, sCurrentUser, null, exportedIndividuals).values();
+        Collection<Individual> listInd = MgdbDao.getInstance().loadIndividualsWithAllMetadata(sModule, sCurrentUser, null, exportedIndividuals).values();
         LinkedHashSet<String> mdHeaders = new LinkedHashSet<>();	// definite header collection (avoids empty columns)
         for (Individual ind : listInd)
         	for (String key : individualMetadataFieldsToExport)
