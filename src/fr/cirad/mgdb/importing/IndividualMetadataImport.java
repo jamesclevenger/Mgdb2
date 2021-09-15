@@ -44,6 +44,8 @@ import com.mongodb.bulk.BulkWriteResult;
 import fr.cirad.io.brapi.BrapiClient;
 import fr.cirad.io.brapi.BrapiClient.Pager;
 import fr.cirad.io.brapi.BrapiService;
+import fr.cirad.io.brapi.BrapiV2Client;
+import fr.cirad.io.brapi.BrapiV2Service;
 import fr.cirad.mgdb.model.mongo.maintypes.CustomIndividualMetadata;
 import fr.cirad.mgdb.model.mongo.maintypes.Individual;
 import fr.cirad.tools.Helper;
@@ -54,6 +56,10 @@ import jhi.brapi.api.BrapiListResource;
 import jhi.brapi.api.germplasm.BrapiGermplasm;
 import jhi.brapi.api.germplasm.BrapiGermplasmAttributes;
 import jhi.brapi.api.search.BrapiSearchResult;
+import org.brapi.v2.model.Germplasm;
+import org.brapi.v2.model.GermplasmListResponse;
+import org.brapi.v2.model.SuccessfulSearchResponse;
+import org.brapi.v2.model.SuccessfulSearchResponseResult;
 
 import retrofit2.Response;
 
@@ -170,135 +176,294 @@ public class IndividualMetadataImport {
 		}
 	}
 
-	public static int importBrapiMetadata(String sModule, String endpointUrl, HashMap<String, String> germplasmDbIdToIndividualMap, String username, String authToken, ProgressIndicator progress) throws Exception
-	{
-		if (germplasmDbIdToIndividualMap == null || germplasmDbIdToIndividualMap.isEmpty())
-			return 0;	// we must know which individuals to update
-		
-		BrapiClient client = new BrapiClient();
+	public static int importBrapiMetadata(String sModule, String endpointUrl, HashMap<String, String> germplasmDbIdToIndividualMap, String username, String authToken, ProgressIndicator progress) throws Exception {
+            if (germplasmDbIdToIndividualMap == null || germplasmDbIdToIndividualMap.isEmpty())
+                    return 0;    // we must know which individuals to update
 
-		// hack to try and make it work with current BMS version
-		client.initService(endpointUrl/*.replace("Ricegigwa/", "")*/, authToken);
-		client.getCalls();
-		client.ensureGermplasmInfoCanBeImported();
-		client.initService(endpointUrl, authToken);
-		
-		final BrapiService service = client.getService();
+            GenericXmlApplicationContext ctx = null;
+            MongoTemplate mongoTemplate = MongoTemplateManager.get(sModule);
+            if (mongoTemplate == null) { // we are probably being invoked offline
+                    ctx = new GenericXmlApplicationContext("applicationContext-data.xml");
 
-		HashMap<String, Object> reqBody = new HashMap<>();
-		reqBody.put("germplasmDbIds", germplasmDbIdToIndividualMap.keySet());
+                    MongoTemplateManager.initialize(ctx);
+                    mongoTemplate = MongoTemplateManager.get(sModule);
+                    if (mongoTemplate == null)
+                            throw new Exception("DATASOURCE '" + sModule + "' is not supported!");
+            }            
+            
+            if (endpointUrl.contains("v1")) {
+                return importBrapiV1Germplasm(
+                    endpointUrl,
+                    germplasmDbIdToIndividualMap,
+                    username,
+                    authToken,
+                    progress,
+                    mongoTemplate
+                );
+            } else if (endpointUrl.contains("v2")) {
+                return importBrapiV2Germplasm(
+                    endpointUrl,
+                    germplasmDbIdToIndividualMap,
+                    username,
+                    authToken,
+                    progress,
+                    mongoTemplate
+                );
+            } else {
+                return 0;
+            }            
+        }
+        
+        
+        private static int importBrapiV1Germplasm(
+            String endpointUrl,
+            HashMap<String, String> germplasmDbIdToIndividualMap,
+            String username,
+            String authToken,
+            ProgressIndicator progress,
+            MongoTemplate mongoTemplate) throws Exception {
+        
+            HashMap<String, Object> reqBody = new HashMap<>();
+            reqBody.put("germplasmDbIds", germplasmDbIdToIndividualMap.keySet());
+            
+        
+            BrapiClient client = new BrapiClient();
 
-		List<BrapiGermplasm> germplasmList = new ArrayList<>();
-		ObjectMapper oMapper = new ObjectMapper();
-				
-		if (client.hasCallSearchGermplasm()) {
-			progress.addStep("Getting germplasm list from " + endpointUrl);
-			progress.moveToNextStep();
+            // hack to try and make it work with current BMS version
+            client.initService(endpointUrl/*.replace("Ricegigwa/", "")*/, authToken);
+            client.getCalls();
+            client.ensureGermplasmInfoCanBeImported();
+            client.initService(endpointUrl, authToken);
 
-			try {
-				Response<BrapiBaseResource<BrapiSearchResult>> response =  service.searchGermplasm(reqBody).execute();
-				handleErrorCode(response.code());
-				BrapiSearchResult bsr = response.body().getResult();
-				
-				Pager germplasmPager = new Pager();
-				while (germplasmPager.isPaging())
-				{
-					BrapiListResource<BrapiGermplasm> br = service.searchGermplasmResult(bsr.getSearchResultDbId(), germplasmPager.getPageSize(), germplasmPager.getPage()).execute().body();
-					germplasmList.addAll(br.data());
-					germplasmPager.paginate(br.getMetadata());
-				}
-			} catch (Exception e) {	// we did not get a searchResultDbId: see if we actually got results straight away
-				try {
-					Response<BrapiListResource<BrapiGermplasm>> response = service.searchGermplasmDirectResult(reqBody).execute();
-					handleErrorCode(response.code());
-					BrapiListResource<BrapiGermplasm> br = response.body();
-					
-					Pager callPager = new Pager();
-					while (callPager.isPaging()) {
-						germplasmList.addAll(br.data());
-						callPager.paginate(br.getMetadata());
-					}
-				}
-				catch(Exception f) {
-					progress.setError("Error invoking BrAPI /search/germplasm call (no searchResultDbId returned and yet unable to directly obtain results)");
-					LOG.error(e);
-					LOG.error(progress.getError(), f);
-					return 0;
-				}
-			}
-		}
+            final BrapiService service = client.getService();
 
-		GenericXmlApplicationContext ctx = null;
-		MongoTemplate mongoTemplate = MongoTemplateManager.get(sModule);
-		if (mongoTemplate == null) { // we are probably being invoked offline
-			ctx = new GenericXmlApplicationContext("applicationContext-data.xml");
+            List<BrapiGermplasm> germplasmList = new ArrayList<>();
+            ObjectMapper oMapper = new ObjectMapper();
 
-			MongoTemplateManager.initialize(ctx);
-			mongoTemplate = MongoTemplateManager.get(sModule);
-			if (mongoTemplate == null)
-				throw new Exception("DATASOURCE '" + sModule + "' is not supported!");
-		}
-		
-		boolean fCanQueryAttributes = client.hasCallGetAttributes();
-		progress.addStep("Getting germplasm information from " + endpointUrl);
-		progress.moveToNextStep();
-		
-		if (germplasmList.isEmpty())
-			return 0;
+            if (client.hasCallSearchGermplasm()) {
+                    progress.addStep("Getting germplasm list from " + endpointUrl);
+                    progress.moveToNextStep();
 
-		BulkOperations bulkOperations = mongoTemplate.bulkOps(BulkOperations.BulkMode.ORDERED, username == null ? Individual.class : CustomIndividualMetadata.class);
-		for (int i=0; i<germplasmList.size(); i++) {
-			BrapiGermplasm g = germplasmList.get(i);
-			Map<Object, Object> aiMap = oMapper.convertValue(g, Map.class);
+                    try {
+                            Response<BrapiBaseResource<BrapiSearchResult>> response =  service.searchGermplasm(reqBody).execute();
+                            handleErrorCode(response.code());
+                            BrapiSearchResult bsr = response.body().getResult();
 
-			if (fCanQueryAttributes) {
-				Response<BrapiBaseResource<BrapiGermplasmAttributes>> response = service.getAttributes(aiMap.get(BrapiService.BRAPI_FIELD_germplasmDbId).toString()).execute();
-				if (response.code() != 404) {
-					handleErrorCode(response.code());
-					BrapiBaseResource<BrapiGermplasmAttributes> moreAttributes = response.body();
-					moreAttributes.getResult().getData().forEach(k -> aiMap.put(k.getAttributeDbId(), k.getValue()));
-				}
-			}
+                            Pager germplasmPager = new Pager();
+                            while (germplasmPager.isPaging())
+                            {
+                                    BrapiListResource<BrapiGermplasm> br = service.searchGermplasmResult(bsr.getSearchResultDbId(), germplasmPager.getPageSize(), germplasmPager.getPage()).execute().body();
+                                    germplasmList.addAll(br.data());
+                                    germplasmPager.paginate(br.getMetadata());
+                            }
+                    } catch (Exception e) {    // we did not get a searchResultDbId: see if we actually got results straight away
+                            try {
+                                    Response<BrapiListResource<BrapiGermplasm>> response = service.searchGermplasmDirectResult(reqBody).execute();
+                                    handleErrorCode(response.code());
+                                    BrapiListResource<BrapiGermplasm> br = response.body();
 
-			// only keep fields whose values are a single-string
-			Iterator<Map.Entry<Object, Object>> itr = aiMap.entrySet().iterator();
-			while(itr.hasNext()) {
-			   Map.Entry<Object, Object> entry = itr.next();
-			   if (entry.getValue() == null)
-				   itr.remove();
-			   else if (entry.getValue() instanceof ArrayList) {
-				   if (((ArrayList)entry.getValue()).size() == 1)
-					   entry.setValue(((ArrayList)entry.getValue()).get(0));
-				   else
-					   itr.remove();
-			   }
-			}
-	
-			progress.setCurrentStepProgress((long) (i * 100f / germplasmList.size()));
-			
-			if (aiMap.isEmpty()) {
-//				throw new Exception("Cannot import an empty list of attributes");
-				LOG.warn("Found no metadata to import for germplasm " + g.getGermplasmDbId());
-				continue;
-			}
-			aiMap.remove(BrapiService.BRAPI_FIELD_germplasmDbId); // we don't want to persist this field as it's internal to the remote source but not to Gigwa
+                                    Pager callPager = new Pager();
+                                    while (callPager.isPaging()) {
+                                            germplasmList.addAll(br.data());
+                                            callPager.paginate(br.getMetadata());
+                                    }
+                            }
+                            catch(Exception f) {
+                                    progress.setError("Error invoking BrAPI /search/germplasm call (no searchResultDbId returned and yet unable to directly obtain results)");
+                                    LOG.error(e);
+                                    LOG.error(progress.getError(), f);
+                                    return 0;
+                            }
+                    }
+            }
 
-			Update update = new Update();			
-			if (username == null) {
-		        aiMap.forEach((k,v) -> update.set(Individual.SECTION_ADDITIONAL_INFO + "." + k, v));
-		        bulkOperations.updateMulti(new Query(Criteria.where("_id").is(germplasmDbIdToIndividualMap.get(g.getGermplasmDbId()))), update);
-			}
-			else {
-		        aiMap.forEach((k,v) -> update.set(CustomIndividualMetadata.SECTION_ADDITIONAL_INFO + "." + k, v));		        
-				bulkOperations.upsert(new Query(Criteria.where("_id").is(new CustomIndividualMetadata.CustomIndividualMetadataId(germplasmDbIdToIndividualMap.get(g.getGermplasmDbId()), username))), update);
-			}
-		}
-		
-		progress.addStep("Persisting metadata found at " + endpointUrl);
-		progress.moveToNextStep();
-		BulkWriteResult wr = bulkOperations.execute();
-		return wr.getModifiedCount() + wr.getUpserts().size();
-	}
+
+
+            boolean fCanQueryAttributes = client.hasCallGetAttributes();
+            progress.addStep("Getting germplasm information from " + endpointUrl);
+            progress.moveToNextStep();
+
+            if (germplasmList.isEmpty())
+                    return 0;
+
+            BulkOperations bulkOperations = mongoTemplate.bulkOps(BulkOperations.BulkMode.ORDERED, username == null ? Individual.class : CustomIndividualMetadata.class);
+            for (int i=0; i<germplasmList.size(); i++) {
+                    BrapiGermplasm g = germplasmList.get(i);
+                    Map<Object, Object> aiMap = oMapper.convertValue(g, Map.class);
+
+                    if (fCanQueryAttributes) {
+                            Response<BrapiBaseResource<BrapiGermplasmAttributes>> response = service.getAttributes(aiMap.get(BrapiService.BRAPI_FIELD_germplasmDbId).toString()).execute();
+                            if (response.code() != 404) {
+                                    handleErrorCode(response.code());
+                                    BrapiBaseResource<BrapiGermplasmAttributes> moreAttributes = response.body();
+                                    moreAttributes.getResult().getData().forEach(k -> aiMap.put(k.getAttributeDbId(), k.getValue()));
+                            }
+                    }
+
+                    // only keep fields whose values are a single-string
+                    Iterator<Map.Entry<Object, Object>> itr = aiMap.entrySet().iterator();
+                    while(itr.hasNext()) {
+                       Map.Entry<Object, Object> entry = itr.next();
+                       if (entry.getValue() == null)
+                               itr.remove();
+                       else if (entry.getValue() instanceof ArrayList) {
+                               if (((ArrayList)entry.getValue()).size() == 1)
+                                       entry.setValue(((ArrayList)entry.getValue()).get(0));
+                               else
+                                       itr.remove();
+                       }
+                    }
+
+                    progress.setCurrentStepProgress((long) (i * 100f / germplasmList.size()));
+
+                    if (aiMap.isEmpty()) {
+//                throw new Exception("Cannot import an empty list of attributes");
+                            LOG.warn("Found no metadata to import for germplasm " + g.getGermplasmDbId());
+                            continue;
+                    }
+                    aiMap.remove(BrapiService.BRAPI_FIELD_germplasmDbId); // we don't want to persist this field as it's internal to the remote source but not to Gigwa
+
+                    Update update = new Update();            
+                    if (username == null) {
+                    aiMap.forEach((k,v) -> update.set(Individual.SECTION_ADDITIONAL_INFO + "." + k, v));
+                    bulkOperations.updateMulti(new Query(Criteria.where("_id").is(germplasmDbIdToIndividualMap.get(g.getGermplasmDbId()))), update);
+                    }
+                    else {
+                    aiMap.forEach((k,v) -> update.set(CustomIndividualMetadata.SECTION_ADDITIONAL_INFO + "." + k, v));                
+                            bulkOperations.upsert(new Query(Criteria.where("_id").is(new CustomIndividualMetadata.CustomIndividualMetadataId(germplasmDbIdToIndividualMap.get(g.getGermplasmDbId()), username))), update);
+                    }
+            }
+
+            progress.addStep("Persisting metadata found at " + endpointUrl);
+            progress.moveToNextStep();
+            BulkWriteResult wr = bulkOperations.execute();
+            return wr.getModifiedCount() + wr.getUpserts().size();
+    }
+    
+        private static int importBrapiV2Germplasm(
+                String endpointUrl,
+                HashMap<String, String> germplasmDbIdToIndividualMap,
+                String username,
+                String authToken,
+                ProgressIndicator progress,
+                MongoTemplate mongoTemplate) throws Exception {
+
+                HashMap<String, Object> reqBody = new HashMap<>();
+                reqBody.put("germplasmDbIds", germplasmDbIdToIndividualMap.keySet());            
+
+                BrapiV2Client client = new BrapiV2Client();
+
+                // hack to try and make it work with current BMS version
+                client.initService(endpointUrl/*.replace("Ricegigwa/", "")*/, authToken);
+                client.getCalls();
+                client.ensureGermplasmInfoCanBeImported();
+                client.initService(endpointUrl, authToken);
+
+                final BrapiV2Service service = client.getService();
+
+                List<Germplasm> germplasmList = new ArrayList<>();
+                ObjectMapper oMapper = new ObjectMapper();
+
+                if (client.hasCallSearchGermplasm()) {
+                        progress.addStep("Getting germplasm list from " + endpointUrl);
+                        progress.moveToNextStep();
+
+                        try {
+                                Response<SuccessfulSearchResponse> response =  service.searchGermplasm(reqBody).execute();
+                                handleErrorCode(response.code());
+                                SuccessfulSearchResponseResult bsr = response.body().getResult();
+
+                                BrapiV2Client.Pager germplasmPager = new BrapiV2Client.Pager();
+                                while (germplasmPager.isPaging())
+                                {
+                                        GermplasmListResponse br = service.searchGermplasmResult(bsr.getSearchResultsDbId(), germplasmPager.getPageSize(), germplasmPager.getPage()).execute().body();
+                                        germplasmList.addAll(br.getResult().getData());
+                                        germplasmPager.paginate(br.getMetadata());
+                                }
+                        } catch (Exception e) {    // we did not get a searchResultDbId: see if we actually got results straight away
+                                try {
+                                        Response<GermplasmListResponse> response = service.searchGermplasmDirectResult(reqBody).execute();
+                                        handleErrorCode(response.code());
+                                        GermplasmListResponse br = response.body();
+
+                                        BrapiV2Client.Pager germplasmPager = new BrapiV2Client.Pager();
+                                        while (germplasmPager.isPaging()) {
+                                                germplasmList.addAll(br.getResult().getData());
+                                                germplasmPager.paginate(br.getMetadata());
+                                        }
+                                }
+                                catch(Exception f) {
+                                        progress.setError("Error invoking BrAPI /search/germplasm call (no searchResultDbId returned and yet unable to directly obtain results)");
+                                        LOG.error(e);
+                                        LOG.error(progress.getError(), f);
+                                        return 0;
+                                }
+                        }
+                }
+
+
+
+                boolean fCanQueryAttributes = client.hasCallGetAttributes();
+                progress.addStep("Getting germplasm information from " + endpointUrl);
+                progress.moveToNextStep();
+
+                if (germplasmList.isEmpty())
+                        return 0;
+
+                BulkOperations bulkOperations = mongoTemplate.bulkOps(BulkOperations.BulkMode.ORDERED, username == null ? Individual.class : CustomIndividualMetadata.class);
+                for (int i=0; i<germplasmList.size(); i++) {
+                        Germplasm g = germplasmList.get(i);
+                        Map<Object, Object> aiMap = oMapper.convertValue(g, Map.class);
+
+                        if (fCanQueryAttributes) {
+                                Response<BrapiBaseResource<BrapiGermplasmAttributes>> response = service.getAttributes(aiMap.get(BrapiService.BRAPI_FIELD_germplasmDbId).toString()).execute();
+                                if (response.code() != 404) {
+                                        handleErrorCode(response.code());
+                                        BrapiBaseResource<BrapiGermplasmAttributes> moreAttributes = response.body();
+                                        moreAttributes.getResult().getData().forEach(k -> aiMap.put(k.getAttributeDbId(), k.getValue()));
+                                }
+                        }
+
+                        // only keep fields whose values are a single-string
+                        Iterator<Map.Entry<Object, Object>> itr = aiMap.entrySet().iterator();
+                        while(itr.hasNext()) {
+                           Map.Entry<Object, Object> entry = itr.next();
+                           if (entry.getValue() == null)
+                                   itr.remove();
+                           else if (entry.getValue() instanceof ArrayList) {
+                                   if (((ArrayList)entry.getValue()).size() == 1)
+                                           entry.setValue(((ArrayList)entry.getValue()).get(0));
+                                   else
+                                           itr.remove();
+                           }
+                        }
+
+                        progress.setCurrentStepProgress((long) (i * 100f / germplasmList.size()));
+
+                        if (aiMap.isEmpty()) {
+    //                throw new Exception("Cannot import an empty list of attributes");
+                                LOG.warn("Found no metadata to import for germplasm " + g.getGermplasmDbId());
+                                continue;
+                        }
+                        aiMap.remove(BrapiService.BRAPI_FIELD_germplasmDbId); // we don't want to persist this field as it's internal to the remote source but not to Gigwa
+
+                        Update update = new Update();            
+                        if (username == null) {
+                        aiMap.forEach((k,v) -> update.set(Individual.SECTION_ADDITIONAL_INFO + "." + k, v));
+                        bulkOperations.updateMulti(new Query(Criteria.where("_id").is(germplasmDbIdToIndividualMap.get(g.getGermplasmDbId()))), update);
+                        }
+                        else {
+                        aiMap.forEach((k,v) -> update.set(CustomIndividualMetadata.SECTION_ADDITIONAL_INFO + "." + k, v));                
+                                bulkOperations.upsert(new Query(Criteria.where("_id").is(new CustomIndividualMetadata.CustomIndividualMetadataId(germplasmDbIdToIndividualMap.get(g.getGermplasmDbId()), username))), update);
+                        }
+                }
+
+                progress.addStep("Persisting metadata found at " + endpointUrl);
+                progress.moveToNextStep();
+                BulkWriteResult wr = bulkOperations.execute();
+                return wr.getModifiedCount() + wr.getUpserts().size();
+        }
+
 
 	private static void handleErrorCode(int code) {
 		if(code==400)
