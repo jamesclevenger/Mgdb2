@@ -63,8 +63,8 @@ public class ServiceInfoUtils
 		return false;
 	}
 	
-	boolean hasCallGetAttributes() {
-		return hasCall("germplasm/{germplasmDbId}/attributes", WSMIMEDataTypes.APPLICATION_JSON, MethodsEnum.GET);
+	boolean hasCallSearchAttributes() {
+		return hasCall("search/attributevalues", WSMIMEDataTypes.APPLICATION_JSON, MethodsEnum.POST);
 	}
 	
 	boolean hasCallSearchGermplasm() {

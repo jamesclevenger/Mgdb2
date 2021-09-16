@@ -189,8 +189,8 @@ public class BrapiV2Client
 			throw new Exception("Some calls are missing to be able to import germplasm info");
 	}
 	
-	public boolean hasCallGetAttributes() {
-		return serviceInfoUtils.hasCallGetAttributes();
+	public boolean hasCallSearchAttributes() {
+		return serviceInfoUtils.hasCallSearchAttributes();
 	}
 	
 	public boolean hasCallSearchGermplasm() {
