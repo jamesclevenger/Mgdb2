@@ -29,13 +29,18 @@ import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.stream.Collectors;
 
+import javax.servlet.http.HttpSession;
+
 import org.apache.log4j.Level;
 import org.apache.log4j.Logger;
 import org.bson.Document;
+import org.springframework.beans.factory.ObjectFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.query.Criteria;
 import org.springframework.data.mongodb.core.query.Query;
+import org.springframework.stereotype.Component;
 
 import com.mongodb.BasicDBObject;
 import com.mongodb.MongoCommandException;
@@ -66,6 +71,7 @@ import htsjdk.variant.vcf.VCFHeaderLineType;
 /**
  * The Class MgdbDao.
  */
+@Component
 public class MgdbDao
 {
 	
@@ -77,6 +83,19 @@ public class MgdbDao
 	
 	/** The Constant FIELD_NAME_CACHED_COUNT_VALUE. */
 	static final public String FIELD_NAME_CACHED_COUNT_VALUE = "val";
+	
+	@Autowired ObjectFactory<HttpSession> httpSessionFactory;
+	
+	static protected MgdbDao instance;	// a bit of a hack, allows accessing a singleton to be able to call the non-static loadIndividualsWithAllMetadata
+	
+	@Autowired
+	private void setMgdbDao(MgdbDao mgdbDao) {
+		instance = mgdbDao;
+	}
+	
+	public static MgdbDao getInstance() {
+		return instance;
+	}
 	
 	/**
 	 * Prepare database for searches.
@@ -470,6 +489,7 @@ public class MgdbDao
     }
 
 	/**
+	 * This method is not static because it requires access to a HttpSession which we get from a ObjectFactory<HttpSession> that we couln't autowire from a static getter
 	 * 
 	 * @param module the database name (mandatory)
 	 * @param sCurrentUser username for whom to get custom metadata (optional)
@@ -477,7 +497,7 @@ public class MgdbDao
 	 * @param indIDs a list of individual IDs (optional)
 	 * @return Individual IDs mapped to Individual objects with static metada + custom metadata (if available). If indIDs is specified the list is restricted by it, otherwise if projIDs is specified the list is restricted by it, otherwise all database Individuals are returned
 	 */
-	public static LinkedHashMap<String, Individual> loadIndividualsWithAllMetadata(String module, String sCurrentUser, Collection<Integer> projIDs, Collection<String> indIDs) {
+	public LinkedHashMap<String, Individual> loadIndividualsWithAllMetadata(String module,/* HttpSession session, */String sCurrentUser, Collection<Integer> projIDs, Collection<String> indIDs) {
 		MongoTemplate mongoTemplate = MongoTemplateManager.get(module);
 		
 		// build the initial list of Individual objects
@@ -490,10 +510,22 @@ public class MgdbDao
 		for (String indId : indIDs)
 			result.put(indId, indMap.get(indId));
 
-		if (sCurrentUser != null)	// merge with custom metadata if available
-			for (CustomIndividualMetadata cimd : mongoTemplate.find(new Query(Criteria.where("_id." + CustomIndividualMetadataId.FIELDNAME_USER).is(sCurrentUser)), CustomIndividualMetadata.class))
-                if (cimd.getAdditionalInfo() != null && !cimd.getAdditionalInfo().isEmpty())
-                	result.get(cimd.getId().getIndividualId()).getAdditionalInfo().putAll(cimd.getAdditionalInfo());
+		HttpSession session = httpSessionFactory.getObject();
+		if (sCurrentUser != null) {	// merge with custom metadata if available
+			if ("anonymousUser".equals(sCurrentUser) && session != null) {
+				LinkedHashMap<String, LinkedHashMap<String, Comparable>> sessionMetaData = (LinkedHashMap<String, LinkedHashMap<String, Comparable>>) session.getAttribute("individuals_metadata_" + module);
+				if (sessionMetaData != null)
+					for (String indId : indIDs) {
+						LinkedHashMap<String, Comparable> indSessionMetadata = sessionMetaData.get(indId);
+		                if (indSessionMetadata != null && !indSessionMetadata.isEmpty())
+		                	result.get(indId).getAdditionalInfo().putAll(indSessionMetadata);
+					}
+			}
+			else
+				for (CustomIndividualMetadata cimd : mongoTemplate.find(new Query(new Criteria().andOperator(Criteria.where("_id." + CustomIndividualMetadataId.FIELDNAME_USER).is(sCurrentUser), Criteria.where("_id." + CustomIndividualMetadataId.FIELDNAME_INDIVIDUAL_ID).in(indIDs))), CustomIndividualMetadata.class))
+	                if (cimd.getAdditionalInfo() != null && !cimd.getAdditionalInfo().isEmpty())
+	                	result.get(cimd.getId().getIndividualId()).getAdditionalInfo().putAll(cimd.getAdditionalInfo());
+		}
 		return result;
 	}
 }

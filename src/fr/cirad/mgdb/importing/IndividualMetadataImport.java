@@ -28,6 +28,8 @@ import java.util.Map;
 import java.util.Scanner;
 import java.util.stream.Collectors;
 
+import javax.servlet.http.HttpSession;
+
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang.StringUtils;
 import org.apache.log4j.Logger;
@@ -80,10 +82,10 @@ public class IndividualMetadataImport {
 	public static void main(String[] args) throws Exception {
 		if (args.length < 3)
 			throw new Exception("You must pass 3 or 4 parameters as arguments: DATASOURCE name, metadata file path (TSV format with header on first line), label of column containing individual names (matching those in the DB), and optionally a CSV list of column labels for fields to import (all will be imported if no such parameter is supplied).");
-		importIndividualMetadata(args[0], new File(args[1]).toURI().toURL(), args[2], args.length > 3 ? args[2] : null, null);
+		importIndividualMetadata(args[0], null, new File(args[1]).toURI().toURL(), args[2], args.length > 3 ? args[2] : null, null);
 	}
 	
-	public static int importIndividualMetadata(String sModule, URL metadataFileURL, String individualColName, String csvFieldListToImport, String username) throws Exception 
+	public static int importIndividualMetadata(String sModule, HttpSession session, URL metadataFileURL, String individualColName, String csvFieldListToImport, String username) throws Exception 
 	{
 		List<String> fieldsToImport = csvFieldListToImport != null ? Arrays.asList(csvFieldListToImport.toLowerCase().split(",")) : null;
 		Scanner scanner = new Scanner(metadataFileURL.openStream());
@@ -97,6 +99,13 @@ public class IndividualMetadataImport {
 			mongoTemplate = MongoTemplateManager.get(sModule);
 			if (mongoTemplate == null)
 				throw new Exception("DATASOURCE '" + sModule + "' is not supported!");
+		}
+		
+		boolean fIsAnonymous = "anonymousUser".equals(username);
+		LinkedHashMap<String /*individual*/, LinkedHashMap<String, Comparable>> sessionObject = null;	// start with empty metadata (we only aggregate when we import BrAPI stuff over manually-provided values)
+		if (fIsAnonymous) {
+			sessionObject = new LinkedHashMap<>();
+			session.setAttribute("individuals_metadata_" + sModule, sessionObject);
 		}
   
 		try
@@ -127,8 +136,6 @@ public class IndividualMetadataImport {
 					}
 					if (idColumn == -1)
 						throw new Exception(cells.size() <= 1 ? "Provided file does not seem to be tab-delimited!" : "Unable to find individual name column \"" + individualColName + "\" in file header!");
-//					if (columnLabels.size() == 0)
-//						throw new Exception("Unable to find any columns to import in file header!");
 
 					continue;
 				}
@@ -143,8 +150,12 @@ public class IndividualMetadataImport {
 				passedIndList.add(individualId);
 				if (username == null)
 					bulkOperations.updateMulti(new Query(Criteria.where("_id").is(individualId)), new Update().set(Individual.SECTION_ADDITIONAL_INFO, additionalInfo));
-				else
+				else if (!fIsAnonymous)
 					bulkOperations.upsert(new Query(Criteria.where("_id").is(new CustomIndividualMetadata.CustomIndividualMetadataId(individualId, username))), new Update().set(CustomIndividualMetadata.SECTION_ADDITIONAL_INFO, additionalInfo));
+				else if (session != null)
+					sessionObject.put(individualId, additionalInfo);
+				else
+					LOG.warn("Unable to save metadata for anonymous user (passed HttpSession was null)");
 			}
 			
 			if (passedIndList.size() == 0) {
@@ -161,12 +172,18 @@ public class IndividualMetadataImport {
 				if (foundIndList.size() < passedIndList.size())
 					throw new Exception("The following individuals do not exist in the selected database: " + StringUtils.join(CollectionUtils.disjunction(passedIndList, foundIndList), ", "));
 			}
-			BulkWriteResult wr = bulkOperations.execute();
-			if (passedIndList.size() == 0)
-				LOG.info("Database " + sModule + ": metadata was deleted for " + wr.getModifiedCount() + " individuals");
-			else
-				LOG.info("Database " + sModule + ": " + wr.getModifiedCount() + " individuals updated with metadata, out of " + wr.getMatchedCount() + " matched documents");
-			return wr.getModifiedCount() + wr.getUpserts().size() + wr.getDeletedCount();
+			if (!fIsAnonymous) {
+				BulkWriteResult wr = bulkOperations.execute();
+				if (passedIndList.size() == 0)
+					LOG.info("Database " + sModule + ": metadata was deleted for " + wr.getModifiedCount() + " individuals");
+				else
+					LOG.info("Database " + sModule + ": " + wr.getModifiedCount() + " individuals updated with metadata, out of " + wr.getMatchedCount() + " matched documents");
+				return wr.getModifiedCount() + wr.getUpserts().size() + wr.getDeletedCount();
+			}
+			else {
+				LOG.info("Database " + sModule + ": metadata was persisted into session for anonymous user");
+				return 1;
+			}
 		}
 		finally
 		{
