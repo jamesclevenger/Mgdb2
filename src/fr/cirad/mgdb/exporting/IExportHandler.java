@@ -26,6 +26,8 @@ import java.util.Map;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
+import javax.servlet.http.HttpSession;
+
 import org.apache.log4j.Logger;
 import org.bson.Document;
 import org.springframework.data.mongodb.core.MongoTemplate;
@@ -158,5 +160,21 @@ public interface IExportHandler
             for (String headerKey : mdHeaders)
             	os.write(("\t" + Helper.nullToEmptyString(ind.getAdditionalInfo().get(headerKey))).getBytes());
             os.write("\n".getBytes());
-        }	}
+        }
+	}
+
+	/**
+	 * Used for providing access to session attributes when exporting to server (in that case, export runs in a Thread and HttpResponse ie returned immediately)
+	 */
+	public class SessionAwareExportThread extends Thread {
+		private HttpSession session;
+		
+		public SessionAwareExportThread(HttpSession session) {
+			this.session = session;
+		}
+		
+		public HttpSession getHttpSession() {
+			return session;
+		}
+	}
 }
