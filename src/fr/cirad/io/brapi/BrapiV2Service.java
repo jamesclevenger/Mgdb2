@@ -61,9 +61,12 @@ public interface BrapiV2Service {
     public Call<GermplasmListResponse> searchGermplasmResult(@Path(value="searchResultsDbId") String searchResultDbId, @Query(value="pageSize") String var1, @Query(value="page") String var2);
 
     @POST(value="search/samples")
+    public Call<SuccessfulSearchResponse> searchSamples(@Body Map<String, Object> body);
+    
+    @POST(value="search/samples")
     public Call<SampleListResponse> searchSamplesDirectResult(@Body Map<String, Object> body);
     
     @GET(value="search/samples/{searchResultDbId}")
-    public Call<SampleSingleResponse> searchSamplesResult(@Path(value="searchResultsDbId") String searchResultDbId, @Query(value="pageSize") String var1, @Query(value="page") String var2);
+    public Call<SampleListResponse> searchSamplesResult(@Path(value="searchResultsDbId") String searchResultDbId, @Query(value="pageSize") String var1, @Query(value="page") String var2);
 
 }

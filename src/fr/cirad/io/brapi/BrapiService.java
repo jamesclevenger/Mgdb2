@@ -36,6 +36,7 @@ public interface BrapiService {
 	public static final String BRAPI_FIELD_germplasmDbId = "germplasmDbId";
     public static final String BRAPI_FIELD_germplasmExternalReferenceId = "extRefId";
     public static final String BRAPI_FIELD_germplasmExternalReferenceSource = "extRefSrc";
+    public static final String BRAPI_FIELD_germplasmExternalReferenceType = "extRefType";
 
 	@GET(value="calls")
     public Call<BrapiListResource<BrapiCall>> getCalls(@Query(value="pageSize") String var1, @Query(value="page") String var2);
@@ -91,4 +92,5 @@ public interface BrapiService {
     
     @GET(value="search/germplasm/{searchResultDbId}")
     public Call<BrapiListResource<BrapiGermplasm>> searchGermplasmResult(@Path(value="searchResultDbId") String searchResultDbId, @Query(value="pageSize") String var1, @Query(value="page") String var2);
+
 }

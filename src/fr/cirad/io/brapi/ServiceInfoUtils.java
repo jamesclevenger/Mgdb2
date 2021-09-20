@@ -70,6 +70,10 @@ public class ServiceInfoUtils
 	boolean hasCallSearchGermplasm() {
 		return hasCall("search/germplasm", WSMIMEDataTypes.APPLICATION_JSON, MethodsEnum.POST);
 	}
+        
+        boolean hasCallSearchSamples() {
+		return hasCall("search/samples", WSMIMEDataTypes.APPLICATION_JSON, MethodsEnum.POST);
+	}
 	
 	public boolean hasCall(String signature, WSMIMEDataTypes datatype, MethodsEnum method)
 	{

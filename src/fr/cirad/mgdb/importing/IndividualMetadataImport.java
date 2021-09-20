@@ -62,6 +62,8 @@ import org.brapi.v2.model.Germplasm;
 import org.brapi.v2.model.GermplasmAttributeValue;
 import org.brapi.v2.model.GermplasmAttributeValueListResponse;
 import org.brapi.v2.model.GermplasmListResponse;
+import org.brapi.v2.model.Sample;
+import org.brapi.v2.model.SampleListResponse;
 import org.brapi.v2.model.SuccessfulSearchResponse;
 import org.brapi.v2.model.SuccessfulSearchResponseResult;
 
@@ -195,7 +197,7 @@ public class IndividualMetadataImport {
 		}
 	}
 
-	public static int importBrapiMetadata(String sModule, HttpSession session, String endpointUrl, HashMap<String, String> germplasmDbIdToIndividualMap, String username, String authToken, ProgressIndicator progress) throws Exception
+	public static int importBrapiMetadata(String sModule, HttpSession session, String endpointUrl, HashMap<String, HashMap<String, String>> germplasmDbIdToIndividualMap, String username, String authToken, ProgressIndicator progress) throws Exception
 	{
             if (germplasmDbIdToIndividualMap == null || germplasmDbIdToIndividualMap.isEmpty())
                     return 0;    // we must know which individuals to update
@@ -209,33 +211,64 @@ public class IndividualMetadataImport {
                     mongoTemplate = MongoTemplateManager.get(sModule);
                     if (mongoTemplate == null)
                             throw new Exception("DATASOURCE '" + sModule + "' is not supported!");
-            }            
+            }      
+            
+            int modifiedCount = 0;
             
             if (endpointUrl.contains("v1")) {
-                return importBrapiV1Germplasm(
+                
+                modifiedCount += importBrapiV1Germplasm(
                     sModule,
                     session,
                     endpointUrl,                    
-                    germplasmDbIdToIndividualMap,
+                    germplasmDbIdToIndividualMap.get("germplasm"),
                     username,
                     authToken,
                     progress,
                     mongoTemplate
                 );
-            } else if (endpointUrl.contains("v2")) {
-                return importBrapiV2Germplasm(
+                
+                modifiedCount += importBrapiV1Samples(
                     sModule,
                     session,
-                    endpointUrl,
-                    germplasmDbIdToIndividualMap,
+                    endpointUrl,                    
+                    germplasmDbIdToIndividualMap.get("sample"),
                     username,
                     authToken,
                     progress,
                     mongoTemplate
                 );
-            } else {
-                return 0;
-            }            
+                
+            } else if (endpointUrl.contains("v2")) {
+                
+                if (germplasmDbIdToIndividualMap.get("germplasm") != null) {
+                    modifiedCount += importBrapiV2Germplasm(
+                        sModule,
+                        session,
+                        endpointUrl,
+                        germplasmDbIdToIndividualMap.get("germplasm"),
+                        username,
+                        authToken,
+                        progress,
+                        mongoTemplate
+                    );
+                }
+                
+                if (germplasmDbIdToIndividualMap.get("sample") != null) {
+                    modifiedCount += importBrapiV2Samples(
+                        sModule,
+                        session,
+                        endpointUrl,                    
+                        germplasmDbIdToIndividualMap.get("sample"),
+                        username,
+                        authToken,
+                        progress,
+                        mongoTemplate
+                    );
+                }
+            } 
+            
+            return modifiedCount;
         }
         
         
@@ -552,6 +585,150 @@ public class IndividualMetadataImport {
                 LOG.info("Database " + sModule + ": metadata was persisted into session for anonymous user");
                 return 1;
             }
+        }
+        
+        private static int importBrapiV1Samples(
+            String sModule, 
+            HttpSession session, 
+            String endpointUrl, 
+            HashMap<String, String> sampleDbIdToIndividualMap,
+            String username,
+            String authToken,
+            ProgressIndicator progress,
+            MongoTemplate mongoTemplate) throws Exception {
+            progress.setError("Error invoking BrAPI /search/samples call (don't manage V1 samples call, please use brapi V2 url)");
+            return 0;
+            
+    }
+        
+        private static int importBrapiV2Samples(
+                String sModule, 
+                HttpSession session, 
+                String endpointUrl, 
+                HashMap<String, String> sampleDbIdToIndividualMap,
+                String username,
+                String authToken,
+                ProgressIndicator progress,
+                MongoTemplate mongoTemplate) throws Exception {
+
+                HashMap<String, Object> reqBody = new HashMap<>();
+                reqBody.put("sampleDbIds", sampleDbIdToIndividualMap.keySet());            
+
+                BrapiV2Client client = new BrapiV2Client();
+
+                // hack to try and make it work with current BMS version
+                client.initService(endpointUrl/*.replace("Ricegigwa/", "")*/, authToken);
+                client.getCalls();
+                client.ensureSampleInfoCanBeImported();
+                client.initService(endpointUrl, authToken);
+
+                final BrapiV2Service service = client.getService();
+
+                List<Sample> sampleList = new ArrayList<>();
+                ObjectMapper oMapper = new ObjectMapper();
+
+                if (client.hasCallSearchSample()) {
+                        progress.addStep("Getting samples list from " + endpointUrl);
+                        progress.moveToNextStep();
+
+                        try {
+                                Response<SuccessfulSearchResponse> response =  service.searchSamples(reqBody).execute();
+                                handleErrorCode(response.code());
+                                SuccessfulSearchResponseResult bsr = response.body().getResult();
+
+                                BrapiV2Client.Pager samplePager = new BrapiV2Client.Pager();
+                                while (samplePager.isPaging())
+                                {
+                                        SampleListResponse br = service.searchSamplesResult(bsr.getSearchResultsDbId(), samplePager.getPageSize(), samplePager.getPage()).execute().body();
+                                        sampleList.addAll(br.getResult().getData());
+                                        samplePager.paginate(br.getMetadata());
+                                }
+                        } catch (Exception e) {    // we did not get a searchResultDbId: see if we actually got results straight away
+                                try {
+                                        Response<SampleListResponse> response = service.searchSamplesDirectResult(reqBody).execute();
+                                        handleErrorCode(response.code());
+                                        SampleListResponse br = response.body();
+
+                                        BrapiV2Client.Pager samplePager = new BrapiV2Client.Pager();
+                                        while (samplePager.isPaging()) {
+                                            sampleList.addAll(br.getResult().getData());
+                                            samplePager.paginate(br.getMetadata());
+                                        }
+                                }
+                                catch(Exception f) {
+                                        progress.setError("Error invoking BrAPI /search/samples call (no searchResultDbId returned and yet unable to directly obtain results)");
+                                        LOG.error(e);
+                                        LOG.error(progress.getError(), f);
+                                        return 0;
+                                }
+                        }
+                }
+
+
+
+                progress.addStep("Getting samples information from " + endpointUrl);
+                progress.moveToNextStep();
+
+                if (sampleList.isEmpty())
+                        return 0;
+
+                boolean fIsAnonymous = "anonymousUser".equals(username);
+                LinkedHashMap<String /*individual*/, LinkedHashMap<String, Comparable>> sessionObject = (LinkedHashMap<String, LinkedHashMap<String, Comparable>>) session.getAttribute("individuals_metadata_" + sModule);
+                if (fIsAnonymous  && sessionObject == null) {
+                        sessionObject = new LinkedHashMap<>();
+                        session.setAttribute("individuals_metadata_" + sModule, sessionObject);
+                }
+
+                BulkOperations bulkOperations = mongoTemplate.bulkOps(BulkOperations.BulkMode.ORDERED, username == null ? Individual.class : CustomIndividualMetadata.class);
+                for (int i=0; i<sampleList.size(); i++) {
+                        Sample sample = sampleList.get(i);
+                        Map<Object, Object> aiMap = oMapper.convertValue(sample, Map.class);
+
+                        // only keep fields whose values are a single-string
+                        LinkedHashMap<String, Comparable> remoteAI = new LinkedHashMap<>();
+                        Iterator<Map.Entry<Object, Object>> itr = aiMap.entrySet().iterator();
+                            while (itr.hasNext()) {
+                           Map.Entry<Object, Object> entry = itr.next();
+                               if (entry.getValue() != null) {
+                                       Object val = entry.getValue() instanceof ArrayList && ((ArrayList) entry.getValue()).size() == 1 ? ((ArrayList) entry.getValue()).get(0) : entry.getValue();
+                                       if (val != null)
+                                               remoteAI.put(entry.getKey().toString(), val.toString());
+                           }
+                        }
+
+                        progress.setCurrentStepProgress((long) (i * 100f / sampleList.size()));
+
+                            if (remoteAI.isEmpty()) {
+                                LOG.warn("Found no metadata to import for germplasm " + sample.getSampleDbId());
+                                continue;
+                        }
+                            remoteAI.remove(BrapiService.BRAPI_FIELD_germplasmDbId); // we don't want to persist this field as it's internal to the remote source but not to the present system
+
+                        Update update = new Update();            
+                        if (username == null) {
+                            remoteAI.forEach((k, v) -> update.set(Individual.SECTION_ADDITIONAL_INFO + "." + k, v));
+                            bulkOperations.updateMulti(new Query(Criteria.where("_id").is(sampleDbIdToIndividualMap.get(sample.getSampleDbId()))), update);
+                        }
+                            else if (!fIsAnonymous) {
+                            remoteAI.forEach((k, v) -> update.set(CustomIndividualMetadata.SECTION_ADDITIONAL_INFO + "." + k, v));		        
+                                bulkOperations.upsert(new Query(Criteria.where("_id").is(new CustomIndividualMetadata.CustomIndividualMetadataId(sampleDbIdToIndividualMap.get(sample.getSampleDbId()), username))), update);
+                        }
+                            else if (session != null)
+                                    sessionObject.get(sampleDbIdToIndividualMap.get(sample.getSampleDbId())).putAll(remoteAI);
+                            else
+                                    LOG.warn("Unable to save metadata for anonymous user (passed HttpSession was null)");
+                }
+
+                progress.addStep("Persisting metadata found at " + endpointUrl);
+                progress.moveToNextStep();
+
+                if (!fIsAnonymous) {
+                    BulkWriteResult wr = bulkOperations.execute();
+                    return wr.getModifiedCount() + wr.getUpserts().size();
+                } else {
+                    LOG.info("Database " + sModule + ": metadata was persisted into session for anonymous user");
+                    return 1;
+                }
         }
 
 

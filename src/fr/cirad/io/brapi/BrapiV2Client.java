@@ -294,6 +294,15 @@ public class BrapiV2Client
 	public void setHttpClient(OkHttpClient httpClient)
 	{ this.httpClient = httpClient; }
 
+        public void ensureSampleInfoCanBeImported() throws Exception {
+            if (serviceInfoUtils.hasCallSearchSamples()== false)
+                            throw new Exception("Some calls are missing to be able to import germplasm info");
+        }
+
+        public boolean hasCallSearchSample() {
+            return serviceInfoUtils.hasCallSearchSamples();
+        }
+
 //	private static void initCertificates(Client client, XmlResource resource)
 //		throws Exception
 //	{
