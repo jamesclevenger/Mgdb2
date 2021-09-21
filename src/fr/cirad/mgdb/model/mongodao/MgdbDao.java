@@ -31,6 +31,7 @@ import java.util.stream.Collectors;
 
 import javax.servlet.http.HttpSession;
 
+import org.apache.catalina.session.StandardSessionFacade;
 import org.apache.log4j.Level;
 import org.apache.log4j.Logger;
 import org.bson.Document;
@@ -50,7 +51,7 @@ import com.mongodb.client.model.IndexOptions;
 import com.mongodb.client.result.DeleteResult;
 
 import fr.cirad.mgdb.exporting.IExportHandler;
-import fr.cirad.mgdb.exporting.IExportHandler.SessionAwareExportThread;
+import fr.cirad.mgdb.exporting.IExportHandler.SessionAttributeAwareExportThread;
 import fr.cirad.mgdb.model.mongo.maintypes.CachedCount;
 import fr.cirad.mgdb.model.mongo.maintypes.CustomIndividualMetadata;
 import fr.cirad.mgdb.model.mongo.maintypes.DBVCFHeader;
@@ -511,16 +512,15 @@ public class MgdbDao
 		for (String indId : indIDs)
 			result.put(indId, indMap.get(indId));
 
-		HttpSession session = SessionAwareExportThread.class.isAssignableFrom(Thread.currentThread().getClass()) ? ((SessionAwareExportThread) Thread.currentThread()).getHttpSession() : httpSessionFactory.getObject();
+		boolean fGrabSessionAttributesFromThread = SessionAttributeAwareExportThread.class.isAssignableFrom(Thread.currentThread().getClass());
+		LinkedHashMap<String, LinkedHashMap<String, Comparable>> sessionMetaData = (LinkedHashMap<String, LinkedHashMap<String, Comparable>>) (fGrabSessionAttributesFromThread ? ((SessionAttributeAwareExportThread) Thread.currentThread()).getSessionAttributes().get("individuals_metadata_" + module) : httpSessionFactory.getObject().getAttribute("individuals_metadata_" + module));
 		if (sCurrentUser != null) {	// merge with custom metadata if available
-			if ("anonymousUser".equals(sCurrentUser) && session != null) {
-				LinkedHashMap<String, LinkedHashMap<String, Comparable>> sessionMetaData = (LinkedHashMap<String, LinkedHashMap<String, Comparable>>) session.getAttribute("individuals_metadata_" + module);
-				if (sessionMetaData != null)
-					for (String indId : indIDs) {
-						LinkedHashMap<String, Comparable> indSessionMetadata = sessionMetaData.get(indId);
-		                if (indSessionMetadata != null && !indSessionMetadata.isEmpty())
-		                	result.get(indId).getAdditionalInfo().putAll(indSessionMetadata);
-					}
+			if ("anonymousUser".equals(sCurrentUser) && sessionMetaData != null) {
+				for (String indId : indIDs) {
+					LinkedHashMap<String, Comparable> indSessionMetadata = sessionMetaData.get(indId);
+	                if (indSessionMetadata != null && !indSessionMetadata.isEmpty())
+	                	result.get(indId).getAdditionalInfo().putAll(indSessionMetadata);
+				}
 			}
 			else
 				for (CustomIndividualMetadata cimd : mongoTemplate.find(new Query(new Criteria().andOperator(Criteria.where("_id." + CustomIndividualMetadataId.FIELDNAME_USER).is(sCurrentUser), Criteria.where("_id." + CustomIndividualMetadataId.FIELDNAME_INDIVIDUAL_ID).in(indIDs))), CustomIndividualMetadata.class))
