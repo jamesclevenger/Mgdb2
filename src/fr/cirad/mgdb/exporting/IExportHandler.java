@@ -20,11 +20,15 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.Collection;
+import java.util.Enumeration;
+import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
+
+import javax.servlet.http.HttpSession;
 
 import org.apache.log4j.Logger;
 import org.bson.Document;
@@ -158,5 +162,26 @@ public interface IExportHandler
             for (String headerKey : mdHeaders)
             	os.write(("\t" + Helper.nullToEmptyString(ind.getAdditionalInfo().get(headerKey))).getBytes());
             os.write("\n".getBytes());
-        }	}
+        }
+	}
+
+	/**
+	 * Used for providing access to session attributes when exporting to server (in that case, export runs in a Thread and HttpResponse is returned immediately).
+	 * We don't want to keep a reference to the session itself because it may get invalidated before the thread actually tries to access the attributes.
+	 */
+	public class SessionAttributeAwareExportThread extends Thread {
+		private Map<String, Object> sessionAttributes = new HashMap<>();
+		
+		public SessionAttributeAwareExportThread(HttpSession session) {
+	       Enumeration<String> attrNames = session.getAttributeNames();
+	       while (attrNames.hasMoreElements() ) {
+	            String name = attrNames.nextElement();
+	            sessionAttributes.put(name, session.getAttribute(name));
+	        }
+		}
+		
+		public Map<String, Object> getSessionAttributes() {
+			return sessionAttributes;
+		}
+	}
 }
