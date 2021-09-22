@@ -178,17 +178,16 @@
             </exclusions>
         </dependency>
         
-		<dependency>
-		    <groupId>org.springframework</groupId>
-		    <artifactId>spring-expression</artifactId>
-		    <version>4.2.9.RELEASE</version>
-		</dependency>
+	<dependency>
+		<groupId>org.springframework</groupId>
+		<artifactId>spring-expression</artifactId>
+		<version>4.2.9.RELEASE</version>
+	</dependency>
 
         <dependency>
             <groupId>fr.cirad</groupId>
             <artifactId>GenotypeFileManipulation</artifactId>
             <version>0.1.1-RELEASE</version>
-            <type>jar</type>
         </dependency>
         
         <dependency>
@@ -196,7 +195,7 @@
             <artifactId>Mgdb2BrapiModel</artifactId>
             <version>1.0-SNAPSHOT</version>
         </dependency>
-                
+        
     </dependencies>
 
 	<repositories>
