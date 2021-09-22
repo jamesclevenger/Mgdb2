@@ -31,7 +31,6 @@ import java.util.stream.Collectors;
 
 import javax.servlet.http.HttpSession;
 
-import org.apache.catalina.session.StandardSessionFacade;
 import org.apache.log4j.Level;
 import org.apache.log4j.Logger;
 import org.bson.Document;

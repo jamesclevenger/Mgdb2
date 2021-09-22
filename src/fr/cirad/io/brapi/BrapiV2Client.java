@@ -296,7 +296,7 @@ public class BrapiV2Client
 
         public void ensureSampleInfoCanBeImported() throws Exception {
             if (serviceInfoUtils.hasCallSearchSamples()== false)
-                            throw new Exception("Some calls are missing to be able to import germplasm info");
+                            throw new Exception("Some calls are missing to be able to import sample info");
         }
 
         public boolean hasCallSearchSample() {

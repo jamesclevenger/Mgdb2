@@ -110,4 +110,8 @@ public class CallsUtils
 	{
 		return hasCall("allelematrix-search", TSV, POST);
 	}
+
+        boolean hasCallSearchSamples() {
+            return hasCall("search/samples", JSON, POST);
+        }
 }

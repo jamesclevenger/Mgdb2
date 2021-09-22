@@ -26,6 +26,7 @@ import jhi.brapi.api.germplasm.BrapiGermplasm;
 import jhi.brapi.api.germplasm.BrapiGermplasmAttributes;
 import jhi.brapi.api.markerprofiles.*;
 import jhi.brapi.api.markers.BrapiMarker;
+import jhi.brapi.api.samples.BrapiSample;
 import jhi.brapi.api.search.BrapiSearchResult;
 import jhi.brapi.api.studies.*;
 
@@ -33,7 +34,8 @@ import retrofit2.Call;
 import retrofit2.http.*;
 
 public interface BrapiService {
-	public static final String BRAPI_FIELD_germplasmDbId = "germplasmDbId";
+    public static final String BRAPI_FIELD_germplasmDbId = "germplasmDbId";
+    public static final String BRAPI_FIELD_sampleDbId = "sampleDbId";
     public static final String BRAPI_FIELD_germplasmExternalReferenceId = "extRefId";
     public static final String BRAPI_FIELD_germplasmExternalReferenceSource = "extRefSrc";
     public static final String BRAPI_FIELD_germplasmExternalReferenceType = "extRefType";
@@ -92,5 +94,13 @@ public interface BrapiService {
     
     @GET(value="search/germplasm/{searchResultDbId}")
     public Call<BrapiListResource<BrapiGermplasm>> searchGermplasmResult(@Path(value="searchResultDbId") String searchResultDbId, @Query(value="pageSize") String var1, @Query(value="page") String var2);
+
+    @POST(value="search/samples")
+    public Call<BrapiBaseResource<BrapiSearchResult>> searchSamples(@Body Map<String, Object> body);
+    @POST(value="search/samples")
+    public Call<BrapiListResource<BrapiSample>> searchSamplesDirectResult(@Body Map<String, Object> body);
+    
+    @GET(value="search/samples/{searchResultDbId}")
+    public Call<BrapiListResource<BrapiSample>> searchSamplesResult(@Path(value="searchResultDbId") String searchResultDbId, @Query(value="pageSize") String var1, @Query(value="page") String var2);
 
 }

@@ -300,6 +300,15 @@ public class BrapiClient
 	public void setHttpClient(OkHttpClient httpClient)
 	{ this.httpClient = httpClient; }
 
+        public void ensureSampleInfoCanBeImported() throws Exception {
+            if (callsUtils.hasCallSearchSamples()== false)
+                                throw new Exception("Some calls are missing to be able to import sample info");
+        }
+
+        public boolean hasCallSearchSamples() {
+            return callsUtils.hasCallSearchSamples();
+        }
+
 //	private static void initCertificates(Client client, XmlResource resource)
 //		throws Exception
 //	{
