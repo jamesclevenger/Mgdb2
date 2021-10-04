@@ -1,4 +1,4 @@
-/*******************************************************************************
+/** *****************************************************************************
  * MGDB - Mongo Genotype DataBase
  * Copyright (C) 2016 - 2019, <CIRAD> <IRD>
  *
@@ -13,8 +13,8 @@
  *
  * See <http://www.gnu.org/licenses/agpl.html> for details about GNU General
  * Public License V3.
- *******************************************************************************/
-
+ ******************************************************************************
+ */
 package fr.cirad.io.brapi;
 
 import java.io.IOException;
@@ -51,59 +51,56 @@ import okio.Buffer;
 import retrofit2.Retrofit;
 import retrofit2.converter.jackson.JacksonConverterFactory;
 
-public class BrapiClient
-{
-	private static final Logger LOG = Logger.getLogger(BrapiClient.class);
+public class BrapiClient {
 
-	private BrapiService service;
+    private static final Logger LOG = Logger.getLogger(BrapiClient.class);
 
-	private String username, password;
-	private String mapID, studyID, methodID;
-	private Collection<String> germplasmDbIDs;
+    private BrapiService service;
 
-	private CallsUtils callsUtils;
-	private OkHttpClient httpClient;
+    private String username, password;
+    private String mapID, studyID, methodID;
+    private Collection<String> germplasmDbIDs;
 
-	public void initService(String baseURL, String authToken)
-		throws Exception
-	{
-		baseURL = baseURL.endsWith("/") ? baseURL : baseURL + "/";
+    private CallsUtils callsUtils;
+    private OkHttpClient httpClient;
 
-		httpClient = getUnsafeOkHttpClient(authToken);
-		 
-		Retrofit retrofit = new Retrofit.Builder()
-			.baseUrl(baseURL)
-			.addConverterFactory(JacksonConverterFactory.create())
-			.client(httpClient)
-			.build();
+    public void initService(String baseURL, String authToken)
+            throws Exception {
+        baseURL = baseURL.endsWith("/") ? baseURL : baseURL + "/";
 
-		service = retrofit.create(BrapiService.class);
-	}
-	
-	public static OkHttpClient getUnsafeOkHttpClient(String authToken)
-	{
-        try
-        {
+        httpClient = getUnsafeOkHttpClient(authToken);
+
+        Retrofit retrofit = new Retrofit.Builder()
+                .baseUrl(baseURL)
+                .addConverterFactory(JacksonConverterFactory.create())
+                .client(httpClient)
+                .build();
+
+        service = retrofit.create(BrapiService.class);
+    }
+
+    public static OkHttpClient getUnsafeOkHttpClient(String authToken) {
+        try {
             OkHttpClient.Builder builder = new OkHttpClient.Builder();
 
             // Create a trust manager that does not validate certificate chains
-            final TrustManager[] trustAllCerts = new TrustManager[] {
-                    new X509TrustManager() {
-                        @Override
-                        public void checkClientTrusted(java.security.cert.X509Certificate[] chain, String authType) {
-                        }
-
-                        @Override
-                        public void checkServerTrusted(java.security.cert.X509Certificate[] chain, String authType) {
-                        }
-
-                        @Override
-                        public java.security.cert.X509Certificate[] getAcceptedIssuers() {
-                            return new java.security.cert.X509Certificate[]{};
-                        }
+            final TrustManager[] trustAllCerts = new TrustManager[]{
+                new X509TrustManager() {
+                    @Override
+                    public void checkClientTrusted(java.security.cert.X509Certificate[] chain, String authType) {
                     }
+
+                    @Override
+                    public void checkServerTrusted(java.security.cert.X509Certificate[] chain, String authType) {
+                    }
+
+                    @Override
+                    public java.security.cert.X509Certificate[] getAcceptedIssuers() {
+                        return new java.security.cert.X509Certificate[]{};
+                    }
+                }
             };
-            
+
             // Install the all-trusting trust manager
             final SSLContext sslContext = SSLContext.getInstance("SSL");
             sslContext.init(null, trustAllCerts, new java.security.SecureRandom());
@@ -111,7 +108,7 @@ public class BrapiClient
             // Create an ssl socket factory with our all-trusting manager
             final SSLSocketFactory sslSocketFactory = sslContext.getSocketFactory();
 
-            builder.sslSocketFactory(sslSocketFactory, (X509TrustManager)trustAllCerts[0]);
+            builder.sslSocketFactory(sslSocketFactory, (X509TrustManager) trustAllCerts[0]);
             builder.hostnameVerifier(new HostnameVerifier() {
                 @Override
                 public boolean verify(String hostname, SSLSession session) {
@@ -122,38 +119,41 @@ public class BrapiClient
             OkHttpClient okHttpClient = builder.addInterceptor(new Interceptor() {
                 @Override
                 public Response intercept(Chain chain) throws IOException {
-                	Request request = chain.request();
-                	if (LOG.isEnabledFor(Level.DEBUG)) {
+                    Request request = chain.request();
+                    if (LOG.isEnabledFor(Level.DEBUG)) {
                         LOG.debug(getClass().getName() + ": " + request.method() + " " + request.url());
 //                        LOG.debug(getClass().getName() + ": " + request.header("Cookie"));
                         RequestBody rb = request.body();
                         Buffer buffer = new Buffer();
-                        if (rb != null)
+                        if (rb != null) {
                             rb.writeTo(buffer);
+                        }
                         LOG.debug(getClass().getName() + ": " + "Payload- " + buffer.readUtf8());
                     }
                     return chain.proceed(request);
                 }
             })
-            .addInterceptor(new Interceptor() {//add the authToken to headers
-                @Override
-                public Response intercept(Chain chain) throws IOException {
-    				Request originalRequest = chain.request();
-    				Response response = null;
-    				if(authToken!=null) {//if authToken is null => do nothing
-    					Request newRequest = originalRequest.newBuilder().addHeader("Authorization", authToken).build();
-    					response = chain.proceed(newRequest);
-    				}else {
-    					response = chain.proceed(originalRequest);}
-    				if (response.code() == 401)
-    					throw new IOException("Unauthorized error 401");
-    				return response;
-                }
-            })
-            .readTimeout(60, TimeUnit.SECONDS)	// Tweak to make the timeout on Retrofit connections last longer
-            .connectTimeout(60, TimeUnit.SECONDS)
-            .build();
-            
+                    .addInterceptor(new Interceptor() {//add the authToken to headers
+                        @Override
+                        public Response intercept(Chain chain) throws IOException {
+                            Request originalRequest = chain.request();
+                            Response response = null;
+                            if (authToken != null) {//if authToken is null => do nothing
+                                Request newRequest = originalRequest.newBuilder().addHeader("Authorization", authToken).build();
+                                response = chain.proceed(newRequest);
+                            } else {
+                                response = chain.proceed(originalRequest);
+                            }
+                            if (response.code() == 401) {
+                                throw new IOException("Unauthorized error 401");
+                            }
+                            return response;
+                        }
+                    })
+                    .readTimeout(60, TimeUnit.SECONDS) // Tweak to make the timeout on Retrofit connections last longer
+                    .connectTimeout(60, TimeUnit.SECONDS)
+                    .build();
+
             return okHttpClient;
         } catch (Exception e) {
             throw new RuntimeException(e);
@@ -165,149 +165,165 @@ public class BrapiClient
 //		try { return URLEncoder.encode(str, "UTF-8"); }
 //		catch (UnsupportedEncodingException e) { return str; }
 //	}
+    public void getCalls() throws Exception {
+        List<BrapiCall> calls = new ArrayList<>();
+        Pager pager = new Pager();
 
-	public void getCalls() throws Exception
-	{
-		List<BrapiCall> calls = new ArrayList<>();
-		Pager pager = new Pager();
+        while (pager.isPaging()) {
+            retrofit2.Response<BrapiListResource<BrapiCall>> resp = service.getCalls(pager.getPageSize(), pager.getPage()).execute();
+            if (!resp.isSuccessful()) {
+                throw new Exception("Error " + resp.code() + ": " + resp.errorBody().string());
+            }
 
-		while (pager.isPaging())
-		{
-			retrofit2.Response<BrapiListResource<BrapiCall>> resp = service.getCalls(pager.getPageSize(), pager.getPage()).execute();
-			if (!resp.isSuccessful())
-				throw new Exception("Error " + resp.code() + ": " + resp.errorBody().string());
-			
-			BrapiListResource<BrapiCall> br	= resp.body();
-			calls.addAll(br.data());
-			pager.paginate(br.getMetadata());
-		}
+            BrapiListResource<BrapiCall> br = resp.body();
+            calls.addAll(br.data());
+            pager.paginate(br.getMetadata());
+        }
 
-		callsUtils = new CallsUtils(calls);
-	}
-	
-	public void ensureGenotypesCanBeImported() throws Exception {
-		if (callsUtils.ensureGenotypesCanBeImported() == false)
-			throw new Exception("Some calls are missing to be able to import genotypes");
-	}
-	
-	public void ensureGermplasmInfoCanBeImported() throws Exception {
-		if (callsUtils.ensureGermplasmInfoCanBeImported() == false)
-			throw new Exception("Some calls are missing to be able to import germplasm info");
-	}
-	
-	public boolean hasCallGetAttributes() {
-		return callsUtils.hasCallGetAttributes();
-	}
-	
-	public boolean hasCallSearchGermplasm() {
-		return callsUtils.hasCallSearchGermplasm();
-	}
+        callsUtils = new CallsUtils(calls);
+    }
 
-	public boolean hasToken()
-	{ return callsUtils.hasToken(); }
+    public void ensureGenotypesCanBeImported() throws Exception {
+        if (callsUtils.ensureGenotypesCanBeImported() == false) {
+            throw new Exception("Some calls are missing to be able to import genotypes");
+        }
+    }
 
-	public boolean hasAlleleMatrixSearchTSV()
-	{ return callsUtils.hasAlleleMatrixSearchTSV(); }
+    public void ensureGermplasmInfoCanBeImported() throws Exception {
+        if (callsUtils.ensureGermplasmInfoCanBeImported() == false) {
+            throw new Exception("Some calls are missing to be able to import germplasm info");
+        }
+    }
+
+    public boolean hasCallGetAttributes() {
+        return callsUtils.hasCallGetAttributes();
+    }
+
+    public boolean hasCallSearchGermplasm() {
+        return callsUtils.hasCallSearchGermplasm();
+    }
+
+    public boolean hasToken() {
+        return callsUtils.hasToken();
+    }
+
+    public boolean hasAlleleMatrixSearchTSV() {
+        return callsUtils.hasAlleleMatrixSearchTSV();
+    }
 
 //	public boolean hasMapsMapDbId()
 //	{ return callsUtils.hasMapsMapDbId(); }
-	
-	public boolean hasPostMarkersSearch()
-	{ return callsUtils.hasPostMarkersSearch(); }
+    public boolean hasPostMarkersSearch() {
+        return callsUtils.hasPostMarkersSearch();
+    }
 
-	public boolean hasGetMarkersSearch()
-	{ return callsUtils.hasGetMarkersSearch(); }
-	
-	public boolean hasMarkersDetails()
-	{ return callsUtils.hasMarkersDetails(); }
+    public boolean hasGetMarkersSearch() {
+        return callsUtils.hasGetMarkersSearch();
+    }
 
-	public BrapiService getService() {
-		return service;
-	}
+    public boolean hasMarkersDetails() {
+        return callsUtils.hasMarkersDetails();
+    }
 
-	public List<BrapiMarkerProfile> getMarkerProfiles()
-		throws Exception
-	{
-		List<BrapiMarkerProfile> list = new ArrayList<>();
-		Pager pager = new Pager();
+    public BrapiService getService() {
+        return service;
+    }
 
-		while (pager.isPaging())
-		{
-			retrofit2.Response<BrapiListResource<BrapiMarkerProfile>> resp = service.getMarkerProfiles(studyID, germplasmDbIDs, pager.getPageSize(), pager.getPage()).execute();
-			if (!resp.isSuccessful())
-				throw new Exception("Error " + resp.code() + ": " + resp.errorBody().string());
-			
-			BrapiListResource<BrapiMarkerProfile> br = resp.body();
-			list.addAll(br.data());
-			pager.paginate(br.getMetadata());
-		}
+    public List<BrapiMarkerProfile> getMarkerProfiles()
+            throws Exception {
+        List<BrapiMarkerProfile> list = new ArrayList<>();
+        Pager pager = new Pager();
 
-		return list;
-	}
+        while (pager.isPaging()) {
+            retrofit2.Response<BrapiListResource<BrapiMarkerProfile>> resp = service.getMarkerProfiles(studyID, germplasmDbIDs, pager.getPageSize(), pager.getPage()).execute();
+            if (!resp.isSuccessful()) {
+                throw new Exception("Error " + resp.code() + ": " + resp.errorBody().string());
+            }
 
-	// Use the okhttp client we configured our retrofit service with. This means
-	// the client is configured with any authentication tokens and any custom
-	// certificates that may be required to interact with the current BrAPI
-	// resource
-	public InputStream getInputStream(URI uri)
-		throws Exception
-	{
-		Request request = new Request.Builder()
-			.url(uri.toURL())
-			.build();
-
-		Response response = httpClient.newCall(request).execute();
-
-		return response.body().byteStream();
-	}
-
-	public String getUsername()
-	{ return username; }
-
-	public void setUsername(String username)
-	{ this.username = username; }
-
-	public String getPassword()
-	{ return password; }
-
-	public void setPassword(String password)
-	{ this.password = password; }
-
-	public String getMethodID()
-	{ return methodID; }
-
-	public void setMethodID(String methodID)
-	{ this.methodID = methodID;	}
-
-	public String getMapID()
-	{ return mapID; }
-
-	public void setMapID(String mapIndex)
-	{ this.mapID = mapIndex; }
-
-	public String getStudyID()
-	{ return studyID; }
-
-	public void setStudyID(String studyID)
-	{ this.studyID = studyID; }
-	
-	public void setGermplasmDbIDs(Collection<String> germplasmDbIDs)
-	{ this.germplasmDbIDs = germplasmDbIDs; }
-	
-	public OkHttpClient getHttpClient()
-	{ return httpClient; }
-	
-	public void setHttpClient(OkHttpClient httpClient)
-	{ this.httpClient = httpClient; }
-
-        public void ensureSampleInfoCanBeImported() throws Exception {
-            if (callsUtils.hasCallSearchSamples()== false)
-                                throw new Exception("Some calls are missing to be able to import sample info");
+            BrapiListResource<BrapiMarkerProfile> br = resp.body();
+            list.addAll(br.data());
+            pager.paginate(br.getMetadata());
         }
 
-        public boolean hasCallSearchSamples() {
-            return callsUtils.hasCallSearchSamples();
+        return list;
+    }
+
+    // Use the okhttp client we configured our retrofit service with. This means
+    // the client is configured with any authentication tokens and any custom
+    // certificates that may be required to interact with the current BrAPI
+    // resource
+    public InputStream getInputStream(URI uri)
+            throws Exception {
+        Request request = new Request.Builder()
+                .url(uri.toURL())
+                .build();
+
+        Response response = httpClient.newCall(request).execute();
+
+        return response.body().byteStream();
+    }
+
+    public String getUsername() {
+        return username;
+    }
+
+    public void setUsername(String username) {
+        this.username = username;
+    }
+
+    public String getPassword() {
+        return password;
+    }
+
+    public void setPassword(String password) {
+        this.password = password;
+    }
+
+    public String getMethodID() {
+        return methodID;
+    }
+
+    public void setMethodID(String methodID) {
+        this.methodID = methodID;
+    }
+
+    public String getMapID() {
+        return mapID;
+    }
+
+    public void setMapID(String mapIndex) {
+        this.mapID = mapIndex;
+    }
+
+    public String getStudyID() {
+        return studyID;
+    }
+
+    public void setStudyID(String studyID) {
+        this.studyID = studyID;
+    }
+
+    public void setGermplasmDbIDs(Collection<String> germplasmDbIDs) {
+        this.germplasmDbIDs = germplasmDbIDs;
+    }
+
+    public OkHttpClient getHttpClient() {
+        return httpClient;
+    }
+
+    public void setHttpClient(OkHttpClient httpClient) {
+        this.httpClient = httpClient;
+    }
+
+    public void ensureSampleInfoCanBeImported() throws Exception {
+        if (callsUtils.hasCallSearchSamples() == false) {
+            throw new Exception("Some calls are missing to be able to import sample info");
         }
+    }
+
+    public boolean hasCallSearchSamples() {
+        return callsUtils.hasCallSearchSamples();
+    }
 
 //	private static void initCertificates(Client client, XmlResource resource)
 //		throws Exception
@@ -348,49 +364,54 @@ public class BrapiClient
 //		   	public SSLContext createSslContext() throws Exception { return sslContext; }
 //		});
 //	}
+    public static class Pager {
 
-	public static class Pager
-	{
-		private boolean isPaging = true;
-		private String pageSize = "10000";
-		private String page = "0";
+        private boolean isPaging = true;
+        private String pageSize = "10000";
+        private String page = "0";
 
-		// Returns true if another 'page' of data should be requested
-		public void paginate(Metadata metadata)
-		{
-			Pagination p = metadata.getPagination();
+        // Returns true if another 'page' of data should be requested
+        public void paginate(Metadata metadata) {
+            Pagination p = metadata.getPagination();
 
-			if (p.getTotalPages() == 0)
-				isPaging = false;
+            if (p.getTotalPages() == 0) {
+                isPaging = false;
+            }
 
-			if (p.getCurrentPage() == p.getTotalPages()-1)
-				isPaging = false;
+            if (p.getCurrentPage() == p.getTotalPages() - 1) {
+                isPaging = false;
+            }
 
-			// If it's ok to request another page, update the URL (for the next call)
-			// so that it does so
-			pageSize = "" + p.getPageSize();
-			page = "" + (p.getCurrentPage()+1);
-		}
+            // If it's ok to request another page, update the URL (for the next call)
+            // so that it does so
+            pageSize = "" + p.getPageSize();
+            page = "" + (p.getCurrentPage() + 1);
+        }
 
-		public boolean isPaging()
-		{ return isPaging; }
+        public boolean isPaging() {
+            return isPaging;
+        }
 
-		public void setPaging(boolean paging)
-		{ isPaging = paging; }
+        public void setPaging(boolean paging) {
+            isPaging = paging;
+        }
 
-		public String getPageSize()
-		{ return pageSize; }
+        public String getPageSize() {
+            return pageSize;
+        }
 
-		public void setPageSize(String pageSize)
-		{ this.pageSize = pageSize; }
+        public void setPageSize(String pageSize) {
+            this.pageSize = pageSize;
+        }
 
-		public String getPage()
-		{ return page; }
+        public String getPage() {
+            return page;
+        }
 
-		public void setPage(String page)
-		{ this.page = page; }
-		
-		
-	}
+        public void setPage(String page) {
+            this.page = page;
+        }
+
+    }
 
 }
