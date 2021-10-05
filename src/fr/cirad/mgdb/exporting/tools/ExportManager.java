@@ -104,7 +104,7 @@ public class ExportManager
 
 	public static final CodecRegistry pojoCodecRegistry = CodecRegistries.fromRegistries(MongoClientSettings.getDefaultCodecRegistry(), CodecRegistries.fromProviders(PojoCodecProvider.builder().register(new IntKeyMapPropertyCodecProvider()).automatic(true).build()));
 	
-	public ExportManager(MongoTemplate mongoTemplate, MongoCollection<Document> varColl, Class resultType, Document varQuery, Collection<GenotypingSample> samplesToExport, boolean fIncludeMetadata, int nQueryChunkSize, AbstractExportWritingThread writingThread, Long markerCount, FileWriter warningFileWriter, ProgressIndicator progress) {
+	public ExportManager(MongoTemplate mongoTemplate, MongoCollection<Document> varColl, Class resultType, Document varQuery, Collection<GenotypingSample> samplesToExport, boolean fIncludeMetadata, int nQueryChunkSize, AbstractExportWritingThread writingThread, Long markerCount, FileWriter warningFileWriter, ProgressIndicator progress) throws IOException {
 		this.progress = progress;
 		this.nQueryChunkSize = nQueryChunkSize;
 		this.warningFileWriter = warningFileWriter;
@@ -141,6 +141,13 @@ public class ExportManager
 				projection.append(VariantRunData.FIELDNAME_SAMPLEGENOTYPES + "." + sp.getId(), 1);
 		}
 		pipeline.add(new BasicDBObject("$project", projection));
+		
+        if (progress.isAborted() || progress.getError() != null ) {
+        	if (warningFileWriter != null)
+        		warningFileWriter.close();
+		    return;
+        }
+        
 		LOG.debug("Export pipeline: " + pipeline);
 		
 //    	long before = System.currentTimeMillis();
@@ -172,6 +179,12 @@ public class ExportManager
 		
 		MongoCollection<VariantRunData> runColl = mongoTemplate.getDb().withCodecRegistry(ExportManager.pojoCodecRegistry).getCollection(mongoTemplate.getCollectionName(VariantRunData.class), VariantRunData.class);
 		
+        if (progress.isAborted() || progress.getError() != null ) {
+        	if (warningFileWriter != null)
+        		warningFileWriter.close();
+		    return;
+        }
+
 		while (markerCursor.hasNext()) {
             if (progress.isAborted() || progress.getError() != null ) {
             	if (warningFileWriter != null)
@@ -235,9 +248,17 @@ public class ExportManager
 		List<VariantRunData> currentMarkerRuns = new ArrayList<>();
 		String varId = null, previousVarId = null;
 		int nWrittenmarkerCount = 0;
-		
+        
+        if (progress.isAborted() || progress.getError() != null ) {
+        	writingThread.stop();
+        	if (warningFileWriter != null)
+        		warningFileWriter.close();
+		    return;
+        }
+
 		while (markerCursor.hasNext()) {
             if (progress.isAborted() || progress.getError() != null ) {
+            	writingThread.stop();
             	if (warningFileWriter != null)
             		warningFileWriter.close();
 			    return;
