@@ -264,8 +264,8 @@ public class Helper {
      * @param s the string
      * @return the object
      */
-    public static Object nullToEmptyString(Object s) {
-        return s == null ? "" : s;
+    public static String nullToEmptyString(Object s) {
+        return s == null ? "" : s.toString();
     }
 
     /**
