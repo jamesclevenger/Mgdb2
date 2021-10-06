@@ -172,12 +172,8 @@ public class IndividualMetadataImport {
                     bulkOperations.updateMulti(new Query(Criteria.where("_id").is(individualId)), new Update().set(Individual.SECTION_ADDITIONAL_INFO, additionalInfo));
                 } else if (!fIsAnonymous) {
                     bulkOperations.upsert(new Query(Criteria.where("_id").is(new CustomIndividualMetadata.CustomIndividualMetadataId(individualId, username))), new Update().set(CustomIndividualMetadata.SECTION_ADDITIONAL_INFO, additionalInfo));
-                } else// if (session != null)
-                {
+                } else
                     sessionObject.put(individualId, additionalInfo);
-                }
-//				else
-//					LOG.warn("Unable to save metadata for anonymous user (passed HttpSession was null)");
             }
 
             if (passedIndList.size() == 0) {
@@ -340,10 +336,9 @@ public class IndividualMetadataImport {
         BulkOperations bulkOperations = mongoTemplate.bulkOps(BulkOperations.BulkMode.ORDERED, username == null ? Individual.class : CustomIndividualMetadata.class);
         int i = 0;
         for (String germplasmId : germplasmMap.keySet()) {
-            i += 1;
             Map<String, Object> aiMap = germplasmMap.get(germplasmId);
 
-            progress.setCurrentStepProgress((long) (i * 100f / germplasmMap.keySet().size()));
+            progress.setCurrentStepProgress((long) (++i * 100f / germplasmMap.keySet().size()));
 
             if (aiMap.isEmpty()) {
                 LOG.warn("Found no metadata to import for germplasm " + germplasmId);
@@ -358,12 +353,8 @@ public class IndividualMetadataImport {
             } else if (!fIsAnonymous) {
                 aiMap.forEach((k, v) -> update.set(CustomIndividualMetadata.SECTION_ADDITIONAL_INFO + "." + k, v));
                 bulkOperations.upsert(new Query(Criteria.where("_id").is(new CustomIndividualMetadata.CustomIndividualMetadataId(germplasmDbIdToIndividualMap.get(germplasmId), username))), update);
-            } else// if (session != null)
-            {
+            } else
                 sessionObject.get(germplasmDbIdToIndividualMap.get(germplasmId)).putAll(aiMap);
-            }
-            //		else
-            //			LOG.warn("Unable to save metadata for anonymous user (passed HttpSession was null)");
         }
 
         progress.addStep("Persisting metadata found at " + endpointUrl);
@@ -417,8 +408,9 @@ public class IndividualMetadataImport {
         BulkOperations bulkOperations = mongoTemplate.bulkOps(BulkOperations.BulkMode.ORDERED, username == null ? Individual.class : CustomIndividualMetadata.class);
         int i = 0;
         for (String germplasmId : germplasmMap.keySet()) {
-            i += 1;
             Map<String, Object> aiMap = germplasmMap.get(germplasmId);
+
+            progress.setCurrentStepProgress((long) (++i * 100f / germplasmMap.keySet().size()));
 
             if (aiMap.isEmpty()) {
                 LOG.warn("Found no metadata to import for germplasm " + germplasmId);
@@ -434,12 +426,8 @@ public class IndividualMetadataImport {
             } else if (!fIsAnonymous) {
                 aiMap.forEach((k, v) -> update.set(CustomIndividualMetadata.SECTION_ADDITIONAL_INFO + "." + k, v));
                 bulkOperations.upsert(new Query(Criteria.where("_id").is(new CustomIndividualMetadata.CustomIndividualMetadataId(germplasmDbIdToIndividualMap.get(germplasmId), username))), update);
-            } else// if (session != null)
-            {
+            } else
                 sessionObject.get(germplasmDbIdToIndividualMap.get(germplasmId)).putAll(aiMap);
-            }
-//		else
-//			LOG.warn("Unable to save metadata for anonymous user (passed HttpSession was null)");
         }
 
         progress.addStep("Persisting metadata found at " + endpointUrl);
@@ -572,12 +560,8 @@ public class IndividualMetadataImport {
             } else if (!fIsAnonymous) {
                 aiMap.forEach((k, v) -> update.set(CustomIndividualMetadata.SECTION_ADDITIONAL_INFO + "." + k, v));
                 bulkOperations.upsert(new Query(Criteria.where("_id").is(new CustomIndividualMetadata.CustomIndividualMetadataId(entityTypeToDbIdToIndividualMap.get(REF_TYPE_SAMPLE).get(sample.getSampleDbId()), username))), update);
-            } else// if (session != null)
-            {
+            } else
                 sessionObject.get(entityTypeToDbIdToIndividualMap.get(REF_TYPE_SAMPLE).get(sample.getSampleDbId())).putAll(aiMap);
-            }
-//                else
-//                	LOG.warn("Unable to save metadata for anonymous user (passed HttpSession was null)");
         }
 
         progress.addStep("Persisting metadata found at " + endpointUrl);
@@ -606,9 +590,7 @@ public class IndividualMetadataImport {
         reqBody.put(BRAPI_FILTER_SAMPLE_IDS, entityTypeToDbIdToIndividualMap.get(REF_TYPE_SAMPLE).keySet());
 
         BrapiV2Client client = new BrapiV2Client();
-
-        // hack to try and make it work with current BMS version
-        client.initService(endpointUrl/*.replace("Ricegigwa/", "")*/, authToken);
+        client.initService(endpointUrl, authToken);
         client.getCalls();
         client.ensureSampleInfoCanBeImported();
         client.initService(endpointUrl, authToken);
