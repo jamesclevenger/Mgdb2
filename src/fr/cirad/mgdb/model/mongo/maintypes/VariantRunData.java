@@ -265,29 +265,4 @@ public class VariantRunData extends AbstractVariantData
 
 		return getId().toString();
 	}
-
-	/**
-	 * Gets the alleles from genotype code.
-	 *
-	 * @param code the code
-	 * @param mongoTemplate the MongoTemplate to use for fixing allele list if incomplete
-	 * @return the alleles from genotype code
-	 * @throws Exception the exception
-	 */
-	public List<String> safelyGetAllelesFromGenotypeCode(String code, MongoTemplate mongoTemplate) throws NoSuchElementException
-	{
-		try {
-			return staticGetAllelesFromGenotypeCode(knownAlleleList, code);
-		}
-		catch (NoSuchElementException e1) {
-			setKnownAlleleList(mongoTemplate.findById(getId().getVariantId(), VariantData.class).getKnownAlleleList());
-			mongoTemplate.save(this);
-			try {
-				return staticGetAllelesFromGenotypeCode(knownAlleleList, code);
-			}
-			catch (NoSuchElementException e2) {
-				throw new NoSuchElementException("Variant " + this + " - " + e2.getMessage());
-			}
-		}
-	}
 }
