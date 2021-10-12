@@ -1,6 +1,8 @@
-/** *****************************************************************************
- * MGDB - Mongo Genotype DataBase
- * Copyright (C) 2016 - 2019, <CIRAD> <IRD>
+package fr.cirad.io.brapi;
+
+/**
+ * *****************************************************************************
+ * MGDB - Mongo Genotype DataBase Copyright (C) 2016 - 2019, <CIRAD> <IRD>
  *
  * This program is free software: you can redistribute it and/or modify it under
  * the terms of the GNU Affero General Public License, version 3 as published by
@@ -15,53 +17,45 @@
  * Public License V3.
  ******************************************************************************
  */
-package fr.cirad.io.brapi;
-
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.UnsupportedEncodingException;
 import java.net.URI;
-import java.net.URLEncoder;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
-
 import javax.net.ssl.HostnameVerifier;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLSession;
 import javax.net.ssl.SSLSocketFactory;
 import javax.net.ssl.TrustManager;
 import javax.net.ssl.X509TrustManager;
-
 import org.apache.log4j.Level;
 import org.apache.log4j.Logger;
-
-import jhi.brapi.api.BrapiListResource;
-import jhi.brapi.api.Metadata;
-import jhi.brapi.api.Pagination;
-import jhi.brapi.api.calls.BrapiCall;
-import jhi.brapi.api.markerprofiles.BrapiMarkerProfile;
 import okhttp3.Interceptor;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.RequestBody;
 import okhttp3.Response;
 import okio.Buffer;
+import org.brapi.v2.model.IndexPagination;
+import org.brapi.v2.model.Metadata;
+import org.brapi.v2.model.ServerInfoResponse;
+import org.brapi.v2.model.Service;
 import retrofit2.Retrofit;
 import retrofit2.converter.jackson.JacksonConverterFactory;
 
-public class BrapiClient {
+public class BrapiV2Client {
 
-    private static final Logger LOG = Logger.getLogger(BrapiClient.class);
+    private static final Logger LOG = Logger.getLogger(BrapiV2Client.class);
 
-    private BrapiService service;
+    private BrapiV2Service service;
 
     private String username, password;
     private String mapID, studyID, methodID;
     private Collection<String> germplasmDbIDs;
 
-    private CallsUtils callsUtils;
+    private ServiceInfoUtils serviceInfoUtils;
     private OkHttpClient httpClient;
 
     public void initService(String baseURL, String authToken)
@@ -76,7 +70,7 @@ public class BrapiClient {
                 .client(httpClient)
                 .build();
 
-        service = retrofit.create(BrapiService.class);
+        service = retrofit.create(BrapiV2Service.class);
     }
 
     public static OkHttpClient getUnsafeOkHttpClient(String authToken) {
@@ -166,88 +160,88 @@ public class BrapiClient {
 //		catch (UnsupportedEncodingException e) { return str; }
 //	}
     public void getCalls() throws Exception {
-        List<BrapiCall> calls = new ArrayList<>();
+        List<Service> services = new ArrayList<>();
         Pager pager = new Pager();
 
         while (pager.isPaging()) {
-            retrofit2.Response<BrapiListResource<BrapiCall>> resp = service.getCalls(pager.getPageSize(), pager.getPage()).execute();
+            retrofit2.Response<ServerInfoResponse> resp = service.getServerInfo(null).execute();
             if (!resp.isSuccessful()) {
                 throw new Exception("Error " + resp.code() + ": " + resp.errorBody().string());
             }
 
-            BrapiListResource<BrapiCall> br = resp.body();
-            calls.addAll(br.data());
+            ServerInfoResponse br = resp.body();
+            services.addAll(br.getResult().getCalls());
             pager.paginate(br.getMetadata());
         }
 
-        callsUtils = new CallsUtils(calls);
+        serviceInfoUtils = new ServiceInfoUtils(services);
     }
 
     public void ensureGenotypesCanBeImported() throws Exception {
-        if (callsUtils.ensureGenotypesCanBeImported() == false) {
+        if (serviceInfoUtils.ensureGenotypesCanBeImported() == false) {
             throw new Exception("Some calls are missing to be able to import genotypes");
         }
     }
 
     public void ensureGermplasmInfoCanBeImported() throws Exception {
-        if (callsUtils.ensureGermplasmInfoCanBeImported() == false) {
+        if (serviceInfoUtils.ensureGermplasmInfoCanBeImported() == false) {
             throw new Exception("Some calls are missing to be able to import germplasm info");
         }
     }
 
-    public boolean hasCallGetAttributes() {
-        return callsUtils.hasCallGetAttributes();
+    public boolean hasCallSearchAttributes() {
+        return serviceInfoUtils.hasCallSearchAttributes();
     }
 
     public boolean hasCallSearchGermplasm() {
-        return callsUtils.hasCallSearchGermplasm();
+        return serviceInfoUtils.hasCallSearchGermplasm();
     }
 
     public boolean hasToken() {
-        return callsUtils.hasToken();
+        return serviceInfoUtils.hasToken();
     }
 
     public boolean hasAlleleMatrixSearchTSV() {
-        return callsUtils.hasAlleleMatrixSearchTSV();
+        return serviceInfoUtils.hasAlleleMatrixSearchTSV();
     }
 
 //	public boolean hasMapsMapDbId()
 //	{ return callsUtils.hasMapsMapDbId(); }
     public boolean hasPostMarkersSearch() {
-        return callsUtils.hasPostMarkersSearch();
+        return serviceInfoUtils.hasPostMarkersSearch();
     }
 
     public boolean hasGetMarkersSearch() {
-        return callsUtils.hasGetMarkersSearch();
+        return serviceInfoUtils.hasGetMarkersSearch();
     }
 
     public boolean hasMarkersDetails() {
-        return callsUtils.hasMarkersDetails();
+        return serviceInfoUtils.hasMarkersDetails();
     }
 
-    public BrapiService getService() {
+    public BrapiV2Service getService() {
         return service;
     }
 
-    public List<BrapiMarkerProfile> getMarkerProfiles()
-            throws Exception {
-        List<BrapiMarkerProfile> list = new ArrayList<>();
-        Pager pager = new Pager();
-
-        while (pager.isPaging()) {
-            retrofit2.Response<BrapiListResource<BrapiMarkerProfile>> resp = service.getMarkerProfiles(studyID, germplasmDbIDs, pager.getPageSize(), pager.getPage()).execute();
-            if (!resp.isSuccessful()) {
-                throw new Exception("Error " + resp.code() + ": " + resp.errorBody().string());
-            }
-
-            BrapiListResource<BrapiMarkerProfile> br = resp.body();
-            list.addAll(br.data());
-            pager.paginate(br.getMetadata());
-        }
-
-        return list;
-    }
-
+//	public List<BrapiMarkerProfile> getMarkerProfiles()
+//		throws Exception
+//	{
+//		List<BrapiMarkerProfile> list = new ArrayList<>();
+//		Pager pager = new Pager();
+//
+//		while (pager.isPaging())
+//		{
+//			retrofit2.Response<BrapiListResource<BrapiMarkerProfile>> resp = service.getMarkerProfiles(studyID, germplasmDbIDs, pager.getPageSize(), pager.getPage()).execute();
+//			if (!resp.isSuccessful())
+//				throw new Exception("Error " + resp.code() + ": " + resp.errorBody().string());
+//			
+//			BrapiListResource<BrapiMarkerProfile> br = resp.body();
+//			list.addAll(br.data());
+//			pager.paginate(br.getMetadata());
+//		}
+//
+//		return list;
+//	}
     // Use the okhttp client we configured our retrofit service with. This means
     // the client is configured with any authentication tokens and any custom
     // certificates that may be required to interact with the current BrAPI
@@ -316,13 +310,13 @@ public class BrapiClient {
     }
 
     public void ensureSampleInfoCanBeImported() throws Exception {
-        if (callsUtils.hasCallSearchSamples() == false) {
+        if (serviceInfoUtils.hasCallSearchSamples() == false) {
             throw new Exception("Some calls are missing to be able to import sample info");
         }
     }
 
-    public boolean hasCallSearchSamples() {
-        return callsUtils.hasCallSearchSamples();
+    public boolean hasCallSearchSample() {
+        return serviceInfoUtils.hasCallSearchSamples();
     }
 
 //	private static void initCertificates(Client client, XmlResource resource)
@@ -372,7 +366,7 @@ public class BrapiClient {
 
         // Returns true if another 'page' of data should be requested
         public void paginate(Metadata metadata) {
-            Pagination p = metadata.getPagination();
+            IndexPagination p = metadata.getPagination();
 
             if (p.getTotalPages() == 0) {
                 isPaging = false;
