@@ -23,8 +23,9 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
-import java.util.TreeSet;
+import java.util.Map.Entry;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.stream.Collectors;
@@ -36,7 +37,10 @@ import org.bson.codecs.configuration.CodecRegistry;
 import org.bson.codecs.pojo.IntKeyMapPropertyCodecProvider;
 import org.bson.codecs.pojo.PojoCodecProvider;
 import org.springframework.data.mongodb.core.MongoTemplate;
+import org.springframework.data.mongodb.core.query.Criteria;
+import org.springframework.data.mongodb.core.query.Query;
 
+import com.mongodb.BasicDBList;
 import com.mongodb.BasicDBObject;
 import com.mongodb.MongoClientSettings;
 import com.mongodb.client.MongoCollection;
@@ -44,12 +48,12 @@ import com.mongodb.client.MongoCursor;
 
 import fr.cirad.mgdb.exporting.AbstractExportWritingThread;
 import fr.cirad.mgdb.exporting.IExportHandler;
+import fr.cirad.mgdb.model.mongo.maintypes.GenotypingProject;
 import fr.cirad.mgdb.model.mongo.maintypes.GenotypingSample;
 import fr.cirad.mgdb.model.mongo.maintypes.VariantRunData;
 import fr.cirad.mgdb.model.mongo.maintypes.VariantRunData.VariantRunDataId;
 import fr.cirad.mgdb.model.mongo.subtypes.AbstractVariantData;
 import fr.cirad.mgdb.model.mongo.subtypes.ReferencePosition;
-import fr.cirad.mgdb.model.mongodao.MgdbDao;
 import fr.cirad.tools.AlphaNumericComparator;
 import fr.cirad.tools.Helper;
 import fr.cirad.tools.ProgressIndicator;
@@ -101,6 +105,10 @@ public class ExportManager
 	private AbstractExportWritingThread writingThread;
 	
 	private Long markerCount;
+	
+	private Collection<Integer> sampleIDsToExport;
+	
+	private ArrayList<Document> projectFilterList = new ArrayList<>();
 
 	public static final CodecRegistry pojoCodecRegistry = CodecRegistries.fromRegistries(MongoClientSettings.getDefaultCodecRegistry(), CodecRegistries.fromProviders(PojoCodecProvider.builder().register(new IntKeyMapPropertyCodecProvider()).automatic(true).build()));
 	
@@ -115,39 +123,66 @@ public class ExportManager
 		String varCollName = varColl.getNamespace().getCollectionName();
 		fWorkingOnTempColl = varCollName.startsWith(MongoTemplateManager.TEMP_COLL_PREFIX);
 
-		if (!varQuery.isEmpty())
+		// optimization 1: filling in involvedProjectRuns will provide means to apply filtering on project and/or run fields when exporting from temporary collection
+		HashMap<Integer, List<String>> involvedProjectRuns = Helper.getRunsByProjectInSampleCollection(samplesToExport);
+		int nDbProjectCount = (int) Helper.estimDocCount(mongoTemplate, GenotypingProject.class);
+		for (int projId : involvedProjectRuns.keySet()) {
+			List<String> projectInvolvedRuns = involvedProjectRuns.get(projId);
+			if (projectInvolvedRuns.size() != mongoTemplate.findDistinct(new Query(Criteria.where("_id").is(projId)), GenotypingProject.FIELDNAME_RUNS, GenotypingProject.class, String.class).size()) {
+				// not all of this project's runs are involved: only match those (in the case of multi-project and/or multi-run databases, it is worth filtering on these fields to avoid parsing records related to unwanted samples)
+				projectFilterList.add(new Document("$and", Arrays.asList(new BasicDBObject("_id." + VariantRunDataId.FIELDNAME_PROJECT_ID, projId), new BasicDBObject("_id." + VariantRunDataId.FIELDNAME_RUNNAME, new BasicDBObject("$in", projectInvolvedRuns)))));
+			}
+			else if (nDbProjectCount != involvedProjectRuns.size())
+				projectFilterList.add(new Document("_id." + VariantRunDataId.FIELDNAME_PROJECT_ID, projId));	// not all of this DB's projects are involved: only match selected ones
+		}
+
+		// optimization 2: build the $project stage by excluding fields when over 50% of overall samples are selected; even remove that stage when exporting all (or almost all) samples (makes it much faster)
+		long percentageOfExportedSamples = 100 * samplesToExport.size() / Helper.estimDocCount(mongoTemplate, GenotypingSample.class);
+		sampleIDsToExport = samplesToExport == null ? new ArrayList() : samplesToExport.stream().map(sp -> sp.getId()).collect(Collectors.toList());
+		Collection<Integer>	sampleIDsNotToExport = percentageOfExportedSamples >= 98 ? new ArrayList() /* if almost all individuals are being exported we directly omit the $project stage */ : (percentageOfExportedSamples > 50 ? mongoTemplate.findDistinct(new Query(Criteria.where("_id").not().in(sampleIDsToExport)), "_id", GenotypingSample.class, Integer.class) : null);
+
+		if (!varQuery.isEmpty()) {
+			if (!projectFilterList.isEmpty()) {
+				Entry<String, Object> firstMatchEntry = varQuery.entrySet().iterator().next();
+				List<Document> matchAndList = "$and".equals(firstMatchEntry.getKey()) ? (List<Document>) firstMatchEntry.getValue() : Arrays.asList(varQuery);
+				System.err.println(matchAndList);
+				matchAndList.addAll(projectFilterList);
+			}
 			pipeline.add(new BasicDBObject("$match", varQuery));
+		}
 
 		String refPosPath = AbstractVariantData.FIELDNAME_REFERENCE_POSITION;
 		BasicDBObject sortStage = new BasicDBObject("$sort", new Document(refPosPath  + "." + ReferencePosition.FIELDNAME_SEQUENCE, 1).append(refPosPath + "." + ReferencePosition.FIELDNAME_START_SITE, 1));
 		pipeline.add(sortStage);
 
 		Document projection = new Document();
-		projection.append(refPosPath, 1);
-		projection.append(AbstractVariantData.FIELDNAME_KNOWN_ALLELE_LIST, 1);
-		projection.append(AbstractVariantData.FIELDNAME_TYPE, 1);
-		projection.append(AbstractVariantData.FIELDNAME_SYNONYMS, 1);
-		projection.append(AbstractVariantData.FIELDNAME_ANALYSIS_METHODS, 1);
-		if (fIncludeMetadata)
-			projection.append(AbstractVariantData.SECTION_ADDITIONAL_INFO, 1);
-
-		if (samplesToExport != null && !samplesToExport.isEmpty()) {	// project sample-level fields
-			TreeSet<String> annotationFields = new TreeSet<>();
+		if (sampleIDsNotToExport == null) {	// inclusive $project (less than a half of the samples are being exported)
+			projection.append(refPosPath, 1);
+			projection.append(AbstractVariantData.FIELDNAME_KNOWN_ALLELE_LIST, 1);
+			projection.append(AbstractVariantData.FIELDNAME_TYPE, 1);
+			projection.append(AbstractVariantData.FIELDNAME_SYNONYMS, 1);
+			projection.append(AbstractVariantData.FIELDNAME_ANALYSIS_METHODS, 1);
 			if (fIncludeMetadata)
-				for (GenotypingSample sample : samplesToExport.stream().filter(Helper.distinctByKey(GenotypingSample::getProjectId)).collect(Collectors.toList()))
-					annotationFields.addAll(MgdbDao.getAnnotationFields(mongoTemplate, sample.getProjectId(), false));
-	
-			for (GenotypingSample sp : samplesToExport)
-				projection.append(VariantRunData.FIELDNAME_SAMPLEGENOTYPES + "." + sp.getId(), 1);
+				projection.append(AbstractVariantData.SECTION_ADDITIONAL_INFO, 1);
 		}
-		pipeline.add(new BasicDBObject("$project", projection));
+
+		for (Integer spId : sampleIDsNotToExport == null ? sampleIDsToExport : sampleIDsNotToExport)
+			projection.append(VariantRunData.FIELDNAME_SAMPLEGENOTYPES + "." + spId, sampleIDsNotToExport == null ? 1 /*include*/ : 0 /*exclude*/);
+
+		if (!projection.isEmpty()) {
+			if (sampleIDsNotToExport != null && !fIncludeMetadata)	// exclusive $project (more than a half of the samples are being exported). We only add it if the $project stage is already justified (it's expensive so avoiding it is better when possible)
+				projection.append(AbstractVariantData.SECTION_ADDITIONAL_INFO, 0);
+
+			pipeline.add(new BasicDBObject("$project", projection));
+		}
+
 		LOG.debug("Export pipeline: " + pipeline);
 		
 //    	long before = System.currentTimeMillis();
     	markerCursor = varColl.aggregate(fWorkingOnTempColl ? Arrays.asList(sortStage, new BasicDBObject("$project", new BasicDBObject("_id", 1))) : pipeline, fWorkingOnTempColl ? Document.class : resultType).collation(IExportHandler.collationObj).allowDiskUse(true).batchSize(nQueryChunkSize).iterator();	/*FIXME: didn't find a way to set noCursorTimeOut on aggregation cursors*/
 //		System.err.println("cursor obtained in " + (System.currentTimeMillis() - before) + "ms");
 	}
-	
+
     public void readAndWrite() throws IOException, InterruptedException, ExecutionException {		
 		if (fWorkingOnTempColl)
 			exportFromTempColl();
@@ -171,7 +206,6 @@ public class ExportManager
 		int nWrittenmarkerCount = 0;
 		
 		MongoCollection<VariantRunData> runColl = mongoTemplate.getDb().withCodecRegistry(ExportManager.pojoCodecRegistry).getCollection(mongoTemplate.getCollectionName(VariantRunData.class), VariantRunData.class);
-		
 		while (markerCursor.hasNext()) {
             if (progress.isAborted() || progress.getError() != null ) {
             	if (warningFileWriter != null)
@@ -182,7 +216,12 @@ public class ExportManager
 			currentMarkerIDs.add(((Document) markerCursor.next()).getString("_id"));
 			
 			if (currentMarkerIDs.size() >= nQueryChunkSize || !markerCursor.hasNext()) {
-				BasicDBObject initialMatchStage = new BasicDBObject("$match", new BasicDBObject("_id." + VariantRunDataId.FIELDNAME_VARIANT_ID, new BasicDBObject("$in", currentMarkerIDs)));
+				BasicDBList matchAndList = new BasicDBList();
+		        if (!projectFilterList.isEmpty())
+		        	matchAndList.add(projectFilterList.size() == 1 ? projectFilterList.get(0) : new BasicDBObject("$or", projectFilterList));
+				matchAndList.add(new BasicDBObject("_id." + VariantRunDataId.FIELDNAME_VARIANT_ID, new BasicDBObject("$in", currentMarkerIDs)));
+
+				BasicDBObject initialMatchStage = new BasicDBObject("$match", new BasicDBObject("$and", matchAndList));
 				if (varId == null)
 					pipeline.add(0, initialMatchStage);	// first time we set this stage, it's an insertion
 				else
