@@ -87,6 +87,16 @@ public class IndividualMetadataImport {
     public static final String REF_TYPE_GERMPLASM = "germplasm";
     public static final String BRAPI_FILTER_SAMPLE_IDS = "sampleDbIds";
     public static final String BRAPI_FILTER_GERMPLASM_IDS = "germplasmDbIds";
+    
+    public static final ObjectMapper mapper = new ObjectMapper();
+    
+    static {
+        //use a custom serializer to convert Germplasm to Map (some complex types are transformed or not kept)
+        SimpleModule module = new SimpleModule();
+        module.addSerializer(Germplasm.class, new GermplasmSerializer());
+        mapper.registerModule(module);
+    }    
+    
 
     /**
      * The main method.
@@ -478,7 +488,6 @@ public class IndividualMetadataImport {
         final BrapiService service = client.getService();
 
         List<BrapiSample> sampleList = new ArrayList<>();
-        ObjectMapper oMapper = new ObjectMapper();
 
         // Getting samples information by calling Brapi services
         if (client.hasCallSearchSamples()) {
@@ -552,7 +561,7 @@ public class IndividualMetadataImport {
         BulkOperations bulkOperations = mongoTemplate.bulkOps(BulkOperations.BulkMode.ORDERED, username == null ? Individual.class : CustomIndividualMetadata.class);
         for (int i = 0; i < sampleList.size(); i++) {
             BrapiSample sample = sampleList.get(i);
-            Map<String, Object> aiMap = oMapper.convertValue(sample, Map.class);
+            Map<String, Object> aiMap = mapper.convertValue(sample, Map.class);
             Map<String, Object> gMap = germplasmMap.get(sample.getGermplasmDbId());
             //merging 2 maps
             aiMap.putAll(gMap);
@@ -616,7 +625,6 @@ public class IndividualMetadataImport {
         final BrapiV2Service service = client.getService();
 
         List<Sample> sampleList = new ArrayList<>();
-        ObjectMapper oMapper = new ObjectMapper();
 
         // Getting samples information by calling Brapi services
         if (client.hasCallSearchSample()) {
@@ -690,7 +698,7 @@ public class IndividualMetadataImport {
         BulkOperations bulkOperations = mongoTemplate.bulkOps(BulkOperations.BulkMode.ORDERED, username == null ? Individual.class : CustomIndividualMetadata.class);
         for (int i = 0; i < sampleList.size(); i++) {
             Sample sample = sampleList.get(i);
-            Map<String, Object> aiMap = oMapper.convertValue(sample, Map.class);
+            Map<String, Object> aiMap = mapper.convertValue(sample, Map.class);
             Map<String, Object> gMap = germplasmMap.get(sample.getGermplasmDbId());
             //merging 2 maps
             aiMap.putAll(gMap);
@@ -843,16 +851,10 @@ public class IndividualMetadataImport {
             Map<String, List<GermplasmAttributeValue>> attributesMap = new HashMap();
             if (fCanQueryAttributes) {
                 attributesMap = getBrapiV2GermplasmAttributes(service, endPointUrl, germplasmDbIds, progress);
-            }
-
-            //use a custom serializer to convert Germplasm to Map (some complex types are transformed or not kept)
-            ObjectMapper oMapper = new ObjectMapper();
-            SimpleModule module = new SimpleModule();
-            module.addSerializer(Germplasm.class, new GermplasmSerializer());
-            oMapper.registerModule(module);
+            }            
 
             for (Germplasm germplasm : germplasmList) {
-                Map<String, Object> aiMap = oMapper.convertValue(germplasm, Map.class);
+                Map<String, Object> aiMap = mapper.convertValue(germplasm, Map.class);
                 if (attributesMap.get(germplasm.getGermplasmDbId()) != null && !attributesMap.get(germplasm.getGermplasmDbId()).isEmpty()) {
                     attributesMap.get(germplasm.getGermplasmDbId()).forEach(k -> aiMap.put(k.getAttributeDbId(), k.getValue()));
                 }
@@ -898,17 +900,11 @@ public class IndividualMetadataImport {
                 LOG.error(progress.getError(), f);
                 return new HashMap();
             }
-        }
-
-        //use a custom serializer to convert Germplasm to Map (some complex types are transformed or not kept)
-        ObjectMapper oMapper = new ObjectMapper();
-        SimpleModule module = new SimpleModule();
-        module.addSerializer(Germplasm.class, new GermplasmSerializer());
-        oMapper.registerModule(module);
+        }   
 
         HashMap<String, Map<String, Object>> germplasmMap = new HashMap<>();
         for (BrapiGermplasm germplasm : germplasmList) {
-            Map<String, Object> aiMap = oMapper.convertValue(germplasm, Map.class);
+            Map<String, Object> aiMap = mapper.convertValue(germplasm, Map.class);
 
             if (fCanQueryAttributes) {
                 Response<BrapiBaseResource<BrapiGermplasmAttributes>> response = service.getAttributes(aiMap.get(BrapiService.BRAPI_FIELD_germplasmDbId).toString()).execute();

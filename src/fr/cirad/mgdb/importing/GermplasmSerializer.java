@@ -48,7 +48,7 @@ public class GermplasmSerializer extends StdSerializer<Germplasm> {
             jgen.writeStringField("biologicalStatusOfAccessionCode", germplasm.getBiologicalStatusOfAccessionCode().toString());
         }
         
-        if (germplasm.getBiologicalStatusOfAccessionCode() != null) {
+        if (germplasm.getBiologicalStatusOfAccessionDescription() != null) {
             jgen.writeStringField("biologicalStatusOfAccessionDescription", germplasm.getBiologicalStatusOfAccessionDescription());
         }
         
@@ -130,7 +130,7 @@ public class GermplasmSerializer extends StdSerializer<Germplasm> {
             }
         }
         
-        if (germplasm.getSynonyms() != null) {
+        if (germplasm.getTaxonIds() != null) {
             for (TaxonID taxon:germplasm.getTaxonIds()) {
                 jgen.writeStringField("taxonId_" + taxon.getSourceName(), taxon.getTaxonId());
             }
