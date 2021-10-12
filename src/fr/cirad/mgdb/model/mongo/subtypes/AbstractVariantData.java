@@ -41,6 +41,7 @@ import java.util.TreeSet;
 import java.util.stream.Collectors;
 
 import org.bson.codecs.pojo.annotations.BsonProperty;
+import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.mapping.Field;
 
 import fr.cirad.mgdb.model.mongo.maintypes.GenotypingSample;
@@ -496,6 +497,31 @@ abstract public class AbstractVariantData
 	}
 
 	/**
+	 * Safely gets the alleles from genotype code (retrieves eventual missing alleles from corresponding VariantData document)
+	 *
+	 * @param code the code
+	 * @param mongoTemplate the MongoTemplate to use for fixing allele list if incomplete
+	 * @return the alleles from genotype code
+	 * @throws Exception the exception
+	 */
+	public List<String> safelyGetAllelesFromGenotypeCode(String code, MongoTemplate mongoTemplate) throws NoSuchElementException
+	{
+		try {
+			return staticGetAllelesFromGenotypeCode(knownAlleleList, code);
+		}
+		catch (NoSuchElementException e1) {
+			setKnownAlleleList(mongoTemplate.findById(getVariantId(), VariantData.class).getKnownAlleleList());
+			mongoTemplate.save(this);
+			try {
+				return staticGetAllelesFromGenotypeCode(knownAlleleList, code);
+			}
+			catch (NoSuchElementException e2) {
+				throw new NoSuchElementException("Variant " + this + " - " + e2.getMessage());
+			}
+		}
+	}
+
+	/**
 	 * Gets the alleles from genotype code.
 	 *
 	 * @param code the code
@@ -551,6 +577,7 @@ abstract public class AbstractVariantData
 	/**
 	 * To variant context.
 	 *
+	 * @param MongoTemplate the mongoTemplate
 	 * @param runs the runs
 	 * @param exportVariantIDs the export variant ids
 	 * @param sampleToIndividualMap global sample to individual map
@@ -564,7 +591,7 @@ abstract public class AbstractVariantData
 	 * @return the variant context
 	 * @throws Exception the exception
 	 */
-	public VariantContext toVariantContext(Collection<VariantRunData> runs, boolean exportVariantIDs, Collection<GenotypingSample> samplesToExport, Collection<String> individuals1, Collection<String> individuals2, HashMap<Integer, Object> previousPhasingIds, HashMap<String, Float> annotationFieldThresholds1, HashMap<String, Float> annotationFieldThresholds2, FileWriter warningFileWriter, Comparable synonym) throws Exception
+	public VariantContext toVariantContext(MongoTemplate mongoTemplate, Collection<VariantRunData> runs, boolean exportVariantIDs, Collection<GenotypingSample> samplesToExport, Collection<String> individuals1, Collection<String> individuals2, HashMap<Integer, Object> previousPhasingIds, HashMap<String, Float> annotationFieldThresholds1, HashMap<String, Float> annotationFieldThresholds2, FileWriter warningFileWriter, Comparable synonym) throws Exception
 	{
 		ArrayList<Genotype> genotypes = new ArrayList<Genotype>();
 		String sRefAllele = knownAlleleList.isEmpty() ? null : knownAlleleList.get(0);
@@ -642,7 +669,7 @@ abstract public class AbstractVariantData
 			String gtCode = isPhased ? (String) sampleGenotype.getAdditionalInfo().get(GT_FIELD_PHASED_GT) : mostFrequentGenotype;
 			List<String> alleles = genotypeStringCache.get(gtCode);
             if (alleles == null) {
-            	alleles = getAllelesFromGenotypeCode(gtCode);
+            	alleles = safelyGetAllelesFromGenotypeCode(gtCode, mongoTemplate);
             	genotypeStringCache.put(gtCode, alleles);
             }
 
@@ -722,7 +749,24 @@ abstract public class AbstractVariantData
 		VariantRunData run = runsWhereDataWasFound.size() == 1 ? runsWhereDataWasFound.iterator().next() : null;	// if there is not exactly one run involved then we do not export meta-data
 		String source = run == null ? null : (String) run.getAdditionalInfo().get(FIELD_SOURCE);
 
-		Long start = referencePosition == null ? null : referencePosition.getStartSite(), stop = referencePosition == null || referencePosition.getEndSite() == null ? (start + knownAlleleList.get(0).length() - 1) : referencePosition.getEndSite();
+		Long start = referencePosition == null ? null : referencePosition.getStartSite();
+		Long stop = null;
+		if (referencePosition != null) {
+			if (referencePosition.getEndSite() != null)
+				stop = referencePosition.getEndSite();
+			else {
+				String refAllele = null;
+				try {
+					refAllele = knownAlleleList.get(0);
+				}
+				catch (IndexOutOfBoundsException ioobe) {
+					setKnownAlleleList(mongoTemplate.findById(getVariantId(), VariantData.class).getKnownAlleleList());
+					mongoTemplate.save(this);
+					refAllele = knownAlleleList.get(0);
+				}
+				stop = start + refAllele.length() - 1;
+			}
+		}
 		String chr = referencePosition == null ? null : referencePosition.getSequence();
 		VariantContextBuilder vcb = new VariantContextBuilder(source != null ? source : FIELDVAL_SOURCE_MISSING, chr != null ? chr : "", start != null ? start : 0, stop != null ? stop : 0, variantAlleles);
 		if (exportVariantIDs)
