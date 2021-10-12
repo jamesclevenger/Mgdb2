@@ -31,6 +31,7 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 import java.util.function.Predicate;
+import java.util.stream.Collectors;
 
 import org.apache.commons.lang.StringUtils;
 import org.apache.log4j.Logger;
@@ -38,6 +39,7 @@ import org.bson.Document;
 import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.mapping.Field;
 
+import fr.cirad.mgdb.model.mongo.maintypes.GenotypingSample;
 import fr.cirad.tools.mongo.MongoTemplateManager;
 
 /**
@@ -264,8 +266,8 @@ public class Helper {
      * @param s the string
      * @return the object
      */
-    public static Object nullToEmptyString(Object s) {
-        return s == null ? "" : s;
+    public static String nullToEmptyString(Object s) {
+        return s == null ? "" : s.toString();
     }
 
     /**
@@ -366,4 +368,18 @@ public class Helper {
         Map<Object, Boolean> map = new ConcurrentHashMap<>();
         return t -> map.putIfAbsent(keyExtractor.apply(t), Boolean.TRUE) == null;
     }
-}
+
+    public static HashMap<Integer /*project*/, List<String /*runs*/>> getRunsByProjectInSampleCollection(Collection<GenotypingSample> samples) {
+		HashMap<Integer, List<String>> runsByProject = new HashMap<>();
+		for (String projectAndRun : samples.stream().map(sp -> sp.getProjectId() + "§" + sp.getRun()).distinct().collect(Collectors.toList())) {
+			String[] separateIDs = projectAndRun.split("§");
+			int projId = Integer.parseInt(separateIDs[0]);
+			List<String> projectRuns = runsByProject.get(projId);
+			if (projectRuns == null) {
+				projectRuns = new ArrayList<>();
+				runsByProject.put(projId, projectRuns);
+			}
+			projectRuns.add(separateIDs[1]);
+		}
+		return runsByProject;
+    }}
