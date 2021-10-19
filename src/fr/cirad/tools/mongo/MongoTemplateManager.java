@@ -47,6 +47,7 @@ import org.springframework.data.mongodb.core.convert.MappingMongoConverter;
 import org.springframework.stereotype.Component;
 
 import com.mongodb.BasicDBObject;
+import com.mongodb.ServerAddress;
 import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.connection.ClusterDescription;
@@ -635,5 +636,23 @@ public class MongoTemplateManager implements ApplicationContextAware {
     		if (!addressesConsideredLocal.contains(desc.getAddress().getHost()))
     			return false;
     	return true;
+    }
+    
+    public static List<String> getServerHosts(String sHost) {
+    	MongoClient client = mongoClients.get(sHost);
+    	ClusterDescription cluster = client.getClusterDescription();
+    	List<ServerDescription> servers = cluster.getServerDescriptions();
+    	List<String> hosts = new ArrayList<String>();
+    	for (ServerDescription desc : servers) {
+    		ServerAddress address = desc.getAddress();
+    		hosts.add(address.getHost() + ":" + address.getPort());
+    	}
+    	return hosts;
+    }
+    
+    public static String getDatabaseName(String sModule) {
+    	String sModuleKey = (isModulePublic(sModule) ? "*" : "") + sModule + (isModuleHidden(sModule) ? "*" : "");
+    	String dataSource = dataSourceProperties.getProperty(sModuleKey);
+    	return dataSource.split(",")[1];
     }
 }
