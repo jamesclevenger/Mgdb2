@@ -484,13 +484,18 @@ abstract public class AbstractVariantData
 		{
 			for (String alleleCodeIndex : Helper.split(code.replaceAll("\\|", "/"), "/"))
 			{
-				int nAlleleCodeIndex = Integer.parseInt(alleleCodeIndex);
-				if (alleleList.size() > nAlleleCodeIndex)
-					result.add(alleleList.get(nAlleleCodeIndex));
-				else
-					throw new NoSuchElementException("Variant has no allele number " + nAlleleCodeIndex);
+                            int nAlleleCodeIndex = Integer.parseInt(alleleCodeIndex);
+                            if (alleleList.size() > nAlleleCodeIndex)
+                                    result.add(alleleList.get(nAlleleCodeIndex));
+                            else
+                                    throw new NoSuchElementException("Variant has no allele number " + nAlleleCodeIndex);
+                            
 			}
-		}
+		} else {
+                    for (int i=0; i<alleleList.size();i++) {
+                        result.add(".");
+                    }
+                }
 		return result;
 	}
 
@@ -639,8 +644,6 @@ abstract public class AbstractVariantData
 			String mostFrequentGenotype = null;
 			if (individualGenotypes[nIndividualIndex] != null)
                 for (String gtCode : individualGenotypes[nIndividualIndex].keySet()) {
-                    if (gtCode == null)
-                        continue; /* skip missing genotypes */
 
                     int gtCount = individualGenotypes[nIndividualIndex].get(gtCode).size();
                     if (gtCount > highestGenotypeCount) {
@@ -650,8 +653,6 @@ abstract public class AbstractVariantData
                     genotypeCounts.put(gtCode, gtCount);
                 }
 
-			if (mostFrequentGenotype == null)
-				continue;	// no genotype for this individual
 
 			Integer spId = individualGenotypes[nIndividualIndex].get(mostFrequentGenotype).iterator().next();	// any will do (although ideally we should make sure we export the best annotation values found) 
 			SampleGenotype sampleGenotype = sampleGenotypes.get(spId);
