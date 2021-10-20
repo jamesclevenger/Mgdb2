@@ -31,7 +31,6 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -47,7 +46,6 @@ import org.springframework.data.mongodb.core.mapping.Field;
 import fr.cirad.mgdb.model.mongo.maintypes.GenotypingSample;
 import fr.cirad.mgdb.model.mongo.maintypes.VariantData;
 import fr.cirad.mgdb.model.mongo.maintypes.VariantRunData;
-import fr.cirad.tools.AlphaNumericComparator;
 import fr.cirad.tools.Helper;
 
 abstract public class AbstractVariantData
@@ -580,7 +578,8 @@ abstract public class AbstractVariantData
 	 * @param MongoTemplate the mongoTemplate
 	 * @param runs the runs
 	 * @param exportVariantIDs the export variant ids
-	 * @param sampleToIndividualMap global sample to individual map
+	 * @param samplesToExport overall list of samples involved in the export
+	 * @param individualPositions map providing the index at which each individual must appear in the export file
 	 * @param individuals1 individual IDs for group 1
 	 * @param individuals2 individual IDs for group 2
 	 * @param previousPhasingIds the previous phasing ids
@@ -591,15 +590,11 @@ abstract public class AbstractVariantData
 	 * @return the variant context
 	 * @throws Exception the exception
 	 */
-	public VariantContext toVariantContext(MongoTemplate mongoTemplate, Collection<VariantRunData> runs, boolean exportVariantIDs, Collection<GenotypingSample> samplesToExport, Collection<String> individuals1, Collection<String> individuals2, HashMap<Integer, Object> previousPhasingIds, HashMap<String, Float> annotationFieldThresholds1, HashMap<String, Float> annotationFieldThresholds2, FileWriter warningFileWriter, Comparable synonym) throws Exception
+	public VariantContext toVariantContext(MongoTemplate mongoTemplate, Collection<VariantRunData> runs, boolean exportVariantIDs, List<GenotypingSample> samplesToExport, Map<String, Integer> individualPositions, Collection<String> individuals1, Collection<String> individuals2, HashMap<Integer, Object> previousPhasingIds, HashMap<String, Float> annotationFieldThresholds1, HashMap<String, Float> annotationFieldThresholds2, FileWriter warningFileWriter, Comparable synonym) throws Exception
 	{
 		ArrayList<Genotype> genotypes = new ArrayList<Genotype>();
 		String sRefAllele = knownAlleleList.isEmpty() ? null : knownAlleleList.get(0);
 
-		Map<String, Integer> individualPositions = new LinkedHashMap<>();
-		for (String ind : samplesToExport.stream().map(gs -> gs.getIndividual()).distinct().sorted(new AlphaNumericComparator<String>()).collect(Collectors.toList()))
-			individualPositions.put(ind, individualPositions.size());
-		
 		HashMap<Integer, SampleGenotype> sampleGenotypes = new HashMap<>();
 		HashSet<VariantRunData> runsWhereDataWasFound = new HashSet<>();
 
@@ -630,7 +625,7 @@ abstract public class AbstractVariantData
 					samplesWithGivenGenotype.add(sample.getId());
 				}
 			}
-		
+        
 		ArrayList<Allele> variantAlleles = new ArrayList<Allele>();
 		variantAlleles.add(Allele.create(sRefAllele, true));
 
@@ -643,17 +638,17 @@ abstract public class AbstractVariantData
 			int highestGenotypeCount = 0;
 			String mostFrequentGenotype = null;
 			if (individualGenotypes[nIndividualIndex] != null)
-				for (String gtCode : individualGenotypes[nIndividualIndex].keySet()) {
-					if (gtCode == null)
-						continue; /* skip missing genotypes */
+                for (String gtCode : individualGenotypes[nIndividualIndex].keySet()) {
+                    if (gtCode == null)
+                        continue; /* skip missing genotypes */
 
-					int gtCount = individualGenotypes[nIndividualIndex].get(gtCode).size();
-					if (gtCount > highestGenotypeCount) {
-						highestGenotypeCount = gtCount;
-						mostFrequentGenotype = gtCode;
-					}
-					genotypeCounts.put(gtCode, gtCount);
-				}
+                    int gtCount = individualGenotypes[nIndividualIndex].get(gtCode).size();
+                    if (gtCount > highestGenotypeCount) {
+                        highestGenotypeCount = gtCount;
+                        mostFrequentGenotype = gtCode;
+                    }
+                    genotypeCounts.put(gtCode, gtCount);
+                }
 
 			if (mostFrequentGenotype == null)
 				continue;	// no genotype for this individual
