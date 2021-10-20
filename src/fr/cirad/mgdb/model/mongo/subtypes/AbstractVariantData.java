@@ -653,8 +653,12 @@ abstract public class AbstractVariantData
                     genotypeCounts.put(gtCode, gtCount);
                 }
 
+			HashMap<String, LinkedHashSet<Integer>> genotypetoSampleSetForIndividual = individualGenotypes[nIndividualIndex];
+            if (genotypetoSampleSetForIndividual == null)
+                continue;   /* skip this individual because there is no genotype for it */
 
-			Integer spId = individualGenotypes[nIndividualIndex].get(mostFrequentGenotype).iterator().next();	// any will do (although ideally we should make sure we export the best annotation values found) 
+            Integer spId = genotypetoSampleSetForIndividual.get(mostFrequentGenotype).iterator().next();	// any will do (although ideally we should make sure we export the best annotation values found)
+
 			SampleGenotype sampleGenotype = sampleGenotypes.get(spId);
 
 			if (warningFileWriter != null && genotypeCounts.size() > 1)
