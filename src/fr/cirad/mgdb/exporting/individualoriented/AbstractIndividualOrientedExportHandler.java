@@ -148,8 +148,12 @@ public abstract class AbstractIndividualOrientedExportHandler implements IExport
 		                	for (Object vrd : runsToWrite) {
 		                    	VariantRunData run = (VariantRunData) vrd;
 								for (Integer sampleId : run.getSampleGenotypes().keySet()) {
+	                                String individualId = sampleIdToIndividualMap.get(sampleId);
+	                                Integer individualIndex = individualPositions.get(individualId);
+	                                if (individualIndex == null)
+	                                    continue;   // unwanted sample
+
 									SampleGenotype sampleGenotype = run.getSampleGenotypes().get(sampleId);
-									String individualId = sampleIdToIndividualMap.get(sampleId);
 									if (!VariantData.gtPassesVcfAnnotationFilters(individualId, sampleGenotype, individuals1, annotationFieldThresholds, individuals2, annotationFieldThresholds2))
 										continue;	// skip genotype
 
@@ -159,7 +163,6 @@ public abstract class AbstractIndividualOrientedExportHandler implements IExport
 				                    	genotypeStringCache.put(sampleGenotype.getCode(), exportedGT);
 				                    }
 									
-									int individualIndex = individualPositions.get(individualId);
 									if (individualGenotypes[individualIndex] == null)
 										individualGenotypes[individualIndex] = new LinkedHashSet<String>();
 									individualGenotypes[individualIndex].add(exportedGT);
