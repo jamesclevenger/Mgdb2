@@ -213,7 +213,7 @@ public class VcfImport extends AbstractGenotypeImport {
             if (importMode == 0 && project != null && project.getPloidyLevel() != nPloidy)
             	throw new Exception("Ploidy levels differ between existing (" + project.getPloidyLevel() + ") and provided (" + nPloidy + ") data!");
             
-            currentlyImportedProjects.put(sModule, sProject);
+            lockProjectForWriting(sModule, sProject);
 
             cleanupBeforeImport(mongoTemplate, sModule, project, importMode, sRun);
 
@@ -353,8 +353,8 @@ public class VcfImport extends AbstractGenotypeImport {
         }
         finally
         {
-        	currentlyImportedProjects.remove(sModule);
-
+        	unlockProjectForWriting(sModule, sProject);
+        	
 			if (m_fCloseContextOpenAfterImport && ctx != null)
                 ctx.close();
 
