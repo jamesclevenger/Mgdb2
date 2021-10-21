@@ -171,6 +171,8 @@ public class BrapiImport extends AbstractGenotypeImport {
 
 			GenotypingProject project = mongoTemplate.findOne(new Query(Criteria.where(GenotypingProject.FIELDNAME_NAME).is(sProject)), GenotypingProject.class);
 
+			lockProjectForWriting(sModule, sProject);
+			
 			cleanupBeforeImport(mongoTemplate, sModule, project, importMode, sRun);
 
 			Integer createdProject = null;
@@ -617,6 +619,8 @@ public class BrapiImport extends AbstractGenotypeImport {
 			}
 			if (ctx != null)
 				ctx.close();
+			
+			unlockProjectForWriting(sModule, sProject);
 		}
 	}
 	

@@ -352,13 +352,12 @@ public class VcfImport extends AbstractGenotypeImport {
             return createdProject;
         }
         finally
-        {
-        	unlockProjectForWriting(sModule, sProject);
-        	
+        {        	
 			if (m_fCloseContextOpenAfterImport && ctx != null)
                 ctx.close();
 
             reader.close();
+            unlockProjectForWriting(sModule, sProject);
         }
     }
 
