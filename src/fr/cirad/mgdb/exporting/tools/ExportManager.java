@@ -86,10 +86,7 @@ public class ExportManager
 			return chrComparison != 0 ? chrComparison : (int) (vrd1.getReferencePosition().getStartSite() - vrd2.getReferencePosition().getStartSite());
 		}
 	};
-	
-	@SuppressWarnings("rawtypes")
-	private MongoCursor markerCursor;
-	
+
 	private ProgressIndicator progress;
 	
 	private int nQueryChunkSize;
@@ -98,8 +95,6 @@ public class ExportManager
 	
 	private FileWriter warningFileWriter;
 	
-	private List<BasicDBObject> pipeline = new ArrayList<>();
-	
 	private MongoTemplate mongoTemplate;
 	
 	private AbstractExportWritingThread writingThread;
@@ -107,6 +102,16 @@ public class ExportManager
 	private Long markerCount;
 	
 	private Collection<Integer> sampleIDsToExport;
+	
+	private MongoCollection<Document> varColl;
+	
+	private Class resultType;
+	
+	private BasicDBObject matchStage = null;
+	private BasicDBObject sortStage = null;
+	private BasicDBObject projectStage = null;
+	
+	private Integer nNumberOfChunksUsedForSpeedEstimation = null;  // if it remains null then we won't attempt any comparison
 	
 	private ArrayList<Document> projectFilterList = new ArrayList<>();
 
@@ -119,9 +124,14 @@ public class ExportManager
 		this.mongoTemplate = mongoTemplate;
 		this.writingThread = writingThread;
 		this.markerCount = markerCount;
+		this.varColl = varColl;
+		this.resultType = resultType;
 
 		String varCollName = varColl.getNamespace().getCollectionName();
 		fWorkingOnTempColl = varCollName.startsWith(MongoTemplateManager.TEMP_COLL_PREFIX);
+
+		String refPosPath = AbstractVariantData.FIELDNAME_REFERENCE_POSITION;
+        sortStage = new BasicDBObject("$sort", new Document(refPosPath  + "." + ReferencePosition.FIELDNAME_SEQUENCE, 1).append(refPosPath + "." + ReferencePosition.FIELDNAME_START_SITE, 1));
 
 		// optimization 1: filling in involvedProjectRuns will provide means to apply filtering on project and/or run fields when exporting from temporary collection
 		HashMap<Integer, List<String>> involvedProjectRuns = Helper.getRunsByProjectInSampleCollection(samplesToExport);
@@ -137,7 +147,8 @@ public class ExportManager
 		}
 
 		// optimization 2: build the $project stage by excluding fields when over 50% of overall samples are selected; even remove that stage when exporting all (or almost all) samples (makes it much faster)
-		long percentageOfExportedSamples = 100 * samplesToExport.size() / Helper.estimDocCount(mongoTemplate, GenotypingSample.class);
+		long nTotalNumberOfSamplesInDB = Helper.estimDocCount(mongoTemplate, GenotypingSample.class);
+		long percentageOfExportedSamples = 100 * samplesToExport.size() / nTotalNumberOfSamplesInDB;
 		sampleIDsToExport = samplesToExport == null ? new ArrayList() : samplesToExport.stream().map(sp -> sp.getId()).collect(Collectors.toList());
 		Collection<Integer>	sampleIDsNotToExport = percentageOfExportedSamples >= 98 ? new ArrayList() /* if almost all individuals are being exported we directly omit the $project stage */ : (percentageOfExportedSamples > 50 ? mongoTemplate.findDistinct(new Query(Criteria.where("_id").not().in(sampleIDsToExport)), "_id", GenotypingSample.class, Integer.class) : null);
 
@@ -145,15 +156,10 @@ public class ExportManager
 			if (!projectFilterList.isEmpty()) {
 				Entry<String, Object> firstMatchEntry = varQuery.entrySet().iterator().next();
 				List<Document> matchAndList = "$and".equals(firstMatchEntry.getKey()) ? (List<Document>) firstMatchEntry.getValue() : Arrays.asList(varQuery);
-				System.err.println(matchAndList);
 				matchAndList.addAll(projectFilterList);
 			}
-			pipeline.add(new BasicDBObject("$match", varQuery));
+			matchStage = new BasicDBObject("$match", varQuery);
 		}
-
-		String refPosPath = AbstractVariantData.FIELDNAME_REFERENCE_POSITION;
-		BasicDBObject sortStage = new BasicDBObject("$sort", new Document(refPosPath  + "." + ReferencePosition.FIELDNAME_SEQUENCE, 1).append(refPosPath + "." + ReferencePosition.FIELDNAME_START_SITE, 1));
-		pipeline.add(sortStage);
 
 		Document projection = new Document();
 		if (sampleIDsNotToExport == null) {	// inclusive $project (less than a half of the samples are being exported)
@@ -173,14 +179,13 @@ public class ExportManager
 			if (sampleIDsNotToExport != null && !fIncludeMetadata)	// exclusive $project (more than a half of the samples are being exported). We only add it if the $project stage is already justified (it's expensive so avoiding it is better when possible)
 				projection.append(AbstractVariantData.SECTION_ADDITIONAL_INFO, 0);
 
-			pipeline.add(new BasicDBObject("$project", projection));
+			projectStage = new BasicDBObject("$project", projection);
+			if (markerCount != null && markerCount > 5000 && nTotalNumberOfSamplesInDB > 200 && sampleIDsNotToExport != null && !sampleIDsNotToExport.isEmpty()) {   // we may only attempt removing $project if exported markers are numerous enough, if overall sample count is large enough and more than a half of them is involved
+			    double nTotalChunkCount = Math.ceil(markerCount.intValue() / nQueryChunkSize);
+			    if (nTotalChunkCount > 30)   // at least 10 chunks would be used for comparison, we only bother doing it if the optimization can be applied to at least 20 more
+			        nNumberOfChunksUsedForSpeedEstimation = markerCount == null ? 5 : Math.max(5, (int) nTotalChunkCount / 100 /*1% of the whole stuff*/);
+			}
 		}
-
-		LOG.debug("Export pipeline: " + pipeline);
-		
-//    	long before = System.currentTimeMillis();
-    	markerCursor = varColl.aggregate(fWorkingOnTempColl ? Arrays.asList(sortStage, new BasicDBObject("$project", new BasicDBObject("_id", 1))) : pipeline, fWorkingOnTempColl ? Document.class : resultType).collation(IExportHandler.collationObj).allowDiskUse(true).batchSize(nQueryChunkSize).iterator();	/*FIXME: didn't find a way to set noCursorTimeOut on aggregation cursors*/
-//		System.err.println("cursor obtained in " + (System.currentTimeMillis() - before) + "ms");
 	}
 
     public void readAndWrite() throws IOException, InterruptedException, ExecutionException {		
@@ -205,6 +210,13 @@ public class ExportManager
 		String varId = null, previousVarId = null;
 		int nWrittenmarkerCount = 0;
 		
+        List<BasicDBObject> pipeline = new ArrayList();
+        pipeline.add(sortStage);
+
+	    MongoCursor markerCursor = varColl.aggregate(Arrays.asList(sortStage, new BasicDBObject("$project", new BasicDBObject("_id", 1))), Document.class).collation(IExportHandler.collationObj).allowDiskUse(true).batchSize(nQueryChunkSize).iterator();   /*FIXME: didn't find a way to set noCursorTimeOut on aggregation cursors*/
+        int nChunkIndex = 0;
+        long chunkProcessingStartTime = System.currentTimeMillis(), timeSpentReadingWithoutProjectStage = -1;
+        
 		MongoCollection<VariantRunData> runColl = mongoTemplate.getDb().withCodecRegistry(ExportManager.pojoCodecRegistry).getCollection(mongoTemplate.getCollectionName(VariantRunData.class), VariantRunData.class);
 		while (markerCursor.hasNext()) {
             if (progress.isAborted() || progress.getError() != null ) {
@@ -216,6 +228,8 @@ public class ExportManager
 			currentMarkerIDs.add(((Document) markerCursor.next()).getString("_id"));
 			
 			if (currentMarkerIDs.size() >= nQueryChunkSize || !markerCursor.hasNext()) {
+                nChunkIndex++;
+
 				BasicDBList matchAndList = new BasicDBList();
 		        if (!projectFilterList.isEmpty())
 		        	matchAndList.add(projectFilterList.size() == 1 ? projectFilterList.get(0) : new BasicDBObject("$or", projectFilterList));
@@ -226,6 +240,9 @@ public class ExportManager
 					pipeline.add(0, initialMatchStage);	// first time we set this stage, it's an insertion
 				else
 					pipeline.set(0, initialMatchStage);	// replace existing $match
+
+                if (nChunkIndex == 1)
+                    LOG.debug("Export pipeline: " + pipeline);
 
 				ArrayList<VariantRunData> runs = runColl.aggregate(pipeline, VariantRunData.class).allowDiskUse(true).into(new ArrayList<>()); // we don't use collation here because it leads to unexpected behaviour (sometimes fetches some additional variants to those in currentMarkerIDs) => we'll have to sort each chunk by hand
 				Collections.sort(runs, vrdComparator);	// make sure variants within this chunk are correctly sorted
@@ -241,10 +258,25 @@ public class ExportManager
 					currentMarkerRuns.add(vrd);
 					previousVarId = varId;
 				}
-				
+
 				if (!markerCursor.hasNext())
 					tempMarkerRunsToWrite.add(currentMarkerRuns);	// special case, when the end of the cursor is being reached
 				currentMarkerIDs.clear();
+
+				if (nNumberOfChunksUsedForSpeedEstimation != null) {  // pipeline contains a $project stage: let's compare execution speed with and without it (best option so many things that we can't find it out otherwise)
+				    if (nChunkIndex == nNumberOfChunksUsedForSpeedEstimation) { // we just tested without $project, let's try with it now
+                        timeSpentReadingWithoutProjectStage = System.currentTimeMillis() - chunkProcessingStartTime;
+                        pipeline.add(projectStage);
+                    }
+                    else if (nChunkIndex == 2 * nNumberOfChunksUsedForSpeedEstimation) {
+                        long timeSpentReadingWithProjectStage = System.currentTimeMillis() - chunkProcessingStartTime;
+                        if (timeSpentReadingWithoutProjectStage < timeSpentReadingWithProjectStage) {    // removing $project provided more some speed-up : let's do the rest of the export without $project
+                            pipeline.remove(projectStage);
+                            LOG.debug("Exporting without $project stage");
+                        }
+                    }
+                    chunkProcessingStartTime = System.currentTimeMillis();
+				}
 
 				if (future != null && !future.isDone()) {
 //					long b4 = System.currentTimeMillis();
@@ -263,10 +295,10 @@ public class ExportManager
 
 		if (future != null && !future.isDone())
 			future.get();
+		markerCursor.close();
 		if (markerCount != null)
 			progress.setCurrentStepProgress(nWrittenmarkerCount * 100l / markerCount);
 	}
-
 
 	private void exportDirectlyFromRuns() throws IOException, InterruptedException, ExecutionException {
 		CompletableFuture<Void> future = null;
@@ -275,13 +307,44 @@ public class ExportManager
 		String varId = null, previousVarId = null;
 		int nWrittenmarkerCount = 0;
 		
+        List<BasicDBObject> pipeline = new ArrayList<>();
+        if (matchStage != null)
+            pipeline.add(matchStage);
+        pipeline.add(sortStage);
+        int nPosAfterSortStage = pipeline.size();
+        if (projectStage != null)
+            pipeline.add(projectStage);
+        LOG.debug("Export pipeline: " + pipeline);
+        
+        final MongoCursor[] markerCursors = new MongoCursor[2]; // First item always exists. Second only exists if we need to compare speed with and without $project stage
+        Thread threadCreatingComparisonCursor = null;
+        if (nNumberOfChunksUsedForSpeedEstimation != null) {  // pipeline contains a $project stage: let's compare execution speed with and without it(best option so many things that we can't find it out otherwise)
+            List<BasicDBObject> pipelineClone = new ArrayList<>(pipeline);
+            pipelineClone.add(nPosAfterSortStage, new BasicDBObject("$skip", nQueryChunkSize * nNumberOfChunksUsedForSpeedEstimation));
+            threadCreatingComparisonCursor = new Thread() {
+                public void run() {                   
+                    markerCursors[1] = varColl.aggregate(pipelineClone, resultType).collation(IExportHandler.collationObj).allowDiskUse(true).batchSize(nQueryChunkSize).iterator();   /*FIXME: didn't find a way to set noCursorTimeOut on aggregation cursors*/
+                }
+            };
+            threadCreatingComparisonCursor.start();
+
+            pipeline.remove(pipeline.size() - 1);   // remove $project
+        }
+        markerCursors[0] = varColl.aggregate(pipeline, resultType).collation(IExportHandler.collationObj).allowDiskUse(true).batchSize(nQueryChunkSize).iterator();   /*FIXME: didn't find a way to set noCursorTimeOut on aggregation cursors*/
+
+        if (threadCreatingComparisonCursor != null)
+            threadCreatingComparisonCursor.join();
+        
+        MongoCursor markerCursor = markerCursors[0];
+        int nChunkIndex = 0;
+        long chunkProcessingStartTime = System.currentTimeMillis(), timeSpentReadingWithoutProjectStage = -1;
 		while (markerCursor.hasNext()) {
             if (progress.isAborted() || progress.getError() != null ) {
             	if (warningFileWriter != null)
             		warningFileWriter.close();
 			    return;
             }
-            
+
 			VariantRunData vrd = (VariantRunData) markerCursor.next();
 			varId = vrd.getId().getVariantId();
 
@@ -297,7 +360,29 @@ public class ExportManager
 				tempMarkerRunsToWrite.add(currentMarkerRuns);	// special case, when the end of the cursor is being reached
 
 			if (tempMarkerRunsToWrite.size() >= nQueryChunkSize || !markerCursor.hasNext()) {
-				if (future != null && !future.isDone()) {
+			    nChunkIndex++;
+
+                if (markerCursors[1] != null) {
+                    if (nChunkIndex == nNumberOfChunksUsedForSpeedEstimation) { // we just tested without $project, let's try with it now
+                        timeSpentReadingWithoutProjectStage = System.currentTimeMillis() - chunkProcessingStartTime;
+                        markerCursor = markerCursors[1];
+                    }
+                    else if (nChunkIndex == 2 * nNumberOfChunksUsedForSpeedEstimation) {
+                        long timeSpentReadingWithProjectStage = System.currentTimeMillis() - chunkProcessingStartTime;
+                        if ((float) timeSpentReadingWithoutProjectStage / timeSpentReadingWithProjectStage <= .75) {    // removing $project provided more than 25% speed-up : let's do the rest of the export without $project
+                            markerCursor.close();
+                            markerCursor = markerCursors[0];
+                            for (int i=0; i<=nQueryChunkSize * nNumberOfChunksUsedForSpeedEstimation; i++)
+                                markerCursor.tryNext();
+                            LOG.debug("Exporting without $project stage");
+                        }
+                        else
+                            markerCursors[0].close();
+                    }
+                    chunkProcessingStartTime = System.currentTimeMillis();
+                }
+
+                if (future != null && !future.isDone()) {
 //					long b4 = System.currentTimeMillis();
 					future.get();
 //					long delay = System.currentTimeMillis() - b4;
@@ -315,6 +400,7 @@ public class ExportManager
 
 		if (future != null && !future.isDone())
 			future.get();
+		markerCursor.close();
 		if (markerCount != null && markerCount > 0)
 			progress.setCurrentStepProgress(nWrittenmarkerCount * 100l / markerCount);
 	}
