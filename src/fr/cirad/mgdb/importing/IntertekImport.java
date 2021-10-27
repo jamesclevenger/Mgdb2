@@ -18,27 +18,14 @@
 package fr.cirad.mgdb.importing;
 
 import java.io.File;
-import java.io.FileOutputStream;
-import java.io.FileWriter;
-import java.io.IOException;
 import java.net.URL;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.Iterator;
-import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Map;
-import java.util.Scanner;
-import java.util.StringTokenizer;
-import java.util.TreeSet;
-import java.util.stream.Collectors;
 
 import org.apache.log4j.Logger;
-import org.bson.types.ObjectId;
 import org.springframework.beans.factory.BeanDefinitionStoreException;
 import org.springframework.context.support.GenericXmlApplicationContext;
 import org.springframework.data.mongodb.core.MongoTemplate;
@@ -47,7 +34,6 @@ import org.springframework.data.mongodb.core.query.Query;
 
 import com.mongodb.BasicDBObject;
 import com.opencsv.CSVReader;
-import com.sun.org.apache.xpath.internal.functions.WrongNumberArgsException;
 
 import fr.cirad.mgdb.importing.base.AbstractGenotypeImport;
 import fr.cirad.mgdb.model.mongo.maintypes.AutoIncrementCounter;
@@ -56,15 +42,12 @@ import fr.cirad.mgdb.model.mongo.maintypes.GenotypingSample;
 import fr.cirad.mgdb.model.mongo.maintypes.Individual;
 import fr.cirad.mgdb.model.mongo.maintypes.VariantData;
 import fr.cirad.mgdb.model.mongo.maintypes.VariantRunData;
-import fr.cirad.mgdb.model.mongo.subtypes.ReferencePosition;
 import fr.cirad.mgdb.model.mongo.subtypes.SampleGenotype;
 import fr.cirad.mgdb.model.mongodao.MgdbDao;
 import fr.cirad.tools.ProgressIndicator;
-import fr.cirad.tools.genotypes.PlinkEigenstratTool;
 import fr.cirad.tools.mongo.MongoTemplateManager;
 import htsjdk.variant.variantcontext.VariantContext.Type;
 import java.io.BufferedReader;
-import java.io.FileReader;
 import java.io.InputStreamReader;
 import java.util.Set;
 
@@ -257,7 +240,7 @@ public class IntertekImport extends AbstractGenotypeImport {
                             }                        
                         }
 
-                        if (Arrays.equals(values, dataHeader)) {
+                        if (Arrays.asList(values).containsAll(Arrays.asList(dataHeader))) {
                             dataPart = true;
                         } else {
                             if (dataPart) {
