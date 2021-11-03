@@ -221,9 +221,9 @@ public class IntertekImport extends AbstractGenotypeImport {
                 String[] values;
                 while ((values = csvReader.readNext()) != null) {
 
-                    if (Arrays.equals(values, snpHeader)) {
+                    if (Arrays.asList(values).containsAll(Arrays.asList(snpHeader))) {
                         snpPart = true;
-                    } else if (Arrays.equals(values, limit)) {
+                    } else if (Arrays.asList(values).containsAll(Arrays.asList(limit))) {
                         snpPart = false;
                     } else {
                         if (snpPart && !dataPart && values.length>3) {
@@ -326,6 +326,9 @@ public class IntertekImport extends AbstractGenotypeImport {
                 }
                 count++;
             }
+            
+            //save last chunk
+            saveChunk(variantsChunk, variantRunsChunk, existingVariantIDs, mongoTemplate, progress, nNumberOfVariantsToSaveAtOnce, count, null, threadsToWaitFor, nNConcurrentThreads, chunkIndex++);
             
             // Store the project
             // always save project before samples otherwise the sample cleaning procedure in MgdbDao.prepareDatabaseForSearches may remove them if called in the meantime
