@@ -100,7 +100,7 @@ public class HapMapImport extends AbstractGenotypeImport {
 	}
 	
 	/**
-     * Instantiates a new vcf import.
+     * Instantiates a new hap map import.
      */
     public HapMapImport(boolean fCloseContextOpenAfterImport) {
         this();
@@ -108,7 +108,7 @@ public class HapMapImport extends AbstractGenotypeImport {
     }
 
     /**
-     * Instantiates a new vcf import.
+     * Instantiates a new hap map import.
      */
     public HapMapImport(String processID, boolean fCloseContextOpenAfterImport) {
         this(processID);
@@ -215,6 +215,7 @@ public class HapMapImport extends AbstractGenotypeImport {
 			ArrayList<VariantRunData> unsavedRuns = new ArrayList<VariantRunData>();
 			HashMap<String /*individual*/, GenotypingSample> previouslyCreatedSamples = new HashMap<>();
 			Iterator<RawHapMapFeature> it = reader.iterator();
+			String[] sampleIds = null;
 			progress.addStep("Processing variant lines");
 			progress.moveToNextStep();
             
@@ -229,6 +230,8 @@ public class HapMapImport extends AbstractGenotypeImport {
 					return null;
 
 				RawHapMapFeature hmFeature = it.next();
+				if (sampleIds == null) sampleIds = hmFeature.getSampleIDs();
+				
 				try
 				{
 					String variantId = null;
@@ -242,7 +245,7 @@ public class HapMapImport extends AbstractGenotypeImport {
 					if (variant == null)
 						variant = new VariantData(hmFeature.getName() != null && hmFeature.getName().length() > 0 ? ((ObjectId.isValid(hmFeature.getName()) ? "_" : "") + hmFeature.getName()) : (generatedIdBaseString + String.format(String.format("%09x", count))));
 
-					VariantRunData runToSave = addHapMapDataToVariant(mongoTemplate, variant, hmFeature, project, sRun, previouslyCreatedSamples);
+					VariantRunData runToSave = addHapMapDataToVariant(mongoTemplate, variant, hmFeature, project, sRun, previouslyCreatedSamples, sampleIds);
 
 					if (!project.getSequences().contains(hmFeature.getChr()))
 						project.getSequences().add(hmFeature.getChr());
@@ -261,7 +264,7 @@ public class HapMapImport extends AbstractGenotypeImport {
 					}
 
 					if (count == 0) {
-						nNumberOfVariantsToSaveAtOnce = hmFeature.getSampleIDs().length == 0 ? nMaxChunkSize : Math.max(1, nMaxChunkSize / hmFeature.getSampleIDs().length);
+						nNumberOfVariantsToSaveAtOnce = sampleIds.length == 0 ? nMaxChunkSize : Math.max(1, nMaxChunkSize / sampleIds.length);
 						LOG.info("Importing by chunks of size " + nNumberOfVariantsToSaveAtOnce);
 					}
 					else if (count % nNumberOfVariantsToSaveAtOnce == 0) {
@@ -318,7 +321,7 @@ public class HapMapImport extends AbstractGenotypeImport {
 	 * @return the variant run data
 	 * @throws Exception the exception
 	 */
-	static private VariantRunData addHapMapDataToVariant(MongoTemplate mongoTemplate, VariantData variantToFeed, RawHapMapFeature hmFeature, GenotypingProject project, String runName, Map<String /*individual*/, GenotypingSample> usedSamples) throws Exception
+	static private VariantRunData addHapMapDataToVariant(MongoTemplate mongoTemplate, VariantData variantToFeed, RawHapMapFeature hmFeature, GenotypingProject project, String runName, Map<String /*individual*/, GenotypingSample> usedSamples, String[] individuals) throws Exception
 	{
 		// mandatory fields
 		if (variantToFeed.getType() == null)
@@ -334,7 +337,6 @@ public class HapMapImport extends AbstractGenotypeImport {
 			variantToFeed.setKnownAlleleList(Arrays.asList(hmFeature.getAlleles()));
 
 		VariantRunData vrd = new VariantRunData(new VariantRunData.VariantRunDataId(project.getId(), runName, variantToFeed.getId()));
-		String[] individuals = hmFeature.getSampleIDs();	// don't do this inside the loop as it's an expensive operation
 			
 		// genotype fields
 		HashMap<String, Integer> alleleIndexMap = new HashMap<>();	// should be more efficient not to call indexOf too often...
@@ -354,25 +356,23 @@ public class HapMapImport extends AbstractGenotypeImport {
 				Integer firstAlleleIndex = alleleIndexMap.get(allele1);
 				if (firstAlleleIndex == null) {
 					firstAlleleIndex = variantToFeed.getKnownAlleleList().indexOf(allele1);
-					if (firstAlleleIndex != null)
-						alleleIndexMap.put(allele1, firstAlleleIndex);
-				}
-				if (firstAlleleIndex == -1 && validNucleotides.contains(allele1)) {	// it's a new allele
-					firstAlleleIndex = variantToFeed.getKnownAlleleList().size();
-					variantToFeed.getKnownAlleleList().add(allele1);
+					if (firstAlleleIndex == -1 && validNucleotides.contains(allele1)) {  // New allele
+						firstAlleleIndex = variantToFeed.getKnownAlleleList().size();
+						variantToFeed.getKnownAlleleList().add(allele1);
+					}
 					alleleIndexMap.put(allele1, firstAlleleIndex);
 				}
+				
 				Integer secondAlleleIndex = alleleIndexMap.get(allele2);
 				if (secondAlleleIndex == null) {
 					secondAlleleIndex = variantToFeed.getKnownAlleleList().indexOf(allele2);
-					if (secondAlleleIndex != null)
-						alleleIndexMap.put(allele2, secondAlleleIndex);
-				}
-				if (secondAlleleIndex == -1 && validNucleotides.contains(allele2)) {	// it's a new allele
-					secondAlleleIndex = variantToFeed.getKnownAlleleList().size();
-					variantToFeed.getKnownAlleleList().add(allele2);
+					if (secondAlleleIndex == -1 && validNucleotides.contains(allele2)) {  // New allele
+						secondAlleleIndex = variantToFeed.getKnownAlleleList().size();
+						variantToFeed.getKnownAlleleList().add(allele2);
+					}
 					alleleIndexMap.put(allele2, secondAlleleIndex);
 				}
+				
 				gtCode = firstAlleleIndex <= secondAlleleIndex ? (firstAlleleIndex + "/" + secondAlleleIndex) : (secondAlleleIndex + "/" + firstAlleleIndex);
 			}
 			if (!"NN".equals(genotype) && (gtCode == null || !gtCode.matches("([0-9])([0-9])*/([0-9])([0-9])*")))
