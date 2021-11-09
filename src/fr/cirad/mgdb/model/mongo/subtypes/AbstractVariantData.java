@@ -406,7 +406,7 @@ abstract public class AbstractVariantData
 	 * @param type the new type
 	 */
 	public void setType(String type) {
-		this.type = type.intern();
+		this.type = type == null ? null : type.intern();
 	}
 
 	/**
