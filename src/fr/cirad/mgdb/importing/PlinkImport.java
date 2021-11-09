@@ -138,7 +138,7 @@ public class PlinkImport extends AbstractGenotypeImport {
 		{
 			LOG.warn("Unable to parse input mode. Using default (0): overwrite run if exists.");
 		}
-		new PlinkImport().importToMongo(args[0], args[1], args[2], args[3], new File(args[4]).toURI().toURL(), new File(args[5]), mode);
+		new PlinkImport().importToMongo(args[0], args[1], args[2], args[3], new File(args[4]).toURI().toURL(), new File(args[5]), false, mode);
 	}
 
 	/**
@@ -150,11 +150,12 @@ public class PlinkImport extends AbstractGenotypeImport {
 	 * @param sTechnology the technology
 	 * @param mapFileURL the map file URL
 	 * @param pedFile the ped file
+	 * @param fSkipMonomorphic whether or not to skip import of variants that have no polymorphism (where all individuals have the same genotype)
 	 * @param importMode the import mode
 	 * @return a project ID if it was created by this method, otherwise null
 	 * @throws Exception the exception
 	 */
-	public Integer importToMongo(String sModule, String sProject, String sRun, String sTechnology, URL mapFileURL, File pedFile, int importMode) throws Exception
+	public Integer importToMongo(String sModule, String sProject, String sRun, String sTechnology, URL mapFileURL, File pedFile, boolean fSkipMonomorphic, int importMode) throws Exception
 	{
 		long before = System.currentTimeMillis();
         ProgressIndicator progress = ProgressIndicator.get(m_processID) != null ? ProgressIndicator.get(m_processID) : new ProgressIndicator(m_processID, new String[]{"Initializing import"});	// better to add it straight-away so the JSP doesn't get null in return when it checks for it (otherwise it will assume the process has ended)
@@ -243,7 +244,7 @@ public class PlinkImport extends AbstractGenotypeImport {
 			
 			int nNConcurrentThreads = Math.max(1, Runtime.getRuntime().availableProcessors());
             LOG.debug("Importing project '" + sProject + "' into " + sModule + " using " + nNConcurrentThreads + " threads");
-			long count = importTempFileContents(progress, nNConcurrentThreads, mongoTemplate, tempFiles, variantsAndPositions, existingVariantIDs, project, sRun, inconsistencies, userIndividualToPopulationMapToFill);
+			long count = importTempFileContents(progress, nNConcurrentThreads, mongoTemplate, tempFiles, variantsAndPositions, existingVariantIDs, project, sRun, inconsistencies, userIndividualToPopulationMapToFill, fSkipMonomorphic);
 
 			progress.addStep("Preparing database for searches");
 			progress.moveToNextStep();
@@ -260,7 +261,7 @@ public class PlinkImport extends AbstractGenotypeImport {
 		}
 	}
 
-	public long importTempFileContents(ProgressIndicator progress, int nNConcurrentThreads, MongoTemplate mongoTemplate, File[] tempFiles, LinkedHashMap<String, String> variantsAndPositions, HashMap<String, String> existingVariantIDs, GenotypingProject project, String sRun, HashMap<String, ArrayList<String>> inconsistencies, Map<String, String> userIndividualToPopulationMap) throws Exception			
+	public long importTempFileContents(ProgressIndicator progress, int nNConcurrentThreads, MongoTemplate mongoTemplate, File[] tempFiles, LinkedHashMap<String, String> variantsAndPositions, HashMap<String, String> existingVariantIDs, GenotypingProject project, String sRun, HashMap<String, ArrayList<String>> inconsistencies, Map<String, String> userIndividualToPopulationMap, boolean fSkipMonomorphic) throws Exception			
 	{
 		String[] individuals = userIndividualToPopulationMap.keySet().toArray(new String[userIndividualToPopulationMap.size()]);
 		HashSet<VariantData> unsavedVariants = new HashSet<VariantData>();	// HashSet allows no duplicates
@@ -290,8 +291,11 @@ public class PlinkImport extends AbstractGenotypeImport {
 					if (progress.getError() != null || progress.isAborted())
 						return count;
 
-					StringTokenizer variantFields = new StringTokenizer(scanner.nextLine(), "\t");
-					String providedVariantId = variantFields.nextToken();
+					String[] splitLine = scanner.nextLine().split("\t");
+	                if (fSkipMonomorphic && Arrays.asList(Arrays.copyOfRange(splitLine, 1, splitLine.length)).stream().filter(gt -> !"00".equals(gt)).distinct().count() < 2)
+	                    continue; // skip non-variant positions
+
+					String providedVariantId = splitLine[0];
 
 					String[] seqAndPos = variantsAndPositions.get(providedVariantId).split("\t");
 					String sequence = seqAndPos[0];
@@ -332,14 +336,14 @@ public class PlinkImport extends AbstractGenotypeImport {
 
 						String[][] alleles = new String[2][individuals.length];
 						int nIndividualIndex = 0;
-						while (nIndividualIndex < alleles[0].length)
+						while (nIndividualIndex < individuals.length)
 						{
 							ArrayList<String> inconsistentIndividuals = inconsistencies.get(variant.getId());
 							boolean fInconsistentData = inconsistentIndividuals != null && inconsistentIndividuals.contains(individuals[nIndividualIndex]);
 							if (fInconsistentData)
 								LOG.warn("Not adding inconsistent data: " + providedVariantId + " / " + individuals[nIndividualIndex]);
 
-							String genotype = variantFields.nextToken();
+							String genotype = splitLine[nIndividualIndex + 1];
 							alleles[0][nIndividualIndex] = fInconsistentData ? "0" : genotype.substring(0, 1);
 							alleles[1][nIndividualIndex++] = fInconsistentData ? "0" : genotype.substring(1, 2);
 						}
@@ -532,7 +536,7 @@ public class PlinkImport extends AbstractGenotypeImport {
 				else if (!sIndividual.substring(0, 3).matches(".*\\d+.*") && sIndividual.substring(3).matches("\\d+"))
 					ind.setPopulation(sIndividual.substring(0, 3));
 				else {
-					LOG.warn("Unable to find 3-letter population code for individual " + sIndividual);
+					LOG.info("Unable to find 3-letter population code for individual " + sIndividual);
 					if (fAlreadyExists)
 						fNeedToSave = false;
 				}
