@@ -49,6 +49,7 @@ import fr.cirad.tools.mongo.MongoTemplateManager;
 import htsjdk.variant.variantcontext.VariantContext.Type;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
+import java.util.LinkedHashMap;
 import java.util.Set;
 
 /**
@@ -181,7 +182,8 @@ public class IntertekImport extends AbstractGenotypeImport {
             int indColIndex = Arrays.asList(dataHeader).indexOf("SubjectID");
             int callColIndex = Arrays.asList(dataHeader).indexOf("Call");
             int xFIColIndex = Arrays.asList(dataHeader).indexOf("X");
-            int yFIColIndex = Arrays.asList(dataHeader).indexOf("Y");        
+            int yFIColIndex = Arrays.asList(dataHeader).indexOf("Y");
+            int masterPlateColIndex = Arrays.asList(dataHeader).indexOf("MasterPlate");
 
             Set<VariantData> variantsToSave = new HashSet<>();
             HashMap<String /*variant ID*/, List<String> /*allelesList*/> variantAllelesMap = new HashMap();
@@ -246,6 +248,7 @@ public class IntertekImport extends AbstractGenotypeImport {
                             if (dataPart) {
                                 String variantId = values[variantColIndex];
                                 String individualId = values[indColIndex];
+                                String masterPlate = values[masterPlateColIndex];
                                 String call = values[callColIndex];
                                 String FI = values[yFIColIndex] + "," + values[xFIColIndex];
 
@@ -276,6 +279,9 @@ public class IntertekImport extends AbstractGenotypeImport {
                                         Individual ind = mongoTemplate.findById(individualId, Individual.class);
                                         if (ind == null) {
                                             ind = new Individual(individualId);
+                                            LinkedHashMap<String, Object> map = new LinkedHashMap<>();
+                                            map.put("masterPlate", masterPlate);
+                                            ind.setAdditionalInfo(map);
                                             mongoTemplate.save(ind);
                                         }
 
