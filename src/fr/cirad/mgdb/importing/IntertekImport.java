@@ -124,7 +124,7 @@ public class IntertekImport extends AbstractGenotypeImport {
         } catch (Exception e) {
             LOG.warn("Unable to parse input mode. Using default (0): overwrite run if exists.");
         }
-        new IntertekImport().importToMongo(args[0], args[1], args[2], args[3], new File(args[4]).toURI().toURL(), mode);
+        new IntertekImport().importToMongo(args[0], args[1], args[2], args[3], new File(args[4]).toURI().toURL(), false, mode);
     }
 
     /**
@@ -139,7 +139,7 @@ public class IntertekImport extends AbstractGenotypeImport {
      * @return a project ID if it was created by this method, otherwise null
      * @throws Exception the exception
      */
-    public Integer importToMongo(String sModule, String sProject, String sRun, String sTechnology, URL fileURL, int importMode) throws Exception {
+    public Integer importToMongo(String sModule, String sProject, String sRun, String sTechnology, URL fileURL, boolean fSkipMonomorphic, int importMode) throws Exception {
         long before = System.currentTimeMillis();
         ProgressIndicator progress = ProgressIndicator.get(m_processID) != null ? ProgressIndicator.get(m_processID) : new ProgressIndicator(m_processID, new String[]{"Initializing import"});	// better to add it straight-away so the JSP doesn't get null in return when it checks for it (otherwise it will assume the process has ended)
         progress.setPercentageEnabled(false);        
@@ -212,7 +212,7 @@ public class IntertekImport extends AbstractGenotypeImport {
             LOG.info(progress.getProgressDescription());
 
             HashMap<String, String> existingVariantIDs = buildSynonymToIdMapForExistingVariants(mongoTemplate, false);
-
+            
             // Reading csv file
             // Getting alleleX and alleleY for each SNP by reading lines between lines {"SNPID","SNPNum","AlleleY","AlleleX","Sequence"} and {"Scaling"};
             // Then getting genotypes for each individual by reading lines after line {"DaughterPlate","MasterPlate","MasterWell","Call","X","Y","SNPID","SubjectID","Norm","Carrier","DaughterWell","LongID"}
@@ -221,14 +221,15 @@ public class IntertekImport extends AbstractGenotypeImport {
                 boolean snpPart = false;
                 boolean dataPart = false;
                 String[] values;
+                int i = 0;
                 while ((values = csvReader.readNext()) != null) {
-
+                    i = i+1;
                     if (Arrays.asList(values).containsAll(Arrays.asList(snpHeader))) {
                         snpPart = true;
                     } else if (Arrays.asList(values).containsAll(Arrays.asList(limit))) {
                         snpPart = false;
                     } else {
-                        if (snpPart && !dataPart && values.length>3) {
+                        if (snpPart && !dataPart && !values[0].equals("")) {
                             String variantId = values[snpColIndex];
                             //check if variantId already exists in DB
                             VariantData variant = variantId == null ? null : mongoTemplate.findById(variantId, VariantData.class);
@@ -239,7 +240,7 @@ public class IntertekImport extends AbstractGenotypeImport {
                                 variant.setType(Type.SNP.toString());
                                 variantsToSave.add(variant);
                                 variantAllelesMap.put(variantId, alleles);
-                            }                        
+                            }
                         }
 
                         if (Arrays.asList(values).containsAll(Arrays.asList(dataHeader))) {
@@ -251,6 +252,10 @@ public class IntertekImport extends AbstractGenotypeImport {
                                 String masterPlate = values[masterPlateColIndex];
                                 String call = values[callColIndex];
                                 String FI = values[yFIColIndex] + "," + values[xFIColIndex];
+                                
+                                if (variantId.equals("") || individualId.equals("")) {
+                                    continue; //skip line if no variantId or no individualId
+                                }
 
                                 if (variantSamplesMap.get(variantId) == null) {
                                     variantSamplesMap.put(variantId, new HashMap<>());
@@ -314,7 +319,20 @@ public class IntertekImport extends AbstractGenotypeImport {
 
             HashSet<VariantData> variantsChunk = new HashSet<>();
             HashSet<VariantRunData> variantRunsChunk = new HashSet<>();
-            for (VariantData variant:variantsToSave) {
+            Set<String> existingIds = new HashSet<>(existingVariantIDs.values());
+            for (VariantData variant:variantsToSave) {                
+                if (!existingIds.contains(variant.getId()) && fSkipMonomorphic) {
+                    Set uniqueGt = new HashSet();
+                    HashMap map = variantSamplesMap.get(variant.getVariantId());
+                    Set<SampleGenotype> values = new HashSet<>(map.values());
+                    values.forEach(sample -> {
+                        uniqueGt.add(sample.getCode());
+                    });
+                    if (uniqueGt.size() == 1) {
+                        continue;
+                    }
+                }
+                
                 VariantRunData vrd = new VariantRunData(new VariantRunData.VariantRunDataId(project.getId(), sRun, variant.getVariantId()));
                 vrd.setKnownAlleleList(variant.getKnownAlleleList());
                 vrd.setSampleGenotypes(variantSamplesMap.get(variant.getVariantId()));
