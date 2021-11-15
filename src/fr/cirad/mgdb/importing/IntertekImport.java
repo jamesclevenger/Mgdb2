@@ -237,10 +237,10 @@ public class IntertekImport extends AbstractGenotypeImport {
                                 variant = new VariantData(variantId);
                                 List<String> alleles = Arrays.asList(values[yColIndex], values[xColIndex]);
                                 variant.setKnownAlleleList(alleles);
-                                variant.setType(Type.SNP.toString());
-                                variantsToSave.add(variant);
-                                variantAllelesMap.put(variantId, alleles);
+                                variant.setType(Type.SNP.toString());                                                                
                             }
+                            variantsToSave.add(variant);
+                            variantAllelesMap.put(variantId, variant.getKnownAlleleList());                           
                         }
 
                         if (Arrays.asList(values).containsAll(Arrays.asList(dataHeader))) {
