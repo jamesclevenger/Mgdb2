@@ -136,6 +136,7 @@ public class IntertekImport extends AbstractGenotypeImport {
      * @param sTechnology the technology
      * @param fileURL
      * @param importMode the import mode
+     * @param fSkipMonomorphic whether or not to skip import of variants that have no polymorphism (where all individuals have the same genotype)
      * @return a project ID if it was created by this method, otherwise null
      * @throws Exception the exception
      */
@@ -186,9 +187,9 @@ public class IntertekImport extends AbstractGenotypeImport {
             int masterPlateColIndex = Arrays.asList(dataHeader).indexOf("MasterPlate");
 
             Set<VariantData> variantsToSave = new HashSet<>();
-            HashMap<String /*variant ID*/, List<String> /*allelesList*/> variantAllelesMap = new HashMap();
-            HashMap<String /*variant ID*/, HashMap<Integer, SampleGenotype>> variantSamplesMap = new HashMap();
-            HashMap<String /*individual ID*/, GenotypingSample> samples = new HashMap();
+            HashMap<String /*variant ID*/, List<String> /*allelesList*/> variantAllelesMap = new HashMap<>();
+            HashMap<String /*variant ID*/, HashMap<Integer, SampleGenotype>> variantSamplesMap = new HashMap<>();
+            HashMap<String /*individual ID*/, GenotypingSample> samples = new HashMap<>();
 
             GenotypingProject project = mongoTemplate.findOne(new Query(Criteria.where(GenotypingProject.FIELDNAME_NAME).is(sProject)), GenotypingProject.class);
 
@@ -320,19 +321,10 @@ public class IntertekImport extends AbstractGenotypeImport {
             HashSet<VariantData> variantsChunk = new HashSet<>();
             HashSet<VariantRunData> variantRunsChunk = new HashSet<>();
             Set<String> existingIds = new HashSet<>(existingVariantIDs.values());
-            for (VariantData variant:variantsToSave) {                
-                if (!existingIds.contains(variant.getId()) && fSkipMonomorphic) {
-                    Set uniqueGt = new HashSet();
-                    HashMap map = variantSamplesMap.get(variant.getVariantId());
-                    Set<SampleGenotype> values = new HashSet<>(map.values());
-                    values.forEach(sample -> {
-                        uniqueGt.add(sample.getCode());
-                    });
-                    if (uniqueGt.size() == 1) {
-                        continue;
-                    }
-                }
-                
+            for (VariantData variant : variantsToSave) {                
+                if (!existingIds.contains(variant.getId()) && fSkipMonomorphic && variantSamplesMap.get(variant.getVariantId()).values().stream().map(sampleGT -> sampleGT.getCode()).filter(gtCode -> gtCode != null).distinct().count() < 2)
+                    continue;
+
                 VariantRunData vrd = new VariantRunData(new VariantRunData.VariantRunDataId(project.getId(), sRun, variant.getVariantId()));
                 vrd.setKnownAlleleList(variant.getKnownAlleleList());
                 vrd.setSampleGenotypes(variantSamplesMap.get(variant.getVariantId()));
