@@ -153,7 +153,7 @@ public class ExportManager
         Collection<Integer>    sampleIDsNotToExport = percentageOfExportedSamples >= 98 ? new ArrayList() /* if almost all individuals are being exported we directly omit the $project stage */ : (percentageOfExportedSamples > 50 ? mongoTemplate.findDistinct(new Query(Criteria.where("_id").not().in(sampleIDsToExport)), "_id", GenotypingSample.class, Integer.class) : null);
 
         if (!varQuery.isEmpty()) {
-            if (!projectFilterList.isEmpty()) {
+            if (!fWorkingOnTempColl && !projectFilterList.isEmpty()) {
                 Entry<String, Object> firstMatchEntry = varQuery.entrySet().iterator().next();
                 List<Document> matchAndList = "$and".equals(firstMatchEntry.getKey()) ? (List<Document>) firstMatchEntry.getValue() : Arrays.asList(varQuery);
                 matchAndList.addAll(projectFilterList);
@@ -210,16 +210,16 @@ public class ExportManager
         String varId = null, previousVarId = null;
         int nWrittenmarkerCount = 0;
         
-        List<BasicDBObject> pipeline = new ArrayList();
+        List<BasicDBObject> pipeline = new ArrayList<>();
         if (matchStage != null)
-            pipeline.add(matchStage);   // there can be a $match on temp colls (for example when displaying IGV data)
+            pipeline.add(matchStage);   // there can be a $match on temp colls (for example to apply a range when displaying IGV data)
         pipeline.add(sortStage);
         pipeline.add(new BasicDBObject("$project", new BasicDBObject("_id", 1)));
 
         MongoCursor markerCursor = varColl.aggregate(pipeline, Document.class).collation(IExportHandler.collationObj).allowDiskUse(true).batchSize(nQueryChunkSize).iterator();   /*FIXME: didn't find a way to set noCursorTimeOut on aggregation cursors*/
 
         // pipeline object will we re-used to query VariantRunData, we won't need the $project stage for that
-        pipeline = new ArrayList();
+        pipeline = new ArrayList<>();
         pipeline.add(sortStage);
         
         int nChunkIndex = 0;
