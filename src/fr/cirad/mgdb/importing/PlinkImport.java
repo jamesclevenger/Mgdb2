@@ -34,6 +34,8 @@ import java.util.Map;
 import java.util.Scanner;
 import java.util.StringTokenizer;
 import java.util.TreeSet;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 import org.apache.log4j.Logger;
@@ -415,37 +417,70 @@ public class PlinkImport extends AbstractGenotypeImport {
 		int nCurrentChunkIndex = 0, nNumberOfChunks = (int) Math.ceil((float) variants.length / nMaxMarkersReadAtOnce);
 		StringBuffer[] stringBuffers = null;
 		
-		File[] outputFiles = new File[nNumberOfChunks];
-		try
-		{
-			while (nCurrentChunkIndex < nNumberOfChunks)
-			{
+		File outputFile = File.createTempFile(nCurrentChunkIndex + "-plinkImport" + pedFile.getName() + "-", ".tsv");
+		FileWriter fw = new FileWriter(outputFile);
+		int[] linePositions = new int[variants.length];
+		
+		Pattern separator = Pattern.compile("([ \t]+)|($)");
+		
+		try {
+			// Read the individual metadata and get the start position of the genotypes
+			int lineIndex = 0;
+			Scanner initScanner = new Scanner(pedFile);
+			while (initScanner.hasNextLine()) {
+				String line = initScanner.nextLine();
+				Matcher matcher = separator.matcher(line);
+				int lastPosition = 0;
+				String sPopulation = null, sIndividual = null;
+				for (int i = 0; i < 6; i++) {
+					matcher.find();
+					
+					if (i == 0)      sPopulation = line.substring(lastPosition, matcher.start());
+					else if (i == 1) sIndividual = line.substring(lastPosition, matcher.start());
+					
+					lastPosition = matcher.end();
+				}
+				userIndividualToPopulationMapToFill.put(sIndividual, sPopulation);
+				linePositions[lineIndex] = lastPosition;
+				lineIndex += 1;
+			}
+			initScanner.close();
+			
+			while (nCurrentChunkIndex < nNumberOfChunks) {
 				int nMarkersReadAtOnce = nCurrentChunkIndex == nNumberOfChunks - 1 ? variants.length % nMaxMarkersReadAtOnce : nMaxMarkersReadAtOnce;
 				if (nCurrentChunkIndex == 0/* || nCurrentChunkIndex == nNumberOfChunks - 1*/)
 					stringBuffers = new StringBuffer[nMarkersReadAtOnce];
 
-				outputFiles[nCurrentChunkIndex] = File.createTempFile(nCurrentChunkIndex + "-plinkImportVariantChunk-" + pedFile.getName() + "-", ".tsv");
-				FileWriter fw = new FileWriter(outputFiles[nCurrentChunkIndex]);
-				try
-				{
+				try {
 					for (int i=0; i<nMarkersReadAtOnce; i++)
 						stringBuffers[i] = new StringBuffer(variants[nCurrentChunkIndex*nMaxMarkersReadAtOnce + i]);
 					Scanner sc = new Scanner(pedFile);
-					while (sc.hasNextLine())
-					{
-						String sLine = sc.nextLine().trim().replaceAll("\t", " ").replaceAll(" +", " ");
-						if (nCurrentChunkIndex == 0)
-							PlinkEigenstratTool.readIndividualFromPlinkPedLine(sLine, (HashMap<String, String>) userIndividualToPopulationMapToFill);	// important because it fills the map
-						int nFirstPosToRead = sLine.length() - 4*(variants.length - nCurrentChunkIndex * nMaxMarkersReadAtOnce);
-						for (int i=0; i<nMarkersReadAtOnce; i++)
-							stringBuffers[i].append("\t" + sLine.charAt(nFirstPosToRead + i*4+1) + sLine.charAt(nFirstPosToRead + i*4+3));
+					
+					lineIndex = 0;
+					while (sc.hasNextLine()) {
+						String sLine = sc.nextLine();
+						Matcher matcher = separator.matcher(sLine);
+						int position = linePositions[lineIndex];
+						matcher.find(position);
+						for (int i=0; i<nMarkersReadAtOnce; i++) {
+							String allele1 = sLine.substring(position, matcher.start());
+							position = matcher.end();
+							matcher.find();
+														
+							String allele2 = sLine.substring(position, matcher.start());
+							position = matcher.end();
+							matcher.find();
+							
+							stringBuffers[i].append("\t" + allele1 + allele2);
+						}
+						linePositions[lineIndex] = position;
+						lineIndex += 1;
 					}
 					sc.close();
 					for (int i=0; i<nMarkersReadAtOnce; i++)
 						fw.write(stringBuffers[i].toString() + "\n");
 				}
-				finally
-				{
+				finally {
 					fw.close();
 				}
 				
@@ -454,14 +489,15 @@ public class PlinkImport extends AbstractGenotypeImport {
 				nCurrentChunkIndex++;
 			}
 		}
-		catch (Throwable t)
-		{
-			for (File f : outputFiles)
-				if (f != null)
-					f.delete();
+		catch (Throwable t) {
+			if (outputFile != null)
+				outputFile.delete();
 			throw t;
 		}
 		LOG.info("PED matrix transposition took " + (System.currentTimeMillis() - before) + "ms for " + variants.length + " markers and " + userIndividualToPopulationMapToFill.size() + " individuals");
+		
+		File[] outputFiles = new File[1];
+		outputFiles[0] = outputFile;
 		return outputFiles;
 	}
 
