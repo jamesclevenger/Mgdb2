@@ -210,7 +210,7 @@ public class ExportManager
         String varId = null, previousVarId = null;
         int nWrittenmarkerCount = 0;
         
-        List<BasicDBObject> pipeline = new ArrayList();
+        List<BasicDBObject> pipeline = new ArrayList<>();
         if (matchStage != null)
             pipeline.add(matchStage);   // there can be a $match on temp colls (for example when displaying IGV data)
         pipeline.add(sortStage);
@@ -219,7 +219,7 @@ public class ExportManager
         MongoCursor markerCursor = varColl.aggregate(pipeline, Document.class).collation(IExportHandler.collationObj).allowDiskUse(true).batchSize(nQueryChunkSize).iterator();   /*FIXME: didn't find a way to set noCursorTimeOut on aggregation cursors*/
 
         // pipeline object will we re-used to query VariantRunData, we won't need the $project stage for that
-        pipeline = new ArrayList();
+        pipeline = new ArrayList<>();
         pipeline.add(sortStage);
         
         int nChunkIndex = 0;
@@ -316,8 +316,12 @@ public class ExportManager
         int nWrittenmarkerCount = 0;
         
         List<BasicDBObject> pipeline = new ArrayList<>();
-        if (matchStage != null)
+        if (matchStage != null) {
+            Document matchContents = (Document) matchStage.get("$match");
+            BasicDBList filters = matchContents.containsKey("$and") ? (BasicDBList) matchContents.get("$and") : new BasicDBList() {{ add(new BasicDBObject(matchContents)); }};
+            Helper.convertIdFiltersToRunFormat(filters);
             pipeline.add(matchStage);
+        }
         pipeline.add(sortStage);
         int nPosAfterSortStage = pipeline.size();
         if (projectStage != null)
