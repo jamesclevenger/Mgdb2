@@ -451,38 +451,33 @@ public class PlinkImport extends AbstractGenotypeImport {
 				if (nCurrentChunkIndex == 0/* || nCurrentChunkIndex == nNumberOfChunks - 1*/)
 					stringBuffers = new StringBuffer[nMarkersReadAtOnce];
 
-				try {
-					for (int i=0; i<nMarkersReadAtOnce; i++)
-						stringBuffers[i] = new StringBuffer(variants[nCurrentChunkIndex*nMaxMarkersReadAtOnce + i]);
-					Scanner sc = new Scanner(pedFile);
-					
-					lineIndex = 0;
-					while (sc.hasNextLine()) {
-						String sLine = sc.nextLine();
-						Matcher matcher = separator.matcher(sLine);
-						int position = linePositions[lineIndex];
-						matcher.find(position);
-						for (int i=0; i<nMarkersReadAtOnce; i++) {
-							String allele1 = sLine.substring(position, matcher.start());
-							position = matcher.end();
-							matcher.find();
-														
-							String allele2 = sLine.substring(position, matcher.start());
-							position = matcher.end();
-							matcher.find();
-							
-							stringBuffers[i].append("\t" + allele1 + allele2);
-						}
-						linePositions[lineIndex] = position;
-						lineIndex += 1;
+				for (int i=0; i<nMarkersReadAtOnce; i++)
+					stringBuffers[i] = new StringBuffer(variants[nCurrentChunkIndex*nMaxMarkersReadAtOnce + i]);
+				Scanner sc = new Scanner(pedFile);
+				
+				lineIndex = 0;
+				while (sc.hasNextLine()) {
+					String sLine = sc.nextLine();
+					Matcher matcher = separator.matcher(sLine);
+					int position = linePositions[lineIndex];
+					matcher.find(position);
+					for (int i=0; i<nMarkersReadAtOnce; i++) {
+						String allele1 = sLine.substring(position, matcher.start());
+						position = matcher.end();
+						matcher.find();
+													
+						String allele2 = sLine.substring(position, matcher.start());
+						position = matcher.end();
+						matcher.find();
+						
+						stringBuffers[i].append("\t" + allele1 + allele2);
 					}
-					sc.close();
-					for (int i=0; i<nMarkersReadAtOnce; i++)
-						fw.write(stringBuffers[i].toString() + "\n");
+					linePositions[lineIndex] = position;
+					lineIndex += 1;
 				}
-				finally {
-					fw.close();
-				}
+				sc.close();
+				for (int i=0; i<nMarkersReadAtOnce; i++)
+					fw.write(stringBuffers[i].toString() + "\n");
 				
 				if (nCurrentChunkIndex != nNumberOfChunks - 1)
 					LOG.debug("rotatePlinkPedFile treated " + ((nCurrentChunkIndex+1) * nMaxMarkersReadAtOnce) + " markers in " + (System.currentTimeMillis() - before) + "ms");
@@ -493,6 +488,8 @@ public class PlinkImport extends AbstractGenotypeImport {
 			if (outputFile != null)
 				outputFile.delete();
 			throw t;
+		} finally {
+			fw.close();
 		}
 		LOG.info("PED matrix transposition took " + (System.currentTimeMillis() - before) + "ms for " + variants.length + " markers and " + userIndividualToPopulationMapToFill.size() + " individuals");
 		
@@ -527,24 +524,25 @@ public class PlinkImport extends AbstractGenotypeImport {
 			Integer firstAlleleIndex = alleleIndexMap.get(alleles[0][i]);
 			if (firstAlleleIndex == null) {
 				firstAlleleIndex = variantToFeed.getKnownAlleleList().indexOf(alleles[0][i]);
-				if (firstAlleleIndex != null)
+				if (firstAlleleIndex == -1 && validNucleotides.contains(alleles[0][i])) {	// it's a new allele
+					firstAlleleIndex = variantToFeed.getKnownAlleleList().size();
+					variantToFeed.getKnownAlleleList().add(alleles[0][i]);
 					alleleIndexMap.put(alleles[0][i], firstAlleleIndex);
+				} else {
+					alleleIndexMap.put(alleles[0][i], firstAlleleIndex);
+				}
 			}
-			if (firstAlleleIndex == -1 && validNucleotides.contains(alleles[0][i])) {	// it's a new allele
-				firstAlleleIndex = variantToFeed.getKnownAlleleList().size();
-				variantToFeed.getKnownAlleleList().add(alleles[0][i]);
-				alleleIndexMap.put(alleles[0][i], firstAlleleIndex);
-			}
+			
 			Integer secondAlleleIndex = alleleIndexMap.get(alleles[1][i]);
 			if (secondAlleleIndex == null) {
 				secondAlleleIndex = variantToFeed.getKnownAlleleList().indexOf(alleles[1][i]);
-				if (secondAlleleIndex != null)
+				if (secondAlleleIndex == -1 && validNucleotides.contains(alleles[1][i])) {	// it's a new allele
+					secondAlleleIndex = variantToFeed.getKnownAlleleList().size();
+					variantToFeed.getKnownAlleleList().add(alleles[1][i]);
 					alleleIndexMap.put(alleles[1][i], secondAlleleIndex);
-			}
-			if (secondAlleleIndex == -1 && validNucleotides.contains(alleles[1][i])) {	// it's a new allele
-				secondAlleleIndex = variantToFeed.getKnownAlleleList().size();
-				variantToFeed.getKnownAlleleList().add(alleles[1][i]);
-				alleleIndexMap.put(alleles[1][i], secondAlleleIndex);
+				} else {
+					alleleIndexMap.put(alleles[1][i], secondAlleleIndex);
+				}
 			}
 			String gtCode = firstAlleleIndex <= secondAlleleIndex ? (firstAlleleIndex + "/" + secondAlleleIndex) : (secondAlleleIndex + "/" + firstAlleleIndex);
 
@@ -668,7 +666,7 @@ public class PlinkImport extends AbstractGenotypeImport {
 					if (individualGenotypeListArray[individualIndex] == null)
 						individualGenotypeListArray[individualIndex] = new HashMap<>();
 					String genotype = synAndGenotypes[1 + individualIndex];
-					if (genotype.equals("00"))
+					if (genotype.equals("0/0"))
 						continue;	// if genotype is unknown this should not keep us from considering others
 					HashSet<String> synonymsWithThisGenotype = individualGenotypeListArray[individualIndex].get(genotype);
 					if (synonymsWithThisGenotype == null) {
