@@ -439,21 +439,22 @@ public class PlinkImport extends AbstractGenotypeImport {
 			tempWriters[block] = new FileWriter(tempFiles[block]);
 		}
 		
-		//int nIndividuals = 0;
+		int nIndividuals = 0;
 		Scanner initScanner = new Scanner(pedFile);
 		while (initScanner.hasNextLine()) {
-			String[] splitLine = initScanner.nextLine().split("[ \t]+");
+			String line = initScanner.nextLine();
+			String[] splitLine = line.split("[ \t]+");
 			userIndividualToPopulationMapToFill.put(splitLine[1], splitLine[0]);
 			
 			int index = 6;
 			for (int block = 0; block < nThreadBlocks; block++) {
-				StringBuffer buffer = new StringBuffer();
+				StringBuilder buffer = new StringBuilder(line.length() / nThreadBlocks);
 				for (int marker = 0; marker < threadBlockSize && index < 6 + 2*variants.length; marker++) {
 					buffer.append(splitLine[index++] + "/" + splitLine[index++] + "\t");
 				}
 				tempWriters[block].write(buffer.toString() + "\n");
 			}
-			//nIndividuals += 1;
+			nIndividuals += 1;
 		}
 		
 		for (int block = 0; block < nThreadBlocks; block++) {
@@ -468,6 +469,7 @@ public class PlinkImport extends AbstractGenotypeImport {
 			final ExecutorService executor = Executors.newFixedThreadPool(nConcurrentThreads);
 			final int cThreadBlocks = nThreadBlocks;
 			final int cThreadBlockSize = threadBlockSize;
+			final int cIndividuals = nIndividuals;
 			for (int block = 0; block < nThreadBlocks; block++) {
 				final int threadBlock = block;
 				Thread transposeThread = new Thread() {
@@ -475,12 +477,14 @@ public class PlinkImport extends AbstractGenotypeImport {
 					public void run() {
 						try {
 							int blockSize = (threadBlock == cThreadBlocks - 1) ? variants.length - (cThreadBlocks-1)*cThreadBlockSize : cThreadBlockSize;
+							
+							StringBuilder[] transposed = new StringBuilder[blockSize];
+							for (int marker = 0; marker < blockSize; marker++) {
+								transposed[marker] = new StringBuilder(cIndividuals * 4);
+								transposed[marker].append(variants[threadBlock*cThreadBlockSize + marker]);
+							}
+							
 							Scanner tempScanner = new Scanner(tempFiles[threadBlock]);
-							
-							StringBuffer[] transposed = new StringBuffer[blockSize];
-							for (int marker = 0; marker < blockSize; marker++)
-								transposed[marker] = new StringBuffer(variants[threadBlock*cThreadBlockSize + marker]);
-							
 							while (tempScanner.hasNextLine()) {
 								String[] line = tempScanner.nextLine().split("\t");
 								for (int marker = 0; marker < line.length; marker++) {
