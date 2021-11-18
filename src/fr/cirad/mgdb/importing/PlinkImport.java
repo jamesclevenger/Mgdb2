@@ -17,6 +17,7 @@
 package fr.cirad.mgdb.importing;
 
 import java.io.File;
+import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.FileWriter;
 import java.io.IOException;
@@ -34,6 +35,9 @@ import java.util.Map;
 import java.util.Scanner;
 import java.util.StringTokenizer;
 import java.util.TreeSet;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -345,9 +349,9 @@ public class PlinkImport extends AbstractGenotypeImport {
 							if (fInconsistentData)
 								LOG.warn("Not adding inconsistent data: " + providedVariantId + " / " + individuals[nIndividualIndex]);
 
-							String genotype = splitLine[nIndividualIndex + 1];
-							alleles[0][nIndividualIndex] = fInconsistentData ? "0" : genotype.substring(0, 1);
-							alleles[1][nIndividualIndex++] = fInconsistentData ? "0" : genotype.substring(1, 2);
+							String[] genotype = splitLine[nIndividualIndex + 1].split("/");
+							alleles[0][nIndividualIndex] = fInconsistentData ? "0" : genotype[0];
+							alleles[1][nIndividualIndex++] = fInconsistentData ? "0" : genotype[1];
 						}
 
 						VariantRunData runToSave = addPlinkDataToVariant(mongoTemplate, variant, sequence, bpPosition, userIndividualToPopulationMap, alleles, project, sRun, previouslyCreatedSamples, fImportUnknownVariants);
@@ -402,7 +406,7 @@ public class PlinkImport extends AbstractGenotypeImport {
 		return count;
 	}
 
-	private File[] rotatePlinkPedFile(String[] variants, File pedFile, Map<String, String> userIndividualToPopulationMapToFill) throws IOException, WrongNumberArgsException
+	private File[] rotatePlinkPedFile(String[] variants, File pedFile, Map<String, String> userIndividualToPopulationMapToFill) throws InterruptedException, IOException, WrongNumberArgsException
 	{
 		long before = System.currentTimeMillis();
 		Runtime rt = Runtime.getRuntime();
@@ -411,91 +415,100 @@ public class PlinkImport extends AbstractGenotypeImport {
 		boolean fCalledFromCommandLine = stacktrace[stacktrace.length-1].getClassName().equals(getClass().getName()) && "main".equals(stacktrace[stacktrace.length-1].getMethodName());
 		
 		// we grant ourselves a portion of the currently available memory for reading data: this defines how many markers we treat at once
-		long allocatableMemory = (long) ((fCalledFromCommandLine ? .8 : .5) * (rt.maxMemory() - rt.totalMemory() + rt.freeMemory()));
+		//long allocatableMemory = (long) ((fCalledFromCommandLine ? .8 : .5) * (rt.maxMemory() - rt.totalMemory() + rt.freeMemory()));
+		rt.gc();
+		long allocatableMemory = (long) ((fCalledFromCommandLine ? 1 : .75) * rt.freeMemory());
 		float readableFilePortion = (float) allocatableMemory / pedFile.length();
-		int nMaxMarkersReadAtOnce = (int) (readableFilePortion * variants.length) / 4;
-		int nCurrentChunkIndex = 0, nNumberOfChunks = (int) Math.ceil((float) variants.length / nMaxMarkersReadAtOnce);
-		StringBuffer[] stringBuffers = null;
+		int nMaxMarkersReadAtOnce = (int) (readableFilePortion * variants.length) / 4;  // FIXME
 		
-		File outputFile = File.createTempFile(nCurrentChunkIndex + "-plinkImport" + pedFile.getName() + "-", ".tsv");
-		FileWriter fw = new FileWriter(outputFile);
-		int[] linePositions = new int[variants.length];
+		//File outputFile = File.createTempFile("plinkImport-" + pedFile.getName() + "-", ".tsv");
+		//FileWriter fw = new FileWriter(outputFile);
+		//int[] linePositions = new int[variants.length];
+				
+		int nConcurrentThreads = Math.max(1, Runtime.getRuntime().availableProcessors());
+		int threadBlockSize = Math.min((int)Math.ceil((float)nMaxMarkersReadAtOnce / nConcurrentThreads), variants.length);
+		int nThreadBlocks = (int)Math.ceil((float)variants.length / threadBlockSize);
 		
-		Pattern separator = Pattern.compile("([ \t]+)|($)");
+		File[] tempFiles = new File[nThreadBlocks];
+		for (int block = 0; block < nThreadBlocks; block++) {
+			tempFiles[block] = File.createTempFile(block + "-plinkImport-" + pedFile.getName() + "-", ".tsv");
+		}
+		
+		int nIndividuals = 0;
+		Scanner initScanner = new Scanner(pedFile);
+		while (initScanner.hasNextLine()) {
+			String[] splitLine = initScanner.nextLine().split("[ \t]+");
+			userIndividualToPopulationMapToFill.put(splitLine[1], splitLine[0]);
+			
+			int index = 6;
+			for (int block = 0; block < nThreadBlocks; block++) {
+				StringBuffer buffer = new StringBuffer();
+				for (int marker = 0; marker < threadBlockSize && index < 6 + 2*variants.length; marker++) {
+					buffer.append(splitLine[index++] + "/" + splitLine[index++] + "\t");
+				}
+				FileWriter tempWriter = new FileWriter(tempFiles[block], true);
+				tempWriter.write(buffer.toString() + "\n");
+				tempWriter.close();
+			}
+			nIndividuals += 1;
+		}
+		initScanner.close();
+		
+		System.out.println("threads: " + nConcurrentThreads + ", blocksize: " + threadBlockSize + ", blocks: " + nThreadBlocks + ", markers: " + nMaxMarkersReadAtOnce + ", files: " + tempFiles.length);
 		
 		try {
-			// Read the individual metadata and get the start position of the genotypes
-			int lineIndex = 0;
-			Scanner initScanner = new Scanner(pedFile);
-			while (initScanner.hasNextLine()) {
-				String line = initScanner.nextLine();
-				Matcher matcher = separator.matcher(line);
-				int lastPosition = 0;
-				String sPopulation = null, sIndividual = null;
-				for (int i = 0; i < 6; i++) {
-					matcher.find();
-					
-					if (i == 0)      sPopulation = line.substring(lastPosition, matcher.start());
-					else if (i == 1) sIndividual = line.substring(lastPosition, matcher.start());
-					
-					lastPosition = matcher.end();
-				}
-				userIndividualToPopulationMapToFill.put(sIndividual, sPopulation);
-				linePositions[lineIndex] = lastPosition;
-				lineIndex += 1;
-			}
-			initScanner.close();
-			
-			while (nCurrentChunkIndex < nNumberOfChunks) {
-				int nMarkersReadAtOnce = nCurrentChunkIndex == nNumberOfChunks - 1 ? variants.length % nMaxMarkersReadAtOnce : nMaxMarkersReadAtOnce;
-				if (nCurrentChunkIndex == 0/* || nCurrentChunkIndex == nNumberOfChunks - 1*/)
-					stringBuffers = new StringBuffer[nMarkersReadAtOnce];
-
-				for (int i=0; i<nMarkersReadAtOnce; i++)
-					stringBuffers[i] = new StringBuffer(variants[nCurrentChunkIndex*nMaxMarkersReadAtOnce + i]);
-				Scanner sc = new Scanner(pedFile);
-				
-				lineIndex = 0;
-				while (sc.hasNextLine()) {
-					String sLine = sc.nextLine();
-					Matcher matcher = separator.matcher(sLine);
-					int position = linePositions[lineIndex];
-					matcher.find(position);
-					for (int i=0; i<nMarkersReadAtOnce; i++) {
-						String allele1 = sLine.substring(position, matcher.start());
-						position = matcher.end();
-						matcher.find();
-													
-						String allele2 = sLine.substring(position, matcher.start());
-						position = matcher.end();
-						matcher.find();
-						
-						stringBuffers[i].append("\t" + allele1 + allele2);
+			final ExecutorService executor = Executors.newFixedThreadPool(nConcurrentThreads);
+			final int cIndividuals = nIndividuals;
+			for (int block = 0; block < nThreadBlocks; block++) {
+				final int threadBlock = block;
+				Thread transposeThread = new Thread() {
+					@Override
+					public void run() {
+						try {
+							int blockSize = (threadBlock == nThreadBlocks - 1) ? variants.length - (nThreadBlocks-1)*threadBlockSize : threadBlockSize;
+							Scanner tempScanner = new Scanner(tempFiles[threadBlock]);
+							String[][] transposed = new String[blockSize][cIndividuals];
+							int individual = 0;
+							while (tempScanner.hasNextLine()) {
+								String[] line = tempScanner.nextLine().split("\t");
+								//System.out.println(threadBlock + " - " + blockSize + " : " + line.length + " " + blockSize + ", " + individual + " " + cIndividuals);
+								for (int marker = 0; marker < line.length; marker++) {
+									transposed[marker][individual] = line[marker];
+								}
+								individual += 1;
+							}
+							tempScanner.close();
+							
+							FileWriter tempWriter = new FileWriter(tempFiles[threadBlock]);
+							for (int marker = 0; marker < blockSize; marker++) {
+								StringBuffer buffer = new StringBuffer(variants[threadBlock*threadBlockSize + marker]);
+								for (individual = 0; individual < cIndividuals; individual++) {
+									buffer.append("\t" + transposed[marker][individual]);
+								}
+								tempWriter.write(buffer.toString() + "\n");
+							}
+							tempWriter.close();
+						} catch (Throwable t) {
+							LOG.error(t);  // FIXME
+						}
 					}
-					linePositions[lineIndex] = position;
-					lineIndex += 1;
-				}
-				sc.close();
-				for (int i=0; i<nMarkersReadAtOnce; i++)
-					fw.write(stringBuffers[i].toString() + "\n");
+				};
 				
-				if (nCurrentChunkIndex != nNumberOfChunks - 1)
-					LOG.debug("rotatePlinkPedFile treated " + ((nCurrentChunkIndex+1) * nMaxMarkersReadAtOnce) + " markers in " + (System.currentTimeMillis() - before) + "ms");
-				nCurrentChunkIndex++;
+				executor.submit(transposeThread);
 			}
-		}
-		catch (Throwable t) {
-			if (outputFile != null)
-				outputFile.delete();
+			executor.shutdown();
+			executor.awaitTermination(Integer.MAX_VALUE, TimeUnit.DAYS);  // Whatever
+		} catch (Throwable t) {
+			for (File f : tempFiles) {
+				if (f != null)
+					f.delete();
+			}
 			throw t;
-		} finally {
-			fw.close();
 		}
+		
 		LOG.info("PED matrix transposition took " + (System.currentTimeMillis() - before) + "ms for " + variants.length + " markers and " + userIndividualToPopulationMapToFill.size() + " individuals");
 		
-		File[] outputFiles = new File[1];
-		outputFiles[0] = outputFile;
-		return outputFiles;
+		return tempFiles;
 	}
 
 	/**
