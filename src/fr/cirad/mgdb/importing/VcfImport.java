@@ -283,10 +283,7 @@ public class VcfImport extends AbstractGenotypeImport {
 				if (progress.getError() != null || progress.isAborted())
 					return null;
 
-                VariantContext vcfEntry = variantIterator.next();
-                if (fSkipMonomorphic && !vcfEntry.isVariant())
-                    continue; // skip non-variant positions				
-
+                VariantContext vcfEntry = variantIterator.next();	
                 if (vcfEntry.getCommonInfo().hasAttribute(""))
                 	vcfEntry.getCommonInfo().removeAttribute("");	// working around cases where the info field accidentally ends with a semicolon
                 
@@ -299,6 +296,10 @@ public class VcfImport extends AbstractGenotypeImport {
 						if (variantId != null)
 							break;
 					}
+					
+                   if (variantId == null && fSkipMonomorphic && !vcfEntry.isVariant())
+                        continue; // skip non-variant positions that are not already known
+					
                     VariantData variant = variantId == null ? null : mongoTemplate.findById(variantId, VariantData.class);
                     if (variant == null)
                 		variant = new VariantData(vcfEntry.hasID() ? ((ObjectId.isValid(vcfEntry.getID()) ? "_" : "") + vcfEntry.getID()) : (generatedIdBaseString + String.format(String.format("%09x", count))));

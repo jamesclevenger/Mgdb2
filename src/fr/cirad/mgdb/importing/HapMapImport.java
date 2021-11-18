@@ -232,9 +232,6 @@ public class HapMapImport extends AbstractGenotypeImport {
 					return null;
 
 				RawHapMapFeature hmFeature = it.next();
-                if (fSkipMonomorphic && Arrays.asList(hmFeature.getGenotypes()).stream().filter(gt -> !"NA".equals(gt) && !"NN".equals(gt)).distinct().count() < 2)
-                    continue; // skip non-variant positions
-				
 				if (sampleIds == null)
 				    sampleIds = hmFeature.getSampleIDs();
 
@@ -247,6 +244,10 @@ public class HapMapImport extends AbstractGenotypeImport {
 						if (variantId != null)
 							break;
 					}
+
+					if (variantId == null && fSkipMonomorphic && Arrays.asList(hmFeature.getGenotypes()).stream().filter(gt -> !"NA".equals(gt) && !"NN".equals(gt)).distinct().count() < 2)
+	                    continue; // skip non-variant positions that are not already known
+
 					VariantData variant = variantId == null ? null : mongoTemplate.findById(variantId, VariantData.class);
 					if (variant == null)
 						variant = new VariantData(hmFeature.getName() != null && hmFeature.getName().length() > 0 ? ((ObjectId.isValid(hmFeature.getName()) ? "_" : "") + hmFeature.getName()) : (generatedIdBaseString + String.format(String.format("%09x", count))));

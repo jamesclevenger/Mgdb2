@@ -32,7 +32,6 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Scanner;
-import java.util.StringTokenizer;
 import java.util.TreeSet;
 import java.util.stream.Collectors;
 
@@ -292,9 +291,6 @@ public class PlinkImport extends AbstractGenotypeImport {
 						return count;
 
 					String[] splitLine = scanner.nextLine().split("\t");
-	                if (fSkipMonomorphic && Arrays.asList(Arrays.copyOfRange(splitLine, 1, splitLine.length)).stream().filter(gt -> !"00".equals(gt)).distinct().count() < 2)
-	                    continue; // skip non-variant positions
-
 					String providedVariantId = splitLine[0];
 
 					String[] seqAndPos = variantsAndPositions.get(providedVariantId).split("\t");
@@ -321,6 +317,9 @@ public class PlinkImport extends AbstractGenotypeImport {
 							break;
 					}
 
+					if (variantId == null && fSkipMonomorphic && Arrays.asList(Arrays.copyOfRange(splitLine, 1, splitLine.length)).stream().filter(gt -> !"00".equals(gt)).distinct().count() < 2)
+					    continue; // skip non-variant positions that are not already known
+	                   
 					if (variantId == null && !fImportUnknownVariants)
 						LOG.warn("Skipping unknown variant: " + providedVariantId);
 					else if (variantId != null && variantId.toString().startsWith("*"))
@@ -330,7 +329,8 @@ public class PlinkImport extends AbstractGenotypeImport {
 					}
 					else
 					{
-						VariantData variant = mongoTemplate.findById(variantId == null ? providedVariantId : variantId, VariantData.class);							
+						VariantData variant = mongoTemplate.findById(variantId == null ? providedVariantId : variantId, VariantData.class);
+						
 						if (variant == null)
 							variant = new VariantData((ObjectId.isValid(providedVariantId) ? "_" : "") + providedVariantId);
 
