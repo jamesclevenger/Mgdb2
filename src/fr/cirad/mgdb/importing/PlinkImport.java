@@ -399,9 +399,9 @@ public class PlinkImport extends AbstractGenotypeImport {
 		finally
 		{
 			scanner.close();
-			for (File f : tempFiles)
+			/*for (File f : tempFiles)
 				if (f != null)
-					f.delete();
+					f.delete();*/
 		}
 		return count;
 	}
@@ -415,26 +415,31 @@ public class PlinkImport extends AbstractGenotypeImport {
 		boolean fCalledFromCommandLine = stacktrace[stacktrace.length-1].getClassName().equals(getClass().getName()) && "main".equals(stacktrace[stacktrace.length-1].getMethodName());
 		
 		// we grant ourselves a portion of the currently available memory for reading data: this defines how many markers we treat at once
-		//long allocatableMemory = (long) ((fCalledFromCommandLine ? .8 : .5) * (rt.maxMemory() - rt.totalMemory() + rt.freeMemory()));
 		rt.gc();
-		long allocatableMemory = (long) ((fCalledFromCommandLine ? 1 : .75) * rt.freeMemory());
+		long allocatableMemory = (long) ((fCalledFromCommandLine ? .8 : .5) * (rt.maxMemory() - rt.totalMemory() + rt.freeMemory()));
 		float readableFilePortion = (float) allocatableMemory / pedFile.length();
-		int nMaxMarkersReadAtOnce = (int) (readableFilePortion * variants.length) / 4;  // FIXME
+		int nMaxMarkersReadAtOnce = (int) (readableFilePortion * variants.length) / 5;  // FIXME
 		
 		//File outputFile = File.createTempFile("plinkImport-" + pedFile.getName() + "-", ".tsv");
 		//FileWriter fw = new FileWriter(outputFile);
 		//int[] linePositions = new int[variants.length];
-				
+		
 		int nConcurrentThreads = Math.max(1, Runtime.getRuntime().availableProcessors());
 		int threadBlockSize = Math.min((int)Math.ceil((float)nMaxMarkersReadAtOnce / nConcurrentThreads), variants.length);
 		int nThreadBlocks = (int)Math.ceil((float)variants.length / threadBlockSize);
 		
+		// Optimize by splitting in a number of blocks multiple of the available processors
+		nThreadBlocks = (int)Math.ceil((float)nThreadBlocks / nConcurrentThreads) * nConcurrentThreads;
+		threadBlockSize = (int)Math.ceil((float)variants.length / nThreadBlocks);
+		
 		File[] tempFiles = new File[nThreadBlocks];
+		FileWriter[] tempWriters = new FileWriter[nThreadBlocks];
 		for (int block = 0; block < nThreadBlocks; block++) {
 			tempFiles[block] = File.createTempFile(block + "-plinkImport-" + pedFile.getName() + "-", ".tsv");
+			tempWriters[block] = new FileWriter(tempFiles[block]);
 		}
 		
-		int nIndividuals = 0;
+		//int nIndividuals = 0;
 		Scanner initScanner = new Scanner(pedFile);
 		while (initScanner.hasNextLine()) {
 			String[] splitLine = initScanner.nextLine().split("[ \t]+");
@@ -446,46 +451,47 @@ public class PlinkImport extends AbstractGenotypeImport {
 				for (int marker = 0; marker < threadBlockSize && index < 6 + 2*variants.length; marker++) {
 					buffer.append(splitLine[index++] + "/" + splitLine[index++] + "\t");
 				}
-				FileWriter tempWriter = new FileWriter(tempFiles[block], true);
-				tempWriter.write(buffer.toString() + "\n");
-				tempWriter.close();
+				tempWriters[block].write(buffer.toString() + "\n");
 			}
-			nIndividuals += 1;
+			//nIndividuals += 1;
+		}
+		
+		for (int block = 0; block < nThreadBlocks; block++) {
+			tempWriters[block].close();
 		}
 		initScanner.close();
 		
+		System.out.println("File cleaning and splitting successful in " + (System.currentTimeMillis() - before) + "ms");
 		System.out.println("threads: " + nConcurrentThreads + ", blocksize: " + threadBlockSize + ", blocks: " + nThreadBlocks + ", markers: " + nMaxMarkersReadAtOnce + ", files: " + tempFiles.length);
 		
 		try {
 			final ExecutorService executor = Executors.newFixedThreadPool(nConcurrentThreads);
-			final int cIndividuals = nIndividuals;
+			final int cThreadBlocks = nThreadBlocks;
+			final int cThreadBlockSize = threadBlockSize;
 			for (int block = 0; block < nThreadBlocks; block++) {
 				final int threadBlock = block;
 				Thread transposeThread = new Thread() {
 					@Override
 					public void run() {
 						try {
-							int blockSize = (threadBlock == nThreadBlocks - 1) ? variants.length - (nThreadBlocks-1)*threadBlockSize : threadBlockSize;
+							int blockSize = (threadBlock == cThreadBlocks - 1) ? variants.length - (cThreadBlocks-1)*cThreadBlockSize : cThreadBlockSize;
 							Scanner tempScanner = new Scanner(tempFiles[threadBlock]);
-							String[][] transposed = new String[blockSize][cIndividuals];
-							int individual = 0;
+							
+							StringBuffer[] transposed = new StringBuffer[blockSize];
+							for (int marker = 0; marker < blockSize; marker++)
+								transposed[marker] = new StringBuffer(variants[threadBlock*cThreadBlockSize + marker]);
+							
 							while (tempScanner.hasNextLine()) {
 								String[] line = tempScanner.nextLine().split("\t");
-								//System.out.println(threadBlock + " - " + blockSize + " : " + line.length + " " + blockSize + ", " + individual + " " + cIndividuals);
 								for (int marker = 0; marker < line.length; marker++) {
-									transposed[marker][individual] = line[marker];
+									transposed[marker].append("\t" + line[marker]);
 								}
-								individual += 1;
 							}
 							tempScanner.close();
 							
 							FileWriter tempWriter = new FileWriter(tempFiles[threadBlock]);
 							for (int marker = 0; marker < blockSize; marker++) {
-								StringBuffer buffer = new StringBuffer(variants[threadBlock*threadBlockSize + marker]);
-								for (individual = 0; individual < cIndividuals; individual++) {
-									buffer.append("\t" + transposed[marker][individual]);
-								}
-								tempWriter.write(buffer.toString() + "\n");
+								tempWriter.write(transposed[marker].toString() + "\n");
 							}
 							tempWriter.close();
 						} catch (Throwable t) {
