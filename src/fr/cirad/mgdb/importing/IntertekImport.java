@@ -338,7 +338,9 @@ public class IntertekImport extends AbstractGenotypeImport {
                 VariantRunData vrd = new VariantRunData(new VariantRunData.VariantRunDataId(project.getId(), sRun, variant.getVariantId()));
                 vrd.setKnownAlleleList(variant.getKnownAlleleList());
                 vrd.setSampleGenotypes(variantSamplesMap.get(variant.getVariantId()));
-                vrd.setType(Type.SNP.toString());
+                vrd.setType(variant.getType());
+                vrd.setReferencePosition(variant.getReferencePosition());                
+                vrd.setSynonyms(variant.getSynonyms());
                 variantRunsChunk.add(vrd);
                 variantsChunk.add(variant);
 
