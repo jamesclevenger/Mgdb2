@@ -415,16 +415,16 @@ public class PlinkImport extends AbstractGenotypeImport {
 		rt.gc();
 		long allocatableMemory = (long) ((fCalledFromCommandLine ? .8 : .5) * (rt.maxMemory() - rt.totalMemory() + rt.freeMemory()));
 		float readableFilePortion = (float) allocatableMemory / pedFile.length();
-		int nMaxMarkersReadAtOnce = (int) (readableFilePortion * variants.length) / 2;
+		int nMaxMarkersReadAtOnce = (int) (readableFilePortion * variants.length) / 3;
 		
 		int nConcurrentThreads = Math.max(1, Runtime.getRuntime().availableProcessors());
 		int threadBlockSize = Math.min((int)Math.ceil((float)nMaxMarkersReadAtOnce / nConcurrentThreads), variants.length);
 		int nThreadBlocks = (int)Math.ceil((float)variants.length / threadBlockSize);
-		nConcurrentThreads = Math.min(nConcurrentThreads, nThreadBlocks);
+		//nConcurrentThreads = Math.min(nConcurrentThreads, nThreadBlocks);
 		
 		// Optimize by splitting in a number of blocks multiple of the available processors
-		//nThreadBlocks = (int)Math.ceil((float)nThreadBlocks / nConcurrentThreads) * nConcurrentThreads;
-		//threadBlockSize = (int)Math.ceil((float)variants.length / nThreadBlocks);
+		nThreadBlocks = (int)Math.ceil((float)nThreadBlocks / nConcurrentThreads) * nConcurrentThreads;
+		threadBlockSize = (int)Math.ceil((float)variants.length / nThreadBlocks);
 				
 		File outputFile = File.createTempFile("plinkImport-" + pedFile.getName() + "-", ".tsv");
 		FileWriter outputWriter = new FileWriter(outputFile);
@@ -442,7 +442,7 @@ public class PlinkImport extends AbstractGenotypeImport {
 				public void run() {
 					try {
 						int blockSize = (cBlock == cThreadBlocks - 1) ? variants.length - cBlock*cThreadBlockSize : cThreadBlockSize;
-						int blockStart = cBlock * cThreadBlockSize * 2 + 6;
+						int blockStart = cBlock * cThreadBlockSize*2 + 6;
 						
 						BufferedReader reader = new BufferedReader(new FileReader(pedFile));
 						StringBuilder[] transposed = new StringBuilder[blockSize];
@@ -466,9 +466,10 @@ public class PlinkImport extends AbstractGenotypeImport {
 								//	append() the substrings sequentially, and take toString(),
 								//	so it's significantly faster to append the substrings directly to our
 								//	own StringBuilder that is already created and fully allocated
-								transposed[marker].append('\t');
+								//	Chars are converted to string before appending, so we may as well pass them directly as strings
+								transposed[marker].append("\t");
 								transposed[marker].append(alleles[column]);
-								transposed[marker].append('/');
+								transposed[marker].append("/");
 								transposed[marker].append(alleles[column + 1]);
 							}
 						}
@@ -476,7 +477,7 @@ public class PlinkImport extends AbstractGenotypeImport {
 						
 						synchronized (outputWriter) {
 							for (StringBuilder variantLine : transposed) {
-								variantLine.append('\n');
+								variantLine.append("\n");
 								outputWriter.write(variantLine.toString());
 							}
 						}
