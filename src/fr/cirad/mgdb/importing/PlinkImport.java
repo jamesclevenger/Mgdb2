@@ -480,45 +480,56 @@ public class PlinkImport extends AbstractGenotypeImport {
 						String line;
 						int individual = 0;
 						while ((line = reader.readLine()) != null) {
-							Matcher matcher = allelePattern.matcher(line);
 							int[] individualPositions = blockPositions.get(individual);
-							int startPosition = individualPositions[0];
-							int startBlock = 0;
-							for (int i = cBlock; i >= 1; i--) {
-								if (individualPositions[i] >= 0) {
-									startPosition = individualPositions[i];
-									startBlock = i;
-									break;
+							// Trivial case : 1 character per allele, 1 character per separator
+							if (line.length() - individualPositions[0] == 4*variants.length) {
+								System.out.println("Trivial !");
+								for (int marker = 0; marker < blockSize; marker++) {
+									transposed[marker].append("\t");
+									transposed[marker].append(line.charAt(individualPositions[0] + 1 + 4*marker));
+									transposed[marker].append("/");
+									transposed[marker].append(line.charAt(individualPositions[0] + 3 + 4*marker));
 								}
-							}
-							
-							matcher.find(startPosition);
-							for (int b = startBlock; b < cBlock; b++) {
-								for (int i = 0; i < cThreadBlockSize; i++) {
-									matcher.find();
-									matcher.find();
+							} else {
+								Matcher matcher = allelePattern.matcher(line);
+								int startPosition = individualPositions[0];
+								int startBlock = 0;
+								for (int i = cBlock; i >= 1; i--) {
+									if (individualPositions[i] >= 0) {
+										startPosition = individualPositions[i];
+										startBlock = i;
+										break;
+									}
 								}
 								
-								if (individualPositions[b + 1] < 0)
-									individualPositions[b + 1] = matcher.start();
+								matcher.find(startPosition);
+								for (int b = startBlock; b < cBlock; b++) {
+									for (int i = 0; i < cThreadBlockSize; i++) {
+										matcher.find();
+										matcher.find();
+									}
+									
+									if (individualPositions[b + 1] < 0)
+										individualPositions[b + 1] = matcher.start();
+								}
+														
+								for (int marker = 0; marker < blockSize; marker++) {
+									// Optimisation : internally, str1 + str2 + str3 + …
+									//	is implemented as creating a StringBuilder without known capacity
+									//	append() the substrings sequentially, and take toString(),
+									//	so it's significantly faster to append the substrings directly to our
+									//	own StringBuilder that is already created and fully allocated
+									//	Chars are converted to string before appending, so we may as well pass them directly as strings
+									transposed[marker].append("\t");
+									transposed[marker].append(matcher.group());
+									matcher.find();
+									transposed[marker].append("/");
+									transposed[marker].append(matcher.group());
+									matcher.find();
+								}
+								if (cBlock < cThreadBlocks - 1)
+									individualPositions[cBlock + 1] = matcher.start();
 							}
-													
-							for (int marker = 0; marker < blockSize; marker++) {
-								// Optimisation : internally, str1 + str2 + str3 + …
-								//	is implemented as creating a StringBuilder without known capacity
-								//	append() the substrings sequentially, and take toString(),
-								//	so it's significantly faster to append the substrings directly to our
-								//	own StringBuilder that is already created and fully allocated
-								//	Chars are converted to string before appending, so we may as well pass them directly as strings
-								transposed[marker].append("\t");
-								transposed[marker].append(matcher.group());
-								matcher.find();
-								transposed[marker].append("/");
-								transposed[marker].append(matcher.group());
-								matcher.find();
-							}
-							if (cBlock < cThreadBlocks - 1)
-								individualPositions[cBlock + 1] = matcher.start();
 							individual += 1;
 						}
 						reader.close();
