@@ -488,6 +488,7 @@ public class PlinkImport extends AbstractGenotypeImport {
 									transposed[marker].append("/");
 									transposed[marker].append(line.charAt(individualPositions[0] + 3 + 4*marker));
 								}
+							// Non-trivial case : INDELs and/or multi-characters separators
 							} else {
 								Matcher matcher = allelePattern.matcher(line);
 								
