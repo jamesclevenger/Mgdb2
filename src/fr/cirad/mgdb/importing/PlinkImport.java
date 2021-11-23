@@ -16,9 +16,11 @@
  *******************************************************************************/
 package fr.cirad.mgdb.importing;
 
+import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
+import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.net.URL;
@@ -401,8 +403,102 @@ public class PlinkImport extends AbstractGenotypeImport {
 		}
 		return count;
 	}
+	
+	private File[] rotatePlinkPedFile(String[] variants, File pedFile, Map<String, String> userIndividualToPopulationMapToFill) throws InterruptedException, IOException {
+		long before = System.currentTimeMillis();
+		Runtime rt = Runtime.getRuntime();
+		
+		StackTraceElement[] stacktrace = Thread.currentThread().getStackTrace();
+		boolean fCalledFromCommandLine = stacktrace[stacktrace.length-1].getClassName().equals(getClass().getName()) && "main".equals(stacktrace[stacktrace.length-1].getMethodName());
+		
+		// we grant ourselves a portion of the currently available memory for reading data: this defines how many markers we treat at once
+		rt.gc();
+		long allocatableMemory = (long) ((fCalledFromCommandLine ? .8 : .5) * (rt.maxMemory() - rt.totalMemory() + rt.freeMemory()));
+		float readableFilePortion = (float) allocatableMemory / pedFile.length();
+		int nMaxMarkersReadAtOnce = (int) (readableFilePortion * variants.length) / 2;
+		
+		int nConcurrentThreads = Math.max(1, Runtime.getRuntime().availableProcessors());
+		int threadBlockSize = Math.min((int)Math.ceil((float)nMaxMarkersReadAtOnce / nConcurrentThreads), variants.length);
+		int nThreadBlocks = (int)Math.ceil((float)variants.length / threadBlockSize);
+		nConcurrentThreads = Math.min(nConcurrentThreads, nThreadBlocks);
+		
+		// Optimize by splitting in a number of blocks multiple of the available processors
+		//nThreadBlocks = (int)Math.ceil((float)nThreadBlocks / nConcurrentThreads) * nConcurrentThreads;
+		//threadBlockSize = (int)Math.ceil((float)variants.length / nThreadBlocks);
+				
+		File outputFile = File.createTempFile("plinkImport-" + pedFile.getName() + "-", ".tsv");
+		FileWriter outputWriter = new FileWriter(outputFile);
+		
+		System.out.println("threads: " + nConcurrentThreads + ", blocksize: " + threadBlockSize + ", blocks: " + nThreadBlocks + ", markers: " + nMaxMarkersReadAtOnce);
+		
+		ExecutorService executor = Executors.newFixedThreadPool(nConcurrentThreads);
+		final int cThreadBlocks = nThreadBlocks;
+		final int cThreadBlockSize = threadBlockSize;
+		final int cInitialCapacity = (int)(1.10 * pedFile.length() / variants.length);  // The +10% is arbitrary
+		for (int block = 0; block < nThreadBlocks; block++) {
+			final int cBlock = block;
+			Thread transposeThread = new Thread() {
+				@Override
+				public void run() {
+					try {
+						int blockSize = (cBlock == cThreadBlocks - 1) ? variants.length - cBlock*cThreadBlockSize : cThreadBlockSize;
+						int blockStart = cBlock * cThreadBlockSize * 2 + 6;
+						
+						BufferedReader reader = new BufferedReader(new FileReader(pedFile));
+						StringBuilder[] transposed = new StringBuilder[blockSize];
+						for (int marker = 0; marker < blockSize; marker++) {
+							transposed[marker] = new StringBuilder(cInitialCapacity);
+							transposed[marker].append(variants[cBlock*cThreadBlockSize + marker]);
+						}
+						
+						String line;
+						while ((line = reader.readLine()) != null) {
+							String[] alleles = line.split("\\s+", blockStart + blockSize*2 + 1);
+							if (cBlock == 0)
+								userIndividualToPopulationMapToFill.put(alleles[1], alleles[0]);
+							
+							for (int marker = 0; marker < blockSize; marker++) {
+								int column = blockStart + 2*marker;
+								// transposed[marker].append("\t" + alleles[column] + "/" + alleles[column + 1]);
+								
+								// Optimisation : internally, str1 + str2 + str3 + …
+								//	is implemented as creating a StringBuilder without known capacity
+								//	append() the substrings sequentially, and take toString(),
+								//	so it's significantly faster to append the substrings directly to our
+								//	own StringBuilder that is already created and fully allocated
+								transposed[marker].append('\t');
+								transposed[marker].append(alleles[column]);
+								transposed[marker].append('/');
+								transposed[marker].append(alleles[column + 1]);
+							}
+						}
+						reader.close();
+						
+						synchronized (outputWriter) {
+							for (StringBuilder variantLine : transposed) {
+								variantLine.append('\n');
+								outputWriter.write(variantLine.toString());
+							}
+						}
+					} catch (IOException e) {
+						e.printStackTrace();
+					}
+				}
+			};
+			
+			executor.execute(transposeThread);
+		}
+		executor.shutdown();
+		executor.awaitTermination(Integer.MAX_VALUE, TimeUnit.DAYS);
+		outputWriter.close();
+		
+		LOG.info("PED matrix transposition took " + (System.currentTimeMillis() - before) + "ms for " + variants.length + " markers and " + userIndividualToPopulationMapToFill.size() + " individuals");
+		
+		File[] tempFiles = {outputFile};
+		return tempFiles;
+	}
 
-	private File[] rotatePlinkPedFile(String[] variants, File pedFile, Map<String, String> userIndividualToPopulationMapToFill) throws InterruptedException, IOException, WrongNumberArgsException
+	private File[] badRotatePlinkPedFile(String[] variants, File pedFile, Map<String, String> userIndividualToPopulationMapToFill) throws InterruptedException, IOException
 	{
 		long before = System.currentTimeMillis();
 		Runtime rt = Runtime.getRuntime();
@@ -612,7 +708,7 @@ public class PlinkImport extends AbstractGenotypeImport {
 	}
 	
 	/* FIXME: this mechanism could be improved to "fill holes" when genotypes are provided for some synonyms but not others (currently we import them all so the last encountered one "wins") */ 
-	private HashMap<String, ArrayList<String>> checkSynonymGenotypeConsistency(File[] tempFiles, HashMap<String, String> existingVariantIDs, Collection<String> individualsInProvidedOrder, String outputPathAndPrefix) throws IOException, WrongNumberArgsException
+	private HashMap<String, ArrayList<String>> checkSynonymGenotypeConsistency(File[] tempFiles, HashMap<String, String> existingVariantIDs, Collection<String> individualsInProvidedOrder, String outputPathAndPrefix) throws IOException
 	{
 		long b4 = System.currentTimeMillis();
 		LOG.info("Checking genotype consistency between synonyms...");
