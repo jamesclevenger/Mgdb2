@@ -399,9 +399,9 @@ public class PlinkImport extends AbstractGenotypeImport {
 		finally
 		{
 			scanner.close();
-			/*for (File f : tempFiles)
+			for (File f : tempFiles)
 				if (f != null)
-					f.delete();*/
+					f.delete();
 		}
 		return count;
 	}
