@@ -39,6 +39,8 @@ import java.util.TreeSet;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 import org.apache.log4j.Logger;
@@ -431,6 +433,30 @@ public class PlinkImport extends AbstractGenotypeImport {
 		
 		System.out.println("threads: " + nConcurrentThreads + ", blocksize: " + threadBlockSize + ", blocks: " + nThreadBlocks + ", markers: " + nMaxMarkersReadAtOnce);
 		
+		Pattern allelePattern = Pattern.compile("[^ \t]+");
+		
+		HashMap<Integer, int[]> blockPositions = new HashMap<Integer, int[]>();
+		BufferedReader reader = new BufferedReader(new FileReader(pedFile));
+		String initLine;
+		int individual = 0;
+		while ((initLine = reader.readLine()) != null) {
+			Matcher initMatcher = allelePattern.matcher(initLine);
+			initMatcher.find();
+			String sPopulation = initMatcher.group();
+			initMatcher.find();
+			String sIndividual = initMatcher.group();
+			userIndividualToPopulationMapToFill.put(sIndividual, sPopulation);
+			
+			for (int i = 0; i < 4; i++) initMatcher.find();
+			int[] positions = new int[nThreadBlocks];
+			Arrays.fill(positions, -1);
+			positions[0] = initMatcher.end();
+			blockPositions.put(individual, positions);
+			
+			individual += 1;
+		}
+		reader.close();
+		
 		ExecutorService executor = Executors.newFixedThreadPool(nConcurrentThreads);
 		final int cThreadBlocks = nThreadBlocks;
 		final int cThreadBlockSize = threadBlockSize;
@@ -442,7 +468,7 @@ public class PlinkImport extends AbstractGenotypeImport {
 				public void run() {
 					try {
 						int blockSize = (cBlock == cThreadBlocks - 1) ? variants.length - cBlock*cThreadBlockSize : cThreadBlockSize;
-						int blockStart = cBlock * cThreadBlockSize*2 + 6;
+						//int blockStart = cBlock * cThreadBlockSize*2 + 6;
 						
 						BufferedReader reader = new BufferedReader(new FileReader(pedFile));
 						StringBuilder[] transposed = new StringBuilder[blockSize];
@@ -452,15 +478,32 @@ public class PlinkImport extends AbstractGenotypeImport {
 						}
 						
 						String line;
+						int individual = 0;
 						while ((line = reader.readLine()) != null) {
-							String[] alleles = line.split("\\s+", blockStart + blockSize*2 + 1);
-							if (cBlock == 0)
-								userIndividualToPopulationMapToFill.put(alleles[1], alleles[0]);
+							Matcher matcher = allelePattern.matcher(line);
+							int[] individualPositions = blockPositions.get(individual);
+							int startPosition = individualPositions[0];
+							int startBlock = 0;
+							for (int i = cBlock; i >= 1; i--) {
+								if (individualPositions[i] >= 0) {
+									startPosition = individualPositions[i];
+									startBlock = i;
+									break;
+								}
+							}
 							
-							for (int marker = 0; marker < blockSize; marker++) {
-								int column = blockStart + 2*marker;
-								// transposed[marker].append("\t" + alleles[column] + "/" + alleles[column + 1]);
+							matcher.find(startPosition);
+							for (int b = startBlock; b < cBlock; b++) {
+								for (int i = 0; i < cThreadBlockSize; i++) {
+									matcher.find();
+									matcher.find();
+								}
 								
+								if (individualPositions[b + 1] < 0)
+									individualPositions[b + 1] = matcher.start();
+							}
+													
+							for (int marker = 0; marker < blockSize; marker++) {
 								// Optimisation : internally, str1 + str2 + str3 + …
 								//	is implemented as creating a StringBuilder without known capacity
 								//	append() the substrings sequentially, and take toString(),
@@ -468,10 +511,15 @@ public class PlinkImport extends AbstractGenotypeImport {
 								//	own StringBuilder that is already created and fully allocated
 								//	Chars are converted to string before appending, so we may as well pass them directly as strings
 								transposed[marker].append("\t");
-								transposed[marker].append(alleles[column]);
+								transposed[marker].append(matcher.group());
+								matcher.find();
 								transposed[marker].append("/");
-								transposed[marker].append(alleles[column + 1]);
+								transposed[marker].append(matcher.group());
+								matcher.find();
 							}
+							if (cBlock < cThreadBlocks - 1)
+								individualPositions[cBlock + 1] = matcher.start();
+							individual += 1;
 						}
 						reader.close();
 						
