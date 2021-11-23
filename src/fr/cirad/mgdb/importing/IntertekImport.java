@@ -223,6 +223,7 @@ public class IntertekImport extends AbstractGenotypeImport {
                 boolean dataPart = false;
                 String[] values;
                 int i = 0;
+                int nPloidy = 0;
                 while ((values = csvReader.readNext()) != null) {
                     i = i+1;
                     if (Arrays.asList(values).containsAll(Arrays.asList(snpHeader))) {
@@ -238,10 +239,11 @@ public class IntertekImport extends AbstractGenotypeImport {
                                 variant = new VariantData(variantId);
                                 List<String> alleles = Arrays.asList(values[yColIndex], values[xColIndex]);
                                 variant.setKnownAlleleList(alleles);
-                                variant.setType(Type.SNP.toString());                                                                
-                            }
+                                variant.setType(Type.SNP.toString());                                                               
+                            }                            
                             variantsToSave.add(variant);
-                            variantAllelesMap.put(variantId, variant.getKnownAlleleList());                           
+                            variantAllelesMap.put(variantId, variant.getKnownAlleleList());
+                            project.getAlleleCounts().add(variant.getKnownAlleleList().size());
                         }
 
                         if (Arrays.asList(values).containsAll(Arrays.asList(dataHeader))) {
@@ -279,6 +281,13 @@ public class IntertekImport extends AbstractGenotypeImport {
                                             }
                                         }
                                         gtCode = String.join("/", gt);
+                                        if (nPloidy == 0) {
+                                            nPloidy = alleles.size();
+                                        } else {
+                                            if (nPloidy != alleles.size()) {
+                                                throw new Exception("Ploidy levels differ between variants");
+                                            }
+                                        }
                                     }                      
 
                                     if (samples.get(individualId) == null) {
@@ -307,6 +316,7 @@ public class IntertekImport extends AbstractGenotypeImport {
                         }
                     }
                 }
+                project.setPloidyLevel(nPloidy);
                 csvReader.close();
             }
 
