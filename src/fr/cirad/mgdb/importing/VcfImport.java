@@ -471,6 +471,10 @@ public class VcfImport extends AbstractGenotypeImport {
         
         // genotype fields
         Iterator<Genotype> genotypes = vc.getGenotypesOrderedByName().iterator();
+        Map<String, Integer> knownAlleleStringToIndexMap = new HashMap<>();
+        for (int i=0; i<knownAlleleList.size(); i++)
+            knownAlleleStringToIndexMap.put(knownAlleleList.get(i), i);
+
         while (genotypes.hasNext()) {
             Genotype genotype = genotypes.next();
 
@@ -495,13 +499,13 @@ public class VcfImport extends AbstractGenotypeImport {
             
             List<String> gtAllelesAsStrings = genotype.getAlleles().stream().map(allele -> allele.getBaseString()).collect(Collectors.toList());
             
-            String gtCode = VariantData.rebuildVcfFormatGenotype(knownAlleleList, gtAllelesAsStrings, isPhased, false);
+            String gtCode = VariantData.rebuildVcfFormatGenotype(knownAlleleStringToIndexMap, gtAllelesAsStrings, isPhased, false);
             if ("1/0".equals(gtCode))
             	gtCode = "0/1";	// convert to "0/1" so that MAF queries can work reliably
 
             SampleGenotype aGT = new SampleGenotype(gtCode);
             if (isPhased) {
-                aGT.getAdditionalInfo().put(VariantData.GT_FIELD_PHASED_GT, VariantData.rebuildVcfFormatGenotype(knownAlleleList, gtAllelesAsStrings, isPhased, true));
+                aGT.getAdditionalInfo().put(VariantData.GT_FIELD_PHASED_GT, VariantData.rebuildVcfFormatGenotype(knownAlleleStringToIndexMap, gtAllelesAsStrings, isPhased, true));
                 aGT.getAdditionalInfo().put(VariantData.GT_FIELD_PHASED_ID, phasingGroup.get(sIndividual));
             }
             if (genotype.hasGQ()) {

@@ -29,6 +29,7 @@ import java.io.FileWriter;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
@@ -479,19 +480,15 @@ abstract public class AbstractVariantData
 	 */
 	static public List<String> staticGetAllelesFromGenotypeCode(List<String> alleleList, String code) throws NoSuchElementException
 	{
-		ArrayList<String> result = new ArrayList<String>();
-		if (code != null)
-		{
-			for (String alleleCodeIndex : Helper.split(code.replaceAll("\\|", "/"), "/"))
-			{
-				int nAlleleCodeIndex = Integer.parseInt(alleleCodeIndex);
-				if (alleleList.size() > nAlleleCodeIndex)
-					result.add(alleleList.get(nAlleleCodeIndex));
-				else
-					throw new NoSuchElementException("Variant has no allele number " + nAlleleCodeIndex);
-			}
-		}
-		return result;
+		if (code == null)
+		    return new ArrayList<String>();
+
+		try	{
+			return Arrays.stream(code.split("[\\|/]")).map(alleleCodeIndex -> alleleList.get(Integer.parseInt(alleleCodeIndex))).collect(Collectors.toList());
+        }
+        catch (IndexOutOfBoundsException ioobe) {
+            throw new NoSuchElementException("Variant has no such allele: " + ioobe.getMessage());
+        }
 	}
 
 	/**
@@ -541,35 +538,28 @@ abstract public class AbstractVariantData
 	/**
 	 * Rebuild vcf format genotype.
 	 *
-	 * @param alternates the alternates
+	 * @param knownAlleleStringToIndexMap map providing the index corresponding to each allele
 	 * @param genotypeAlleles the genotype alleles
 	 * @param fPhased whether or not the genotype is phased
 	 * @param keepCurrentPhasingInfo the keep current phasing info
 	 * @return the string
 	 * @throws Exception the exception
 	 */
-	public static String rebuildVcfFormatGenotype(List<String> knownAlleleList, List<String> genotypeAlleles, boolean fPhased, boolean keepCurrentPhasingInfo) throws Exception
+	public static String rebuildVcfFormatGenotype(Map<String, Integer> knownAlleleStringToIndexMap, List<String> genotypeAlleles, boolean fPhased, boolean keepCurrentPhasingInfo) throws Exception
 	{
-		String result = "";
-		List<String> orderedGenotypeAlleles = new ArrayList<String>();
-		orderedGenotypeAlleles.addAll(genotypeAlleles);
-		mainLoop: for (String gtA : orderedGenotypeAlleles)
-		{
-			String separator = keepCurrentPhasingInfo && fPhased ? "|" : "/";
-			for (int i=0; i<knownAlleleList.size(); i++)
-			{
-				String allele = knownAlleleList.get(i);
-				if (allele.equals(gtA))
-				{
-					result += (result.length() == 0 ? "" : separator) + i;
-					continue mainLoop;						
-				}
-			}
-			if (!GT_FIELDVAL_AL_MISSING.equals(gtA))
-				throw new Exception("Unable to find allele '" + gtA + "' in alternate list");
+		StringBuilder result = new StringBuilder();
+        String separator = keepCurrentPhasingInfo && fPhased ? "|" : "/";
+		for (String gtA : genotypeAlleles) {
+            Integer alleleIndex = knownAlleleStringToIndexMap.get(gtA);
+            if (alleleIndex == null && !GT_FIELDVAL_AL_MISSING.equals(gtA))
+                throw new Exception("Unable to find allele '" + gtA + "' in alternate list");
+            
+            if (result.length() != 0)
+                result.append(separator);
+            result.append(alleleIndex);
 		}
 
-		return result.length() > 0 ? result : null;
+		return result.length() > 0 ? result.toString() : null;
 	}
 		
 	/**
@@ -637,28 +627,37 @@ abstract public class AbstractVariantData
 				
 			int highestGenotypeCount = 0;
 			String mostFrequentGenotype = null;
-			if (individualGenotypes[nIndividualIndex] != null)
-                for (String gtCode : individualGenotypes[nIndividualIndex].keySet()) {
-                    if (gtCode == null)
-                        continue; /* skip missing genotypes */
-
-                    int gtCount = individualGenotypes[nIndividualIndex].get(gtCode).size();
-                    if (gtCount > highestGenotypeCount) {
-                        highestGenotypeCount = gtCount;
-                        mostFrequentGenotype = gtCode;
+			if (individualGenotypes[nIndividualIndex] != null) {
+                if (genotypes.size() == 1)
+                    mostFrequentGenotype = individualGenotypes[nIndividualIndex].keySet().iterator().next();
+                else {
+                    for (String gtCode : individualGenotypes[nIndividualIndex].keySet()) {
+                        if (gtCode == null)
+                            continue; /* skip missing genotypes */
+    
+                        int gtCount = individualGenotypes[nIndividualIndex].get(gtCode).size();
+                        if (gtCount > highestGenotypeCount) {
+                            highestGenotypeCount = gtCount;
+                            mostFrequentGenotype = gtCode;
+                        }
+                        genotypeCounts.put(gtCode, gtCount);
                     }
-                    genotypeCounts.put(gtCode, gtCount);
                 }
+			}
 
+	         if (warningFileWriter != null && genotypeCounts.size() > 1) {
+	                List<Integer> reverseSortedGtCounts = genotypeCounts.values().stream().sorted(Comparator.reverseOrder()).collect(Collectors.toList());
+	                if (reverseSortedGtCounts.get(0) == reverseSortedGtCounts.get(1))
+	                    mostFrequentGenotype = null;
+	                warningFileWriter.write("- Dissimilar genotypes found for variant " + (synonym == null ? getVariantId() : synonym) + ", individual " + individualName + ". " + (mostFrequentGenotype == null ? "Exporting as missing data" : "Exporting most frequent: " + mostFrequentGenotype) + "\n");
+	         }
+	         
 			if (mostFrequentGenotype == null)
 				continue;	// no genotype for this individual
 
 			Integer spId = individualGenotypes[nIndividualIndex].get(mostFrequentGenotype).iterator().next();	// any will do (although ideally we should make sure we export the best annotation values found) 
 			SampleGenotype sampleGenotype = sampleGenotypes.get(spId);
 
-			if (warningFileWriter != null && genotypeCounts.size() > 1)
-				warningFileWriter.write("- Dissimilar genotypes found for variant " + (synonym == null ? getVariantId() : synonym) + ", individual " + individualName + ". Exporting most frequent: " + mostFrequentGenotype + "\n");
-			
 			Object currentPhId = sampleGenotype.getAdditionalInfo().get(GT_FIELD_PHASED_ID);
 			boolean isPhased = currentPhId != null && currentPhId.equals(previousPhasingIds.get(spId));
 			String gtCode = isPhased ? (String) sampleGenotype.getAdditionalInfo().get(GT_FIELD_PHASED_GT) : mostFrequentGenotype;
@@ -750,16 +749,12 @@ abstract public class AbstractVariantData
 			if (referencePosition.getEndSite() != null)
 				stop = referencePosition.getEndSite();
 			else {
-				String refAllele = null;
-				try {
-					refAllele = knownAlleleList.get(0);
-				}
-				catch (IndexOutOfBoundsException ioobe) {
+				if (sRefAllele == null) {
 					setKnownAlleleList(mongoTemplate.findById(getVariantId(), VariantData.class).getKnownAlleleList());
 					mongoTemplate.save(this);
-					refAllele = knownAlleleList.get(0);
+					sRefAllele = knownAlleleList.get(0);
 				}
-				stop = start + refAllele.length() - 1;
+				stop = start + sRefAllele.length() - 1;
 			}
 		}
 		String chr = referencePosition == null ? null : referencePosition.getSequence();

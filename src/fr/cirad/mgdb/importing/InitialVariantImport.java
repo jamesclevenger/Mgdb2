@@ -153,7 +153,7 @@ public class InitialVariantImport {
 						VariantData variant = new VariantData(cells.get(header.indexOf("id")));
 						variant.setType(cells.get(header.indexOf("type")));
 						String[] seqAndPos = cells.get(header.indexOf("pos")).split(":");
-						if (!seqAndPos[0].equals("0"))
+						if (seqAndPos.length == 2 && !seqAndPos[0].equals("0"))
 							variant.setReferencePosition(new ReferencePosition(seqAndPos[0], Long.parseLong(seqAndPos[1])));
 						
 						if (!variant.getId().toString().startsWith("*"))	// otherwise it's a deprecated variant that we don't want to appear
