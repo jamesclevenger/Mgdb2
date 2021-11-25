@@ -16,6 +16,7 @@
  *******************************************************************************/
 package fr.cirad.mgdb.model.mongo.subtypes;
 
+import htsjdk.samtools.util.Locatable;
 import htsjdk.variant.variantcontext.Allele;
 import htsjdk.variant.variantcontext.Genotype;
 import htsjdk.variant.variantcontext.GenotypeBuilder;
@@ -591,9 +592,8 @@ abstract public class AbstractVariantData
 		// collect all genotypes from various runs for all individuals
 		HashMap<String/*genotype code*/, LinkedHashSet<Integer/*sample*/>>[] individualGenotypes = new HashMap[individualPositions.size()];
 		if (runs != null && !runs.isEmpty())
-			for (GenotypingSample sample : samplesToExport) {		
-				int nIndividualIndex = individualPositions.get(sample.getIndividual());
-				for (VariantRunData run : runs) {
+            for (VariantRunData run : runs) {
+                for (GenotypingSample sample : samplesToExport) {
 					if (sRefAllele == null && !run.getKnownAlleleList().isEmpty())
 						sRefAllele = run.getKnownAlleleList().get(0);
 	
@@ -605,6 +605,7 @@ abstract public class AbstractVariantData
 					sampleGenotypes.put(sample.getId(), sampleGenotype);
 					runsWhereDataWasFound.add(run);
 
+					int nIndividualIndex = individualPositions.get(sample.getIndividual());
 					if (individualGenotypes[nIndividualIndex] == null)
 						individualGenotypes[nIndividualIndex] = new HashMap<>();
 					LinkedHashSet<Integer> samplesWithGivenGenotype = individualGenotypes[nIndividualIndex].get(sampleGenotype.getCode());
@@ -616,7 +617,7 @@ abstract public class AbstractVariantData
 				}
 			}
         
-		ArrayList<Allele> variantAlleles = new ArrayList<Allele>();
+		LinkedHashSet<Allele> variantAlleles = new LinkedHashSet<Allele>();
 		variantAlleles.add(Allele.create(sRefAllele, true));
 
 		HashMap<String, List<String>> genotypeStringCache = new HashMap<>();
@@ -628,7 +629,7 @@ abstract public class AbstractVariantData
 			int highestGenotypeCount = 0;
 			String mostFrequentGenotype = null;
 			if (individualGenotypes[nIndividualIndex] != null) {
-                if (genotypes.size() == 1)
+                if (individualGenotypes[nIndividualIndex].size() == 1)
                     mostFrequentGenotype = individualGenotypes[nIndividualIndex].keySet().iterator().next();
                 else {
                     for (String gtCode : individualGenotypes[nIndividualIndex].keySet()) {
@@ -645,12 +646,12 @@ abstract public class AbstractVariantData
                 }
 			}
 
-	         if (warningFileWriter != null && genotypeCounts.size() > 1) {
-	                List<Integer> reverseSortedGtCounts = genotypeCounts.values().stream().sorted(Comparator.reverseOrder()).collect(Collectors.toList());
-	                if (reverseSortedGtCounts.get(0) == reverseSortedGtCounts.get(1))
-	                    mostFrequentGenotype = null;
-	                warningFileWriter.write("- Dissimilar genotypes found for variant " + (synonym == null ? getVariantId() : synonym) + ", individual " + individualName + ". " + (mostFrequentGenotype == null ? "Exporting as missing data" : "Exporting most frequent: " + mostFrequentGenotype) + "\n");
-	         }
+	        if (warningFileWriter != null && genotypeCounts.size() > 1) {
+                List<Integer> reverseSortedGtCounts = genotypeCounts.values().stream().sorted(Comparator.reverseOrder()).collect(Collectors.toList());
+                if (reverseSortedGtCounts.get(0) == reverseSortedGtCounts.get(1))
+                    mostFrequentGenotype = null;
+                warningFileWriter.write("- Dissimilar genotypes found for variant " + (synonym == null ? getVariantId() : synonym) + ", individual " + individualName + ". " + (mostFrequentGenotype == null ? "Exporting as missing data" : "Exporting most frequent: " + mostFrequentGenotype) + "\n");
+	        }
 	         
 			if (mostFrequentGenotype == null)
 				continue;	// no genotype for this individual
@@ -681,7 +682,7 @@ abstract public class AbstractVariantData
 
 			for (String sAllele : alleles) {
 				Allele allele = Allele.create(sAllele.length() == 0 ? (fAllAllelesNoCall ? Allele.NO_CALL_STRING : "<DEL>") : sAllele, sRefAllele.equals(sAllele));
-				if (!allele.isNoCall() && !variantAlleles.contains(allele))
+				if (!allele.isNoCall())
 					variantAlleles.add(allele);
 				individualAlleles.add(allele);
 			}
@@ -777,9 +778,8 @@ abstract public class AbstractVariantData
 			if (qual != null)
 				vcb.log10PError(qual.doubleValue() / -10.0D);
 			
-			List<String> alreadyTreatedAdditionalInfoFields = Arrays.asList(new String[] {FIELD_SOURCE, FIELD_FULLYDECODED, FIELD_FILTERS, FIELD_PHREDSCALEDQUAL});
 			for (String attrName : run.getAdditionalInfo().keySet())
-				if (!VariantRunData.FIELDNAME_ADDITIONAL_INFO_EFFECT_NAME.equals(attrName) && !VariantRunData.FIELDNAME_ADDITIONAL_INFO_EFFECT_GENE.equals(attrName) && !alreadyTreatedAdditionalInfoFields.contains(attrName))
+				if (!VariantRunData.FIELDNAME_ADDITIONAL_INFO_EFFECT_NAME.equals(attrName) && !VariantRunData.FIELDNAME_ADDITIONAL_INFO_EFFECT_GENE.equals(attrName) && !specificallyTreatedAdditionalInfoFields.contains(attrName))
 					vcb.attribute(attrName, run.getAdditionalInfo().get(attrName));
 		}
 		VariantContext vc = vcb.make();
@@ -789,7 +789,7 @@ abstract public class AbstractVariantData
 	// tells whether applied filters imply to treat this genotype as missing data
     public static boolean gtPassesVcfAnnotationFilters(String individualName, SampleGenotype sampleGenotype, Collection<String> individuals1, HashMap<String, Float> annotationFieldThresholds, Collection<String> individuals2, HashMap<String, Float> annotationFieldThresholds2)
     {
-    	if (annotationFieldThresholds == null && annotationFieldThresholds2 == null)
+    	if ((annotationFieldThresholds == null || annotationFieldThresholds.isEmpty()) && annotationFieldThresholds2 == null)
     		return true;
 
 		List<HashMap<String, Float>> thresholdsToCheck = new ArrayList<HashMap<String, Float>>();
