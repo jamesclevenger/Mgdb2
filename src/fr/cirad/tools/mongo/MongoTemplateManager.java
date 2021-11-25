@@ -25,6 +25,7 @@ import java.net.UnknownHostException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.Date;
 import java.util.Enumeration;
 import java.util.HashMap;
 import java.util.List;
@@ -44,6 +45,8 @@ import org.springframework.context.ApplicationContextAware;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.convert.MappingMongoConverter;
+import org.springframework.data.mongodb.core.query.Query;
+import org.springframework.data.mongodb.core.query.Update;
 import org.springframework.stereotype.Component;
 
 import com.mongodb.BasicDBObject;
@@ -53,6 +56,7 @@ import com.mongodb.client.MongoCollection;
 import com.mongodb.connection.ClusterDescription;
 import com.mongodb.connection.ServerDescription;
 
+import fr.cirad.mgdb.model.mongo.maintypes.DatabaseInformation;
 import fr.cirad.mgdb.model.mongo.maintypes.VariantData;
 import fr.cirad.mgdb.model.mongo.maintypes.VariantRunData;
 import fr.cirad.mgdb.model.mongodao.MgdbDao;
@@ -363,6 +367,11 @@ public class MongoTemplateManager implements ApplicationContextAware {
 		                    publicDatabases.add(sModule);
 		                if (fHidden)
 		                    hiddenDatabases.add(sModule);
+		                
+		                DatabaseInformation info = new DatabaseInformation();
+		                info.setLastModification(new Date());
+		                mongoTemplate.insert(info, "dbInfo");
+		                
 		                return true;
 		            }
 		        }
@@ -654,5 +663,16 @@ public class MongoTemplateManager implements ApplicationContextAware {
     	String sModuleKey = (isModulePublic(sModule) ? "*" : "") + sModule + (isModuleHidden(sModule) ? "*" : "");
     	String dataSource = dataSourceProperties.getProperty(sModuleKey);
     	return dataSource.split(",")[1];
+    }
+    
+    public static void updateDatabaseLastModification(String sModule) {
+    	MongoTemplateManager.updateDatabaseLastModification(sModule, new Date());
+    }
+    
+    public static void updateDatabaseLastModification(String sModule, Date lastModification) {
+    	MongoTemplate template = MongoTemplateManager.get(sModule);
+    	Update update = new Update();
+    	update.set(DatabaseInformation.FIELDNAME_LAST_MODIFICATION, lastModification);
+    	template.updateFirst(new Query(), update, "dbInfo");
     }
 }
