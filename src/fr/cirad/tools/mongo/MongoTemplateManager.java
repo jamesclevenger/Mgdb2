@@ -367,11 +367,7 @@ public class MongoTemplateManager implements ApplicationContextAware {
 		                    publicDatabases.add(sModule);
 		                if (fHidden)
 		                    hiddenDatabases.add(sModule);
-		                
-		                DatabaseInformation info = new DatabaseInformation();
-		                info.setLastModification(new Date());
-		                mongoTemplate.insert(info, "dbInfo");
-		                
+		                updateDatabaseLastModification(sModule);
 		                return true;
 		            }
 		        }
@@ -666,13 +662,20 @@ public class MongoTemplateManager implements ApplicationContextAware {
     }
     
     public static void updateDatabaseLastModification(String sModule) {
-    	MongoTemplateManager.updateDatabaseLastModification(sModule, new Date());
+    	MongoTemplateManager.updateDatabaseLastModification(sModule, new Date(), false);
     }
     
-    public static void updateDatabaseLastModification(String sModule, Date lastModification) {
+    public static void updateDatabaseLastModification(String sModule, Date lastModification, boolean restored) {
     	MongoTemplate template = MongoTemplateManager.get(sModule);
+    	
     	Update update = new Update();
     	update.set(DatabaseInformation.FIELDNAME_LAST_MODIFICATION, lastModification);
-    	template.updateFirst(new Query(), update, "dbInfo");
+    	update.set(DatabaseInformation.FIELDNAME_IS_RESTORED, restored);
+    	template.upsert(new Query(), update, "dbInfo");
+    }
+    
+    public static DatabaseInformation getDatabaseInformation(String sModule) {
+    	MongoTemplate template = MongoTemplateManager.get(sModule);
+    	return template.findOne(new Query(), DatabaseInformation.class, "dbInfo");
     }
 }
