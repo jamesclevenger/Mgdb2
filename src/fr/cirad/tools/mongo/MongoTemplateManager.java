@@ -670,7 +670,7 @@ public class MongoTemplateManager implements ApplicationContextAware {
     	
     	Update update = new Update();
     	update.set(DatabaseInformation.FIELDNAME_LAST_MODIFICATION, lastModification);
-    	update.set(DatabaseInformation.FIELDNAME_IS_RESTORED, restored);
+    	update.set(DatabaseInformation.FIELDNAME_RESTORE_DATE, restored ? new Date() : null);
     	template.upsert(new Query(), update, "dbInfo");
     }
     

@@ -4,10 +4,10 @@ import java.util.Date;
 
 public class DatabaseInformation {
 	public static final String FIELDNAME_LAST_MODIFICATION = "lastModification";
-	public static final String FIELDNAME_IS_RESTORED = "isRestored";
+	public static final String FIELDNAME_RESTORE_DATE = "restoreDate";
 
 	private Date lastModification = null;
-	private boolean isRestored = false;
+	private Date restoreDate = null;
 	
 	public Date getLastModification() {
 		return lastModification;
@@ -17,11 +17,11 @@ public class DatabaseInformation {
 		this.lastModification = lastModification;
 	}
 	
-	public boolean isRestored() {
-		return isRestored;
+	public Date getRestoreDate() {
+		return restoreDate;
 	}
 
-	public void setRestored(boolean isRestored) {
-		this.isRestored = isRestored;
+	public void setRestored(Date restoreDate) {
+		this.restoreDate = restoreDate;
 	}
 }
