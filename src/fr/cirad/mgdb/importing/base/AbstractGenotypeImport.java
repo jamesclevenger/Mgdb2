@@ -221,7 +221,7 @@ public class AbstractGenotypeImport {
         }
 
         progress.setCurrentStepProgress(nTotalVariantCount != null ? nProcessedVariantCount * 100 / nTotalVariantCount : nProcessedVariantCount);
-        if (nProcessedVariantCount % (nNumberOfVariantsToSaveAtOnce*10) == 0)
+        if (nProcessedVariantCount % (nNumberOfVariantsToSaveAtOnce*50) == 0)
             LOG.debug(nProcessedVariantCount + " lines processed");
 	}
 

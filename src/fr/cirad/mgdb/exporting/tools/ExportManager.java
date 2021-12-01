@@ -267,8 +267,10 @@ public class ExportManager
                     previousVarId = varId;
                 }
 
-                if (!markerCursor.hasNext())
-                    tempMarkerRunsToWrite.add(currentMarkerRuns);    // special case, when the end of the cursor is being reached
+                if (!markerCursor.hasNext()) {    // special case, when the end of the cursor is being reached
+                    tempMarkerRunsToWrite.add(currentMarkerRuns);
+                    nWrittenmarkerCount++;
+                }
                 currentMarkerIDs.clear();
 
                 if (nNumberOfChunksUsedForSpeedEstimation != null) {  // pipeline contains a $project stage: let's compare execution speed with and without it (best option so many things that we can't find it out otherwise)
