@@ -434,7 +434,6 @@ public class PlinkImport extends AbstractGenotypeImport {
         LOG.info("PED matrix transposition - threads: " + nConcurrentThreads + ", blocksize: " + threadBlockSize + ", blocks: " + nThreadBlocks + ", markers: " + nMaxMarkersReadAtOnce);
         
         Pattern allelePattern = Pattern.compile("\\S+");
-        Pattern rightTrim = Pattern.compile("\\s*$");
         
         // Read the line headers, fill the individual map and creates the block positions arrays
         HashMap<Integer, int[]> blockPositions = new HashMap<Integer, int[]>();
@@ -457,16 +456,14 @@ public class PlinkImport extends AbstractGenotypeImport {
             initMatcher.find();
             positions[0] = initMatcher.start();
             
-            // Find the end of the line's payload (without trailing separators)
-            Matcher endMatcher = rightTrim.matcher(initLine);
-            endMatcher.find();
-            positions[nThreadBlocks] = endMatcher.start();
+            // Find the length of the line's payload (without header and trailing separators)
+            positions[nThreadBlocks] = initLine.substring(positions[0]).trim().length();
             
             blockPositions.put(individual, positions);
             individual += 1;
         }
         reader.close();
-        
+                
         ExecutorService executor = Executors.newFixedThreadPool(nConcurrentThreads);
         final int cThreadBlocks = nThreadBlocks;
         final int cThreadBlockSize = threadBlockSize;
@@ -491,9 +488,9 @@ public class PlinkImport extends AbstractGenotypeImport {
                         int individual = 0;
                         while ((line = reader.readLine()) != null) {
                             int[] individualPositions = blockPositions.get(individual);
-                            int nLengthOfTrimmedPortionWithGenotypes = individualPositions[nThreadBlocks] - individualPositions[0];
+                            
                             // Trivial case : 1 character per allele, 1 character per separator (counted as [allele, sep, allele, sep], so -1 because trailing separators are not accounted for)
-                            if (nLengthOfTrimmedPortionWithGenotypes == 4*variants.length - 1) {
+                            if (individualPositions[nThreadBlocks] == 4*variants.length - 1) {
                                 for (int marker = 0; marker < blockSize; marker++) {
                                     transposed[marker].append("\t");
                                     transposed[marker].append(line.charAt(individualPositions[0] + 4*(cBlock*cThreadBlockSize + marker)));
