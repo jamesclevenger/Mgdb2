@@ -431,7 +431,7 @@ public class PlinkImport extends AbstractGenotypeImport {
         File outputFile = File.createTempFile("plinkImport-" + pedFile.getName() + "-", ".tsv");
         FileWriter outputWriter = new FileWriter(outputFile);
         
-        LOG.debug("threads: " + nConcurrentThreads + ", blocksize: " + threadBlockSize + ", blocks: " + nThreadBlocks + ", markers: " + nMaxMarkersReadAtOnce);
+        LOG.info("PED matrix transposition - threads: " + nConcurrentThreads + ", blocksize: " + threadBlockSize + ", blocks: " + nThreadBlocks + ", markers: " + nMaxMarkersReadAtOnce);
         
         Pattern allelePattern = Pattern.compile("[^ \t]+");
         
@@ -482,13 +482,16 @@ public class PlinkImport extends AbstractGenotypeImport {
                         int individual = 0;
                         while ((line = reader.readLine()) != null) {
                             int[] individualPositions = blockPositions.get(individual);
+                            String sLinePortionContainingGenotypes = line.trim().substring(individualPositions[0]);
+                            int nLengthOfTrimmedPortionWithGenotypes = sLinePortionContainingGenotypes.trim().length();
                             // Trivial case : 1 character per allele, 1 character per separator
-                            if (line.length() - individualPositions[0] == 4*variants.length) {
+                            if (nLengthOfTrimmedPortionWithGenotypes == 4*variants.length - 1) {
+                                int nShift = sLinePortionContainingGenotypes.length() - nLengthOfTrimmedPortionWithGenotypes - 1;  // if > 0, more than a single separator was found before the very first genotype
                                 for (int marker = 0; marker < blockSize; marker++) {
                                     transposed[marker].append("\t");
-                                    transposed[marker].append(line.charAt(individualPositions[0] + 1 + 4*marker));
+                                    transposed[marker].append(line.charAt(individualPositions[0] + nShift + 1 + 4*marker));
                                     transposed[marker].append("/");
-                                    transposed[marker].append(line.charAt(individualPositions[0] + 3 + 4*marker));
+                                    transposed[marker].append(line.charAt(individualPositions[0] + nShift + 3 + 4*marker));
                                 }
                             // Non-trivial case : INDELs and/or multi-characters separators
                             } else {
