@@ -433,7 +433,8 @@ public class PlinkImport extends AbstractGenotypeImport {
         
         LOG.info("PED matrix transposition - threads: " + nConcurrentThreads + ", blocksize: " + threadBlockSize + ", blocks: " + nThreadBlocks + ", markers: " + nMaxMarkersReadAtOnce);
         
-        Pattern allelePattern = Pattern.compile("[^ \t]+");
+        Pattern allelePattern = Pattern.compile("\\S+");
+        Pattern rightTrim = Pattern.compile("\\s*$");
         
         // Read the line headers, fill the individual map and creates the block positions arrays
         HashMap<Integer, int[]> blockPositions = new HashMap<Integer, int[]>();
@@ -449,11 +450,19 @@ public class PlinkImport extends AbstractGenotypeImport {
             userIndividualToPopulationMapToFill.put(sIndividual, sPopulation);
             
             for (int i = 0; i < 4; i++) initMatcher.find();
-            int[] positions = new int[nThreadBlocks];
+            int[] positions = new int[nThreadBlocks + 1];  // The last one is the length of the line's payload
             Arrays.fill(positions, -1);
-            positions[0] = initMatcher.end();
-            blockPositions.put(individual, positions);
             
+            // Find the first allele to get the actual beginning of the genotypes, without the first separators
+            initMatcher.find();
+            positions[0] = initMatcher.start();
+            
+            // Find the end of the line's payload (without trailing separators)
+            Matcher endMatcher = rightTrim.matcher(initLine);
+            endMatcher.find();
+            positions[nThreadBlocks] = endMatcher.start();
+            
+            blockPositions.put(individual, positions);
             individual += 1;
         }
         reader.close();
@@ -482,16 +491,14 @@ public class PlinkImport extends AbstractGenotypeImport {
                         int individual = 0;
                         while ((line = reader.readLine()) != null) {
                             int[] individualPositions = blockPositions.get(individual);
-                            String sLinePortionContainingGenotypes = line.trim().substring(individualPositions[0]);
-                            int nLengthOfTrimmedPortionWithGenotypes = sLinePortionContainingGenotypes.trim().length();
-                            // Trivial case : 1 character per allele, 1 character per separator
+                            int nLengthOfTrimmedPortionWithGenotypes = individualPositions[nThreadBlocks] - individualPositions[0];
+                            // Trivial case : 1 character per allele, 1 character per separator (counted as [allele, sep, allele, sep], so -1 because trailing separators are not accounted for)
                             if (nLengthOfTrimmedPortionWithGenotypes == 4*variants.length - 1) {
-                                int nShift = sLinePortionContainingGenotypes.length() - nLengthOfTrimmedPortionWithGenotypes - 1;  // if > 0, more than a single separator was found before the very first genotype
                                 for (int marker = 0; marker < blockSize; marker++) {
                                     transposed[marker].append("\t");
-                                    transposed[marker].append(line.charAt(individualPositions[0] + nShift + 1 + 4*marker));
+                                    transposed[marker].append(line.charAt(individualPositions[0] + 4*(cBlock*cThreadBlockSize + marker)));
                                     transposed[marker].append("/");
-                                    transposed[marker].append(line.charAt(individualPositions[0] + nShift + 3 + 4*marker));
+                                    transposed[marker].append(line.charAt(individualPositions[0] + 4*(cBlock*cThreadBlockSize + marker) + 2));
                                 }
                             // Non-trivial case : INDELs and/or multi-characters separators
                             } else {
