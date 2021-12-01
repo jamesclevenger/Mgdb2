@@ -421,12 +421,10 @@ public class PlinkImport extends AbstractGenotypeImport {
         int nMaxMarkersReadAtOnce = (int) (readableFilePortion * variants.length) / 3;
         
         int nConcurrentThreads = Math.max(1, Runtime.getRuntime().availableProcessors());
-        int threadBlockSize = Math.min((int)Math.ceil((float)nMaxMarkersReadAtOnce / nConcurrentThreads), variants.length);
-        int nUnoptimizedThreadBlocks = (int)Math.ceil((float)variants.length / threadBlockSize);
         
-        // Optimize by splitting in a number of blocks multiple of the available processors
-        final int nThreadBlocks = (int)Math.ceil((float)nUnoptimizedThreadBlocks / nConcurrentThreads) * nConcurrentThreads;
-        threadBlockSize = (int)Math.ceil((float)variants.length / nThreadBlocks);
+        // Optimize by splitting in a number of blocks multiple of the available threads
+        final int nThreadBlocks = (int)Math.ceil((float)variants.length / nMaxMarkersReadAtOnce) * nConcurrentThreads;// * 2;
+        final int threadBlockSize = (int)Math.ceil((float)variants.length / nThreadBlocks);
                 
         File outputFile = File.createTempFile("plinkImport-" + pedFile.getName() + "-", ".tsv");
         FileWriter outputWriter = new FileWriter(outputFile);
@@ -465,8 +463,6 @@ public class PlinkImport extends AbstractGenotypeImport {
         reader.close();
                 
         ExecutorService executor = Executors.newFixedThreadPool(nConcurrentThreads);
-        final int cThreadBlocks = nThreadBlocks;
-        final int cThreadBlockSize = threadBlockSize;
         final int cInitialCapacity = (int)(1.10 * pedFile.length() / variants.length);  // The +10% is arbitrary
         final AtomicInteger nFinishedBlockCount = new AtomicInteger();
         for (int block = 0; block < nThreadBlocks; block++) {
@@ -475,13 +471,13 @@ public class PlinkImport extends AbstractGenotypeImport {
                 @Override
                 public void run() {
                     try {
-                        int blockSize = (cBlock == cThreadBlocks - 1) ? variants.length - cBlock*cThreadBlockSize : cThreadBlockSize;
+                        int blockSize = (cBlock == nThreadBlocks - 1) ? variants.length - cBlock*threadBlockSize : threadBlockSize;
                         
                         BufferedReader reader = new BufferedReader(new FileReader(pedFile));
                         StringBuilder[] transposed = new StringBuilder[blockSize];
                         for (int marker = 0; marker < blockSize; marker++) {
                             transposed[marker] = new StringBuilder(cInitialCapacity);
-                            transposed[marker].append(variants[cBlock*cThreadBlockSize + marker]);
+                            transposed[marker].append(variants[cBlock*threadBlockSize + marker]);
                         }
                         
                         String line;
@@ -493,9 +489,9 @@ public class PlinkImport extends AbstractGenotypeImport {
                             if (individualPositions[nThreadBlocks] == 4*variants.length - 1) {
                                 for (int marker = 0; marker < blockSize; marker++) {
                                     transposed[marker].append("\t");
-                                    transposed[marker].append(line.charAt(individualPositions[0] + 4*(cBlock*cThreadBlockSize + marker)));
+                                    transposed[marker].append(line.charAt(individualPositions[0] + 4*(cBlock*threadBlockSize + marker)));
                                     transposed[marker].append("/");
-                                    transposed[marker].append(line.charAt(individualPositions[0] + 4*(cBlock*cThreadBlockSize + marker) + 2));
+                                    transposed[marker].append(line.charAt(individualPositions[0] + 4*(cBlock*threadBlockSize + marker) + 2));
                                 }
                             // Non-trivial case : INDELs and/or multi-characters separators
                             } else {
@@ -515,7 +511,7 @@ public class PlinkImport extends AbstractGenotypeImport {
                                 // Advance till the beginning of the actual block, and map the other ones on the way
                                 matcher.find(startPosition);
                                 for (int b = startBlock; b < cBlock; b++) {
-                                    for (int i = 0; i < cThreadBlockSize; i++) {
+                                    for (int i = 0; i < threadBlockSize; i++) {
                                         matcher.find();
                                         matcher.find();
                                     }
@@ -534,7 +530,7 @@ public class PlinkImport extends AbstractGenotypeImport {
                                 }
                                 
                                 // Map the current block
-                                if (cBlock < cThreadBlocks - 1)
+                                if (cBlock < nThreadBlocks - 1)
                                     individualPositions[cBlock + 1] = matcher.start();
                             }
                             individual += 1;
