@@ -229,9 +229,6 @@ public class PlinkImport extends AbstractGenotypeImport {
             progress.addStep(info);
             progress.moveToNextStep();
             
-            if (!project.getVariantTypes().contains(Type.SNP.toString()))
-                project.getVariantTypes().add(Type.SNP.toString());
-
             // rotate matrix using temporary files
             info = "Reading and reorganizing genotypes";
             LOG.info(info);
@@ -359,7 +356,7 @@ public class PlinkImport extends AbstractGenotypeImport {
 
                     VariantRunData runToSave = addPlinkDataToVariant(mongoTemplate, variant, sequence, bpPosition, userIndividualToPopulationMap, alleles, project, sRun, previouslyCreatedSamples, fImportUnknownVariants);
                     
-                    if (variant.getReferencePosition() != null && !project.getSequences().contains(variant.getReferencePosition().getSequence()))
+                    if (variant.getReferencePosition() != null)
                         project.getSequences().add(variant.getReferencePosition().getSequence());
 
                     project.getAlleleCounts().add(variant.getKnownAlleleList().size()); // it's a TreeSet so it will only be added if it's not already present
@@ -545,8 +542,8 @@ public class PlinkImport extends AbstractGenotypeImport {
                         }
                         
                         progress.setCurrentStepProgress(nFinishedBlockCount.incrementAndGet() * 100 / nThreadBlocks);
-                    } catch (IOException e) {
-                        e.printStackTrace();
+                    } catch (IOException ioe) {
+                        LOG.error("Error rotating chunk " + cBlock, ioe);
                     }
                 }
             };
@@ -633,8 +630,10 @@ public class PlinkImport extends AbstractGenotypeImport {
         // mandatory fields
         if (!knownAlleles.isEmpty()) {
             Type variantType = determineType(knownAlleles);
-            if (variantToFeed.getType() == null || Type.NO_VARIATION.toString().equals(variantType.toString()))
+            if (variantToFeed.getType() == null || Type.NO_VARIATION.toString().equals(variantType.toString())) {
                 variantToFeed.setType(variantType.toString());
+                project.getVariantTypes().add(variantType.toString());
+            }
             else if (!variantToFeed.getType().equals(variantType.toString()))
                 throw new Exception("Variant type mismatch between existing data and data to import: " + variantToFeed.getId());
         }
