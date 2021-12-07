@@ -164,7 +164,7 @@ public class ExportManager
         Document projection = new Document();
         if (sampleIDsNotToExport == null) {    // inclusive $project (less than a half of the samples are being exported)
             projection.append(refPosPath, 1);
-            projection.append(AbstractVariantData.FIELDNAME_KNOWN_ALLELE_LIST, 1);
+            projection.append(AbstractVariantData.FIELDNAME_KNOWN_ALLELES, 1);
             projection.append(AbstractVariantData.FIELDNAME_TYPE, 1);
             projection.append(AbstractVariantData.FIELDNAME_SYNONYMS, 1);
             projection.append(AbstractVariantData.FIELDNAME_ANALYSIS_METHODS, 1);

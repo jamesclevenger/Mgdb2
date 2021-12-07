@@ -60,8 +60,8 @@ public class AbstractGenotypeImport {
 
 	private boolean m_fAllowDbDropIfNoGenotypingData = true;
 
-	/** String representing nucleotides considered as valid */
-	protected static HashSet<String> validNucleotides = new HashSet<>(Arrays.asList(new String[] {"a", "A", "t", "T", "g", "G", "c", "C"}));
+//	/** String representing nucleotides considered as valid */
+//	protected static HashSet<String> validNucleotides = new HashSet<>(Arrays.asList(new String[] {"a", "A", "t", "T", "g", "G", "c", "C"}));
 	
 	protected static HashMap<String /*module*/, String /*project*/> currentlyImportedProjects = new HashMap<>();
 	
@@ -73,7 +73,7 @@ public class AbstractGenotypeImport {
 			result.addAll(idAndSynonyms.stream().map(s -> s.toUpperCase()).collect(Collectors.toList()));
 
 		if (sSeq != null && nStartPos != null)
-			result.add(sType + "¤" + sSeq + "¤" + nStartPos);
+			result.add(new StringBuilder(sType).append("¤").append(sSeq).append("¤").append(nStartPos).toString());
 
 		if (result.size() == 0)
 			throw new Exception("Not enough info provided to build identification strings");
