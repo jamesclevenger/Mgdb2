@@ -300,7 +300,7 @@ public class STDVariantImport extends AbstractGenotypeImport {
 		for (int j=0; j<Math.max(1, nNumberOfRetries); j++)
 		{			
 			Query query = new Query(Criteria.where("_id").is(mgdbVariantId));
-			query.fields().include(VariantData.FIELDNAME_REFERENCE_POSITION).include(VariantData.FIELDNAME_KNOWN_ALLELE_LIST).include(VariantData.FIELDNAME_PROJECT_DATA + "." + project.getId()).include(VariantData.FIELDNAME_VERSION);
+			query.fields().include(VariantData.FIELDNAME_REFERENCE_POSITION).include(VariantData.FIELDNAME_KNOWN_ALLELES).include(VariantData.FIELDNAME_PROJECT_DATA + "." + project.getId()).include(VariantData.FIELDNAME_VERSION);
 			
 			VariantData variant = mongoTemplate.findOne(query, VariantData.class);
 			Update update = variant == null ? null : new Update();
@@ -361,9 +361,9 @@ public class STDVariantImport extends AbstractGenotypeImport {
 					for (int i=3; i<3 + m_ploidy; i++)
 					{
 						int indexToUse = cells.length == 3 + m_ploidy ? i : 3;	// support for collapsed homozygous genotypes
-						if (!variant.getKnownAlleleList().contains(cells[indexToUse]))
+						if (!variant.getKnownAlleles().contains(cells[indexToUse]))
 						{
-							variant.getKnownAlleleList().add(cells[indexToUse]);	// it's the first time we encounter this alternate allele for this variant
+							variant.getKnownAlleles().add(cells[indexToUse]);	// it's the first time we encounter this alternate allele for this variant
 							fAddedSomeAlleles = true;
 						}
 						
@@ -371,7 +371,7 @@ public class STDVariantImport extends AbstractGenotypeImport {
 					}
 					
 					if (fAddedSomeAlleles && update != null)
-						update.set(VariantData.FIELDNAME_KNOWN_ALLELE_LIST, variant.getKnownAlleleList());
+						update.set(VariantData.FIELDNAME_KNOWN_ALLELES, variant.getKnownAlleles());
 					
 					Collections.sort(alleleIndexList);
 					gtCode = StringUtils.join(alleleIndexList, "/");
@@ -383,7 +383,7 @@ public class STDVariantImport extends AbstractGenotypeImport {
 				SampleGenotype genotype = new SampleGenotype(gtCode);
 				vrd.getSampleGenotypes().put(usedSamples.get(sIndividual).getId(), genotype);
 			}
-            project.getAlleleCounts().add(variant.getKnownAlleleList().size());	// it's a TreeSet so it will only be added if it's not already present
+            project.getAlleleCounts().add(variant.getKnownAlleles().size());	// it's a TreeSet so it will only be added if it's not already present
 			
 			try
 			{
@@ -398,7 +398,7 @@ public class STDVariantImport extends AbstractGenotypeImport {
 					mongoTemplate.upsert(new Query(Criteria.where("_id").is(mgdbVariantId)).addCriteria(Criteria.where(VariantData.FIELDNAME_VERSION).is(variant.getVersion())), update, VariantData.class);
 //					System.out.println("updated: " + variant.getId());
 				}
-		        vrd.setKnownAlleleList(variant.getKnownAlleleList());
+		        vrd.setKnownAlleles(variant.getKnownAlleles());
 		        vrd.setReferencePosition(variant.getReferencePosition());
 		        vrd.setType(Type.SNP.toString());
 		        vrd.setSynonyms(variant.getSynonyms());
