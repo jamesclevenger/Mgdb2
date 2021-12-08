@@ -153,7 +153,7 @@ public class ExportManager
         Collection<Integer>    sampleIDsNotToExport = percentageOfExportedSamples >= 98 ? new ArrayList() /* if almost all individuals are being exported we directly omit the $project stage */ : (percentageOfExportedSamples > 50 ? mongoTemplate.findDistinct(new Query(Criteria.where("_id").not().in(sampleIDsToExport)), "_id", GenotypingSample.class, Integer.class) : null);
 
         if (!varQuery.isEmpty()) {
-            if (!projectFilterList.isEmpty()) {
+            if (!fWorkingOnTempColl && !projectFilterList.isEmpty()) {
                 Entry<String, Object> firstMatchEntry = varQuery.entrySet().iterator().next();
                 List<Document> matchAndList = "$and".equals(firstMatchEntry.getKey()) ? (List<Document>) firstMatchEntry.getValue() : Arrays.asList(varQuery);
                 matchAndList.addAll(projectFilterList);
@@ -164,7 +164,7 @@ public class ExportManager
         Document projection = new Document();
         if (sampleIDsNotToExport == null) {    // inclusive $project (less than a half of the samples are being exported)
             projection.append(refPosPath, 1);
-            projection.append(AbstractVariantData.FIELDNAME_KNOWN_ALLELE_LIST, 1);
+            projection.append(AbstractVariantData.FIELDNAME_KNOWN_ALLELES, 1);
             projection.append(AbstractVariantData.FIELDNAME_TYPE, 1);
             projection.append(AbstractVariantData.FIELDNAME_SYNONYMS, 1);
             projection.append(AbstractVariantData.FIELDNAME_ANALYSIS_METHODS, 1);
@@ -212,7 +212,7 @@ public class ExportManager
         
         List<BasicDBObject> pipeline = new ArrayList<>();
         if (matchStage != null)
-            pipeline.add(matchStage);   // there can be a $match on temp colls (for example when displaying IGV data)
+            pipeline.add(matchStage);   // there can be a $match on temp colls (for example to apply a range when displaying IGV data)
         pipeline.add(sortStage);
         pipeline.add(new BasicDBObject("$project", new BasicDBObject("_id", 1)));
 
@@ -267,8 +267,10 @@ public class ExportManager
                     previousVarId = varId;
                 }
 
-                if (!markerCursor.hasNext())
-                    tempMarkerRunsToWrite.add(currentMarkerRuns);    // special case, when the end of the cursor is being reached
+                if (!markerCursor.hasNext()) {    // special case, when the end of the cursor is being reached
+                    tempMarkerRunsToWrite.add(currentMarkerRuns);
+                    nWrittenmarkerCount++;
+                }
                 currentMarkerIDs.clear();
 
                 if (nNumberOfChunksUsedForSpeedEstimation != null) {  // pipeline contains a $project stage: let's compare execution speed with and without it (best option so many things that we can't find it out otherwise)

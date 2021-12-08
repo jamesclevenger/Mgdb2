@@ -22,6 +22,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Iterator;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -283,10 +284,7 @@ public class VcfImport extends AbstractGenotypeImport {
 				if (progress.getError() != null || progress.isAborted())
 					return null;
 
-                VariantContext vcfEntry = variantIterator.next();
-                if (fSkipMonomorphic && !vcfEntry.isVariant())
-                    continue; // skip non-variant positions				
-
+                VariantContext vcfEntry = variantIterator.next();	
                 if (vcfEntry.getCommonInfo().hasAttribute(""))
                 	vcfEntry.getCommonInfo().removeAttribute("");	// working around cases where the info field accidentally ends with a semicolon
                 
@@ -299,6 +297,10 @@ public class VcfImport extends AbstractGenotypeImport {
 						if (variantId != null)
 							break;
 					}
+					
+                   if (variantId == null && fSkipMonomorphic && !vcfEntry.isVariant())
+                        continue; // skip non-variant positions that are not already known
+					
                     VariantData variant = variantId == null ? null : mongoTemplate.findById(variantId, VariantData.class);
                     if (variant == null)
                 		variant = new VariantData(vcfEntry.hasID() ? ((ObjectId.isValid(vcfEntry.getID()) ? "_" : "") + vcfEntry.getID()) : (generatedIdBaseString + String.format(String.format("%09x", count))));
@@ -318,7 +320,7 @@ public class VcfImport extends AbstractGenotypeImport {
 				        unsavedRuns = new ArrayList<>();
 					}
 
-                    project.getAlleleCounts().add(variant.getKnownAlleleList().size());	// it's a Set so it will only be added if it's not already present
+                    project.getAlleleCounts().add(variant.getKnownAlleles().size());	// it's a Set so it will only be added if it's not already present
                     project.getVariantTypes().add(vcfEntry.getType().toString());	// it's a Set so it will only be added if it's not already present 
                     project.getSequences().add(vcfEntry.getChr());	// it's a Set so it will only be added if it's not already present
 
@@ -389,8 +391,8 @@ public class VcfImport extends AbstractGenotypeImport {
         }
 
         List<String> knownAlleleList = new ArrayList<String>();
-        if (variantToFeed.getKnownAlleleList().size() > 0)
-            knownAlleleList.addAll(variantToFeed.getKnownAlleleList());
+        if (variantToFeed.getKnownAlleles().size() > 0)
+            knownAlleleList.addAll(variantToFeed.getKnownAlleles());
         ArrayList<String> allelesInVC = new ArrayList<String>();
         allelesInVC.add(vc.getReference().getBaseString());
         for (Allele alt : vc.getAlternateAlleles())
@@ -398,7 +400,7 @@ public class VcfImport extends AbstractGenotypeImport {
         for (String vcAllele : allelesInVC)
             if (!knownAlleleList.contains(vcAllele))
                 knownAlleleList.add(vcAllele);
-        variantToFeed.setKnownAlleleList(knownAlleleList);
+        variantToFeed.setKnownAlleles(new LinkedHashSet(knownAlleleList));
 
         if (variantToFeed.getReferencePosition() == null) // otherwise we leave it as it is (had some trouble with overridden end-sites)
             variantToFeed.setReferencePosition(new ReferencePosition(vc.getContig(), vc.getStart(), (long) vc.getEnd()));
@@ -470,6 +472,10 @@ public class VcfImport extends AbstractGenotypeImport {
         
         // genotype fields
         Iterator<Genotype> genotypes = vc.getGenotypesOrderedByName().iterator();
+        Map<String, Integer> knownAlleleStringToIndexMap = new HashMap<>();
+        for (int i=0; i<knownAlleleList.size(); i++)
+            knownAlleleStringToIndexMap.put(knownAlleleList.get(i), i);
+
         while (genotypes.hasNext()) {
             Genotype genotype = genotypes.next();
 
@@ -494,13 +500,13 @@ public class VcfImport extends AbstractGenotypeImport {
             
             List<String> gtAllelesAsStrings = genotype.getAlleles().stream().map(allele -> allele.getBaseString()).collect(Collectors.toList());
             
-            String gtCode = VariantData.rebuildVcfFormatGenotype(knownAlleleList, gtAllelesAsStrings, isPhased, false);
+            String gtCode = VariantData.rebuildVcfFormatGenotype(knownAlleleStringToIndexMap, gtAllelesAsStrings, isPhased, false);
             if ("1/0".equals(gtCode))
             	gtCode = "0/1";	// convert to "0/1" so that MAF queries can work reliably
 
             SampleGenotype aGT = new SampleGenotype(gtCode);
             if (isPhased) {
-                aGT.getAdditionalInfo().put(VariantData.GT_FIELD_PHASED_GT, VariantData.rebuildVcfFormatGenotype(knownAlleleList, gtAllelesAsStrings, isPhased, true));
+                aGT.getAdditionalInfo().put(VariantData.GT_FIELD_PHASED_GT, VariantData.rebuildVcfFormatGenotype(knownAlleleStringToIndexMap, gtAllelesAsStrings, isPhased, true));
                 aGT.getAdditionalInfo().put(VariantData.GT_FIELD_PHASED_ID, phasingGroup.get(sIndividual));
             }
             if (genotype.hasGQ()) {
@@ -543,7 +549,7 @@ public class VcfImport extends AbstractGenotypeImport {
             	vrd.getSampleGenotypes().put(usedSamples.get(sIndividual).getId(), aGT);
         }
         
-        vrd.setKnownAlleleList(variantToFeed.getKnownAlleleList());
+        vrd.setKnownAlleles(variantToFeed.getKnownAlleles());
         vrd.setReferencePosition(variantToFeed.getReferencePosition());
         vrd.setType(variantToFeed.getType());
         vrd.setSynonyms(variantToFeed.getSynonyms());
