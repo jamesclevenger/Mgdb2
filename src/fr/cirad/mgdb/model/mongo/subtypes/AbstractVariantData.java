@@ -496,18 +496,22 @@ abstract public class AbstractVariantData
 	 */
 	static public List<String> staticGetAllelesFromGenotypeCode(List<String> alleleList, String code) throws NoSuchElementException
 	{
-        Map<String, Integer> knownAlleleStringToIndexMap = new HashMap<>();
-        for (int i=0; i<alleleList.size(); i++)
-            knownAlleleStringToIndexMap.put(alleleList.get(i), i);
-		if (code == null)
-		    return new ArrayList<>();
+//        Map<String, Integer> knownAlleleStringToIndexMap = new HashMap<>();
+//        for (int i=0; i<alleleList.size(); i++)
+//            knownAlleleStringToIndexMap.put(alleleList.get(i), i);
+		if (code == null) {
+            for (int i=0; i<alleleList.size(); i++)
+                result.add(".");
+            return result;
+        }
+//		    return new ArrayList<>();
 
 		try	{
-			return Arrays.stream(code.split("[\\|/]")).map(alleleCodeIndex -> alleleList.get(Integer.parseInt(alleleCodeIndex))).collect(Collectors.toList());
-        }
-        catch (IndexOutOfBoundsException ioobe) {
-            throw new NoSuchElementException("Variant has no such allele: " + ioobe.getMessage());
-        }
+        return Arrays.stream(code.split("[\\|/]")).map(alleleCodeIndex -> alleleList.get(Integer.parseInt(alleleCodeIndex))).collect(Collectors.toList());
+    }
+    catch (IndexOutOfBoundsException ioobe) {
+        throw new NoSuchElementException("Variant has no such allele: " + ioobe.getMessage());
+    }
 	}
 
 	/**
@@ -664,17 +668,16 @@ abstract public class AbstractVariantData
                 }
 			}
 
-	        if (warningFileWriter != null && genotypeCounts.size() > 1) {
-                List<Integer> reverseSortedGtCounts = genotypeCounts.values().stream().sorted(Comparator.reverseOrder()).collect(Collectors.toList());
-                if (reverseSortedGtCounts.get(0) == reverseSortedGtCounts.get(1))
-                    mostFrequentGenotype = null;
-                warningFileWriter.write("- Dissimilar genotypes found for variant " + (synonym == null ? getVariantId() : synonym) + ", individual " + individualName + ". " + (mostFrequentGenotype == null ? "Exporting as missing data" : "Exporting most frequent: " + mostFrequentGenotype) + "\n");
-	        }
+	    if (warningFileWriter != null && genotypeCounts.size() > 1) {
+          List<Integer> reverseSortedGtCounts = genotypeCounts.values().stream().sorted(Comparator.reverseOrder()).collect(Collectors.toList());
+          if (reverseSortedGtCounts.get(0) == reverseSortedGtCounts.get(1))
+              mostFrequentGenotype = null;
+          warningFileWriter.write("- Dissimilar genotypes found for variant " + (synonym == null ? getVariantId() : synonym) + ", individual " + individualName + ". " + (mostFrequentGenotype == null ? "Exporting as missing data" : "Exporting most frequent: " + mostFrequentGenotype) + "\n");
+	    }
 	         
 			if (mostFrequentGenotype == null)
 				continue;	// no genotype for this individual
 
-			Integer spId = individualGenotypes[nIndividualIndex].get(mostFrequentGenotype).iterator().next();	// any will do (although ideally we should make sure we export the best annotation values found) 
 			SampleGenotype sampleGenotype = sampleGenotypes.get(spId);
 
 			Object currentPhId = sampleGenotype.getAdditionalInfo().get(GT_FIELD_PHASED_ID);

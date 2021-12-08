@@ -318,8 +318,12 @@ public class ExportManager
         int nWrittenmarkerCount = 0;
         
         List<BasicDBObject> pipeline = new ArrayList<>();
-        if (matchStage != null)
+        if (matchStage != null) {
+            Document matchContents = (Document) matchStage.get("$match");
+            BasicDBList filters = matchContents.containsKey("$and") ? (BasicDBList) matchContents.get("$and") : new BasicDBList() {{ add(new BasicDBObject(matchContents)); }};
+            Helper.convertIdFiltersToRunFormat(filters);
             pipeline.add(matchStage);
+        }
         pipeline.add(sortStage);
         int nPosAfterSortStage = pipeline.size();
         if (projectStage != null)
