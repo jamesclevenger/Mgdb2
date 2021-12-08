@@ -37,6 +37,7 @@ import com.opencsv.CSVReader;
 
 import fr.cirad.mgdb.importing.base.AbstractGenotypeImport;
 import fr.cirad.mgdb.model.mongo.maintypes.AutoIncrementCounter;
+import fr.cirad.mgdb.model.mongo.maintypes.DBVCFHeader;
 import fr.cirad.mgdb.model.mongo.maintypes.GenotypingProject;
 import fr.cirad.mgdb.model.mongo.maintypes.GenotypingSample;
 import fr.cirad.mgdb.model.mongo.maintypes.Individual;
@@ -47,6 +48,9 @@ import fr.cirad.mgdb.model.mongodao.MgdbDao;
 import fr.cirad.tools.ProgressIndicator;
 import fr.cirad.tools.mongo.MongoTemplateManager;
 import htsjdk.variant.variantcontext.VariantContext.Type;
+import htsjdk.variant.vcf.VCFFormatHeaderLine;
+import htsjdk.variant.vcf.VCFHeader;
+import htsjdk.variant.vcf.VCFHeaderLineType;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.util.LinkedHashMap;
@@ -206,9 +210,12 @@ public class IntertekImport extends AbstractGenotypeImport {
                 project.getVariantTypes().add(Type.SNP.toString());
                 createdProject = project.getId();
             }
-            //TODO - See how filling ploidyLevel
-            //project.setPloidyLevel(2);
-
+            
+            VCFFormatHeaderLine headerLineGT = new VCFFormatHeaderLine("GT", 1, VCFHeaderLineType.String, "Genotype");
+            VCFFormatHeaderLine headerLineFI = new VCFFormatHeaderLine("FI", 2, VCFHeaderLineType.Float, "Fluorescence intensity");
+            VCFHeader header = new VCFHeader(new HashSet<>(Arrays.asList(headerLineGT, headerLineFI)));
+            mongoTemplate.save(new DBVCFHeader(new DBVCFHeader.VcfHeaderId(project.getId(), sRun), header));
+            
             progress.addStep("Header was written for project " + sProject + " and run " + sRun);
             progress.moveToNextStep();
             LOG.info(progress.getProgressDescription());
