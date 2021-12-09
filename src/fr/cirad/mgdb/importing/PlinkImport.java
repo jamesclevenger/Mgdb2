@@ -579,13 +579,6 @@ public class PlinkImport extends AbstractGenotypeImport {
 			                            // Start at the closest previous block that has already been mapped
 			                            int startBlock = Math.min(blockIndex, individualPositions.size() - 1);
 			                            int startPosition = individualPositions.get(startBlock);
-			                            /*for (int i = blockIndex; i >= 1; i--) {
-			                                if (individualPositions.get(i) >= 0) {
-			                                    startPosition = individualPositions.get(i);
-			                                    startBlock = i;
-			                                    break;
-			                                }
-			                            }*/
 			
 			                            // Advance till the beginning of the actual block, and map the other ones on the way
 			                            matcher.find(startPosition);
@@ -649,10 +642,6 @@ public class PlinkImport extends AbstractGenotypeImport {
 			                    }
 			
 			                    progress.setCurrentStepProgress(nFinishedVariantCount.addAndGet(blockSize) * 100 / variants.length);
-		        			} catch (OutOfMemoryError exc) {
-		        				LOG.error(exc);
-		        				exc.printStackTrace();
-		        				// TODO : failsafe
 		        			} finally {
 		        				reader.close();
 		        			}
