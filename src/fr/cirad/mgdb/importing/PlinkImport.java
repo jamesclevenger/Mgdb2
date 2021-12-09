@@ -31,14 +31,13 @@ import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Scanner;
 import java.util.TreeSet;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -84,9 +83,7 @@ public class PlinkImport extends AbstractGenotypeImport {
     private boolean fImportUnknownVariants = false;
     
     public boolean m_fCloseContextOpenAfterImport = false;
-    
-    private static int m_nCurrentlyRotatingMatrixCount = 0; 
-    
+        
     /**
      * Instantiates a new PLINK import.
      */
@@ -168,9 +165,6 @@ public class PlinkImport extends AbstractGenotypeImport {
      */
     public Integer importToMongo(String sModule, String sProject, String sRun, String sTechnology, URL mapFileURL, File pedFile, boolean fSkipMonomorphic, boolean fCheckConsistencyBetweenSynonyms, int importMode) throws Exception
     {
-        if (m_nCurrentlyRotatingMatrixCount > 3)	// we allow up to 4 simultaneous matrix rotations
-        	throw new Exception("The system is already busy rotating other PLINK datasets, please try again later");
-
         long before = System.currentTimeMillis();
         ProgressIndicator progress = ProgressIndicator.get(m_processID) != null ? ProgressIndicator.get(m_processID) : new ProgressIndicator(m_processID, new String[]{"Initializing import"}); // better to add it straight-away so the JSP doesn't get null in return when it checks for it (otherwise it will assume the process has ended)     
         LinkedHashSet<Integer> redundantVariantIndexes = new LinkedHashSet<>();
@@ -244,14 +238,8 @@ public class PlinkImport extends AbstractGenotypeImport {
             Map<String, String> nonSnpVariantTypeMap = new HashMap<>();
             
             File rotatedFile = null;
-            try {
-            	m_nCurrentlyRotatingMatrixCount++;
-            	rotatedFile = rotatePlinkPedFile(variants, pedFile, userIndividualToPopulationMap, nonSnpVariantTypeMap, progress);
-            }
-            finally {
-            	m_nCurrentlyRotatingMatrixCount--;
-            }
-            
+            rotatedFile = rotatePlinkPedFile(variants, pedFile, userIndividualToPopulationMap, nonSnpVariantTypeMap, progress);
+             
             progress.addStep("Checking genotype consistency between synonyms");
             progress.moveToNextStep();
 
@@ -422,38 +410,36 @@ public class PlinkImport extends AbstractGenotypeImport {
         return count;
     }
     
+    private long getAllocatableMemory(boolean fCalledFromCommandLine) {
+    	Runtime rt = Runtime.getRuntime();
+    	long allocatableMemory = (long) ((fCalledFromCommandLine ? .8 : .5) * (rt.maxMemory() - rt.totalMemory() + rt.freeMemory()));
+    	return allocatableMemory;
+    }
+    
     private File rotatePlinkPedFile(String[] variants, File pedFile, Map<String, String> userIndividualToPopulationMapToFill, Map<String, String> nonSnpVariantTypeMapToFill, ProgressIndicator progress) throws Exception {
         long before = System.currentTimeMillis();
-        Runtime rt = Runtime.getRuntime();
         
         StackTraceElement[] stacktrace = Thread.currentThread().getStackTrace();
         boolean fCalledFromCommandLine = stacktrace[stacktrace.length-1].getClassName().equals(getClass().getName()) && "main".equals(stacktrace[stacktrace.length-1].getMethodName());
         
-        // we grant ourselves a portion of the currently available memory for reading data: this defines how many markers we treat at once
-        rt.gc();
-        double nAllowedMemoryDivider = Math.pow(2, m_nCurrentlyRotatingMatrixCount);
-        long allocatableMemory = (long) ((fCalledFromCommandLine ? .8 : (1/nAllowedMemoryDivider)) * (rt.maxMemory() - rt.totalMemory() + rt.freeMemory()));
-        float readableFilePortion = (float) allocatableMemory / pedFile.length();
-        int nMaxMarkersReadAtOnce = (int) (readableFilePortion * variants.length) / 3;	// just for security, because we will be using multiple objects in parallel
-        
         int nConcurrentThreads = Math.max(1, Runtime.getRuntime().availableProcessors());
         
-        // Optimize by splitting in a number of blocks multiple of the available threads
-        final int nThreadBlocks = (int)Math.ceil((float)variants.length / nMaxMarkersReadAtOnce) * nConcurrentThreads;// * 2;
-        final int threadBlockSize = (int)Math.ceil((float)variants.length / nThreadBlocks);
-                
         File outputFile = File.createTempFile("plinkImport-" + pedFile.getName() + "-", ".tsv");
         FileWriter outputWriter = new FileWriter(outputFile);
-        
-        LOG.info("PED matrix transposition - max marker# to read at once: " + nMaxMarkersReadAtOnce + ", threads: " + nConcurrentThreads + ", blocksize: " + threadBlockSize + ", blocks: " + nThreadBlocks);
-        
-        Pattern allelePattern = Pattern.compile("\\S+"), outputFileSeparatorPattern = Pattern.compile("(/|\\t)");
+                
+        Pattern allelePattern = Pattern.compile("\\S+");
+        Pattern outputFileSeparatorPattern = Pattern.compile("(/|\\t)");
         
         // Read the line headers, fill the individual map and creates the block positions arrays
-        HashMap<Integer, int[]> blockPositions = new HashMap<Integer, int[]>();
+        LinkedList<Integer> blockStartMarkers = new LinkedList<Integer>();
+        ArrayList<ArrayList<Integer>> blockLinePositions = new ArrayList<ArrayList<Integer>>();
+        ArrayList<Integer> lineLengths = new ArrayList<Integer>();
+        int maxLineLength = 0;
+        blockStartMarkers.add(0);
+        
         BufferedReader reader = new BufferedReader(new FileReader(pedFile));
         String initLine;
-        int individual = 0;
+        int nIndividuals = 0;
         while ((initLine = reader.readLine()) != null) {
             Matcher initMatcher = allelePattern.matcher(initLine);
             initMatcher.find();
@@ -462,24 +448,235 @@ public class PlinkImport extends AbstractGenotypeImport {
             String sIndividual = initMatcher.group();
             userIndividualToPopulationMapToFill.put(sIndividual, sPopulation);
             
-            for (int i = 0; i < 4; i++) initMatcher.find();
-            int[] positions = new int[nThreadBlocks + 1];  // The last one is the length of the line's payload
-            Arrays.fill(positions, -1);
+            // Skip the remaining header fields
+            for (int i = 0; i < 4; i++)
+            	initMatcher.find();
+            
+            ArrayList<Integer> positions = new ArrayList<Integer>();
             
             // Find the first allele to get the actual beginning of the genotypes, without the first separators
             initMatcher.find();
-            positions[0] = initMatcher.start();
+            int payloadStart = initMatcher.start();
+            positions.add(payloadStart);
+            blockLinePositions.add(positions);
             
             // Find the length of the line's payload (without header and trailing separators)
-            String sPayLoad = initLine.substring(positions[0]).trim();
-            positions[nThreadBlocks] = sPayLoad.length();
+            String sPayLoad = initLine.substring(payloadStart).trim();
+            lineLengths.add(sPayLoad.length());
+            
+            if (initLine.length() > maxLineLength)
+            	maxLineLength = initLine.length();
 
-            blockPositions.put(individual, positions);
-            individual += 1;
+            nIndividuals += 1;
         }
         reader.close();
-                
-        ExecutorService executor = Executors.newFixedThreadPool(nConcurrentThreads);
+        
+        // Counted as [allele, sep, allele, sep], -1 because trailing separators are not accounted for
+        final int nTrivialLineSize = 4*variants.length - 1;
+        final int initialCapacity = (int)(1.05 * nIndividuals * maxLineLength / variants.length);  // The +10% is arbitrary to account for variation in length
+        LOG.info("Max line length : " + maxLineLength + ", initial capacity : " + initialCapacity);
+        final int cMaxLineLength = maxLineLength;
+        final int cIndividuals = nIndividuals;
+        final AtomicInteger nFinishedVariantCount = new AtomicInteger(0);
+        final AtomicLong memoryPool = new AtomicLong(0);
+        Thread[] transposeThreads = new Thread[nConcurrentThreads];
+        for (int threadIndex = 0; threadIndex < nConcurrentThreads; threadIndex++) {
+        	final int cThreadIndex = threadIndex;
+        	transposeThreads[threadIndex] = new Thread() {
+        		@Override
+        		public void run() {
+        			try {
+        				// Those buffers have a fixed length, so they can be pre-allocated
+	        			StringBuilder lineBuffer = new StringBuilder(cMaxLineLength);
+	        			char[] fileBuffer = new char[cMaxLineLength];
+	        			ArrayList<StringBuilder> transposed = null;
+	        			
+		        		while (blockStartMarkers.getLast() < variants.length && progress.getError() == null) {	 
+		        			FileReader reader = new FileReader(pedFile);
+		        			try {
+			        			// Only one PLINK import thread can allocate its memory at once
+			        			int blockIndex, blockSize, blockStart;
+			        			int bufferPosition = 0;
+			        			
+			        			
+			        			synchronized (PlinkImport.class) {
+			        				blockIndex = blockStartMarkers.size() - 1;
+			        				blockStart = blockStartMarkers.getLast();
+			        				if (blockStart >= variants.length)
+			        					return;
+			        				
+			        				long allocatableMemory = getAllocatableMemory(fCalledFromCommandLine);
+			        				if (allocatableMemory > memoryPool.get())
+			        					memoryPool.set(allocatableMemory);
+			        				
+			        				long blockGenotypesMemory = memoryPool.get() / nConcurrentThreads - 4*cMaxLineLength;
+			        				blockSize = Math.min((int)(blockGenotypesMemory / (2*initialCapacity)), variants.length - blockStart);
+			        				blockSize = Math.min(blockSize, (int)Math.ceil((float)variants.length / nConcurrentThreads));
+			        				if (blockSize < 1)
+			        					continue;
+			        				
+			        				blockStartMarkers.add(blockStart + blockSize);
+			        				LOG.debug("Thread " + cThreadIndex + " starts block " + blockIndex + " : " + blockSize + " markers starting at marker " + blockStart + " (" + blockGenotypesMemory + " allowed)");
+			        				
+			        				if (transposed == null) {
+			        					transposed = new ArrayList<StringBuilder>(blockSize);
+			        					for (int i = 0; i < blockSize; i++) {
+			        						transposed.add(new StringBuilder(initialCapacity));
+			        					}
+			        				} else if (transposed.size() < blockSize) {
+			        					transposed.ensureCapacity(blockSize);
+			        					for (int i = transposed.size(); i < blockSize; i++) {
+			        						transposed.add(new StringBuilder(initialCapacity));
+			        					}
+			        				}
+				                    for (int marker = 0; marker < blockSize; marker++) {
+				                        StringBuilder builder = transposed.get(marker);
+				                        builder.setLength(0);
+				                        builder.append(variants[blockStart + marker]);
+				                    }
+			        			}
+			                    
+			                    int individual = 0;
+			                    reader.read(fileBuffer, 0, cMaxLineLength);
+			                    while (individual < cIndividuals) {
+			                    	// Read a line, but implementing the BufferedReader ourselves with our own buffers to avoid producing garbage
+			                    	lineBuffer.setLength(0);
+			                    	boolean reachedEOL = false;
+			                    	while (!reachedEOL) {
+				                    	for (int i = bufferPosition; i < cMaxLineLength; i++) {
+				                    		if (fileBuffer[i] == '\n') {
+				                    			lineBuffer.append(fileBuffer, bufferPosition, i - bufferPosition);
+				                    			bufferPosition = i + 1;
+				                    			reachedEOL = true;
+				                    		}
+				                    	}
+				                    	
+				                    	if (!reachedEOL) {
+				                    		lineBuffer.append(fileBuffer, bufferPosition, cMaxLineLength - bufferPosition);
+				                    		if (reader.read(fileBuffer, 0, cMaxLineLength) == -1) {
+				                    			break;
+				                    		}
+				                    		bufferPosition = 0;
+				                    	}
+			                    	}
+			                    	
+			                        ArrayList<Integer> individualPositions = blockLinePositions.get(individual);
+			
+			                        // Trivial case : 1 character per allele, 1 character per separator
+			                        if (lineLengths.get(individual) == nTrivialLineSize) {
+			                            for (int marker = 0; marker < blockSize; marker++) {
+			                            	int nCurrentPos = individualPositions.get(0) + 4*(blockStart + marker);
+			                            	StringBuilder builder = transposed.get(marker);
+			                                builder.append("\t");
+			                                builder.append(lineBuffer.charAt(nCurrentPos));
+			                                builder.append("/");
+			                                builder.append(lineBuffer.charAt(nCurrentPos + 2));
+			                            }
+			                        // Non-trivial case : INDELs and/or multi-characters separators
+			                        } else {
+			                            Matcher matcher = allelePattern.matcher(lineBuffer);
+			
+			                            // Start at the closest previous block that has already been mapped
+			                            int startBlock = Math.min(blockIndex, individualPositions.size() - 1);
+			                            int startPosition = individualPositions.get(startBlock);
+			                            /*for (int i = blockIndex; i >= 1; i--) {
+			                                if (individualPositions.get(i) >= 0) {
+			                                    startPosition = individualPositions.get(i);
+			                                    startBlock = i;
+			                                    break;
+			                                }
+			                            }*/
+			
+			                            // Advance till the beginning of the actual block, and map the other ones on the way
+			                            matcher.find(startPosition);
+			                            for (int b = startBlock; b < blockIndex; b++) {
+			                            	int nMarkersToSkip = blockStartMarkers.get(b+1) - blockStartMarkers.get(b);
+			                                for (int i = 0; i < nMarkersToSkip; i++) {
+			                                    matcher.find();
+			                                    matcher.find();
+			                                }
+			                                
+			                                // Need to synchronize structural changes
+			                                synchronized (individualPositions) {
+				                                if (individualPositions.size() <= b + 1)
+				                                	individualPositions.add(matcher.start());
+			                                }
+			                            }
+			
+			                            for (int marker = 0; marker < blockSize; marker++) {
+			                            	StringBuilder builder = transposed.get(marker);
+			                                builder.append("\t");
+			                                builder.append(matcher.group());
+			                                matcher.find();
+			                                builder.append("/");
+			                                builder.append(matcher.group());
+			                                matcher.find();
+			                            }
+			
+			                            // Map the current block
+			                            synchronized (individualPositions) {
+				                            if (individualPositions.size() <= blockIndex + 1 && blockStart + blockSize < variants.length)
+				                                individualPositions.add(matcher.start());
+			                            }
+			                        }
+			                        individual += 1;
+			                    }
+			
+			                	String snpTypeString = Type.SNP.toString();
+			                    for (int i = 0; i < blockSize; i++) {
+			                    	StringBuilder variantLine = transposed.get(i);
+			                        String[] splitVariantLineString = variantLine.toString().split("\t", 2);
+			                        
+			                        // if it's not a SNP, let's keep track of its type
+			                        List<Allele> alleleList = 
+			                        		outputFileSeparatorPattern.splitAsStream(splitVariantLineString[1])
+			                        			.filter(allele -> !"0".equals(allele))
+			                        			.distinct()
+			                        			.map(allele -> Allele.create(allele))
+			                        			.collect(Collectors.toList());
+			                        if (!alleleList.isEmpty()) {
+			                        	String variantType = determineType(alleleList).toString();
+			                        	if (!variantType.equals(snpTypeString))
+			                        		nonSnpVariantTypeMapToFill.put(splitVariantLineString[0], variantType);
+			                        }
+			
+			                        synchronized (outputWriter) {
+			                            outputWriter.write(splitVariantLineString[0]);
+			                            outputWriter.write("\t");
+			                            outputWriter.write(splitVariantLineString[1]);
+			                            outputWriter.write("\n");
+			                        }
+			                    }
+			
+			                    progress.setCurrentStepProgress(nFinishedVariantCount.addAndGet(blockSize) * 100 / variants.length);
+		        			} catch (OutOfMemoryError exc) {
+		        				LOG.error(exc);
+		        				exc.printStackTrace();
+		        				// TODO : failsafe
+		        			} finally {
+		        				reader.close();
+		        			}
+	        			}
+        			} catch (Throwable t) {
+        				LOG.error(t);
+        				t.printStackTrace();
+        				progress.setError(t.getMessage());
+        				return;
+        			}
+        		}
+        	};
+        	transposeThreads[threadIndex].start();
+        }
+        
+        for (int i = 0; i < nConcurrentThreads; i++)
+        	transposeThreads[i].join();
+        outputWriter.close();
+        
+        Runtime.getRuntime().gc();
+        
+        LOG.info("PED matrix transposition took " + (System.currentTimeMillis() - before) + "ms for " + variants.length + " markers and " + userIndividualToPopulationMapToFill.size() + " individuals");
+        return outputFile;
+        /*ExecutorService executor = Executors.newFixedThreadPool(nConcurrentThreads);
         final int nExpectedPedLineSizeForOnlySingleCharAlleles = 4*variants.length - 1, cInitialCapacity = (int)(1.05 * pedFile.length() / variants.length);  // The +5% is arbitrary
         final AtomicInteger nFinishedBlockCount = new AtomicInteger();
         try {
@@ -503,7 +700,7 @@ public class PlinkImport extends AbstractGenotypeImport {
 	                        while ((line = reader.readLine()) != null) {
 	                            int[] individualPositions = blockPositions.get(individual);
 
-	                            // Trivial case : 1 character per allele, 1 character per separator (counted as [allele, sep, allele, sep], -1 because trailing separators are not accounted for)
+	                            // Trivial case : 1 character per allele, 1 character per separator
 	                            if (individualPositions[nThreadBlocks] == nExpectedPedLineSizeForOnlySingleCharAlleles) {
 	                                for (int marker = 0; marker < blockSize; marker++) {
 	                                	int nCurrentPos = individualPositions[0] + 4*(cBlock*threadBlockSize + marker);
@@ -556,25 +753,29 @@ public class PlinkImport extends AbstractGenotypeImport {
 	                        }
 	                        reader.close();
 
-	                        synchronized (outputWriter) {
-	                        	String snpTypeString = Type.SNP.toString();
-	                            for (StringBuilder variantLine : transposed) {
-	                                String[] splitVariantLineString = variantLine.toString().split("\t", 2);
-	                                variantLine = null;	// free-up memory ASAP
-	                                
-	                                // if it's not a SNP, let's keep track of its type
-	                                List<Allele> alleleList = outputFileSeparatorPattern.splitAsStream(splitVariantLineString[1]).filter(all -> !"0".equals(all)).distinct().map(all -> Allele.create(all)).collect(Collectors.toList());
-	                                if (!alleleList.isEmpty()) {
-	                                	String variantType = determineType(alleleList).toString();
-	                                	if (!variantType.equals(snpTypeString))
-	                                		nonSnpVariantTypeMapToFill.put(splitVariantLineString[0], variantType);
-	                                }
+                        	String snpTypeString = Type.SNP.toString();
+                            for (StringBuilder variantLine : transposed) {
+                                String[] splitVariantLineString = variantLine.toString().split("\t", 2);
+                                
+                                // if it's not a SNP, let's keep track of its type
+                                List<Allele> alleleList = 
+                                		outputFileSeparatorPattern.splitAsStream(splitVariantLineString[1])
+                                			.filter(allele -> !"0".equals(allele))
+                                			.distinct()
+                                			.map(allele -> Allele.create(allele))
+                                			.collect(Collectors.toList());
+                                if (!alleleList.isEmpty()) {
+                                	String variantType = determineType(alleleList).toString();
+                                	if (!variantType.equals(snpTypeString))
+                                		nonSnpVariantTypeMapToFill.put(splitVariantLineString[0], variantType);
+                                }
 
+                                synchronized (outputWriter) {
 	                                outputWriter.write(splitVariantLineString[0]);
 	                                outputWriter.write("\t");
 	                                outputWriter.write(splitVariantLineString[1]);
 	                                outputWriter.write("\n");
-	                            }
+                                }
 	                        }
 
 	                        progress.setCurrentStepProgress(nFinishedBlockCount.incrementAndGet() * 100 / nThreadBlocks);
@@ -594,10 +795,7 @@ public class PlinkImport extends AbstractGenotypeImport {
 	        executor.shutdown();
 	        executor.awaitTermination(Integer.MAX_VALUE, TimeUnit.DAYS);
 	        outputWriter.close();
-        }
-
-        LOG.info("PED matrix transposition took " + (System.currentTimeMillis() - before) + "ms for " + variants.length + " markers and " + userIndividualToPopulationMapToFill.size() + " individuals");
-        return outputFile;
+        }*/
     }
 
     /**
