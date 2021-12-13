@@ -31,12 +31,10 @@ import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
-import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Scanner;
 import java.util.TreeSet;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.regex.Matcher;
@@ -84,6 +82,8 @@ public class PlinkImport extends AbstractGenotypeImport {
     private boolean fImportUnknownVariants = false;
     
     public boolean m_fCloseContextOpenAfterImport = false;
+    
+    private static int m_nCurrentlyTransposingMatrixCount = 0;
         
     /**
      * Instantiates a new PLINK import.
@@ -166,6 +166,9 @@ public class PlinkImport extends AbstractGenotypeImport {
      */
     public Integer importToMongo(String sModule, String sProject, String sRun, String sTechnology, URL mapFileURL, File pedFile, boolean fSkipMonomorphic, boolean fCheckConsistencyBetweenSynonyms, int importMode) throws Exception
     {
+        if (m_nCurrentlyTransposingMatrixCount > 3)	// we allow up to 4 simultaneous matrix rotations
+        	throw new Exception("The system is already busy rotating other PLINK datasets, please try again later");
+        
         long before = System.currentTimeMillis();
         ProgressIndicator progress = ProgressIndicator.get(m_processID) != null ? ProgressIndicator.get(m_processID) : new ProgressIndicator(m_processID, new String[]{"Initializing import"}); // better to add it straight-away so the JSP doesn't get null in return when it checks for it (otherwise it will assume the process has ended)     
         LinkedHashSet<Integer> redundantVariantIndexes = new LinkedHashSet<>();
@@ -239,7 +242,13 @@ public class PlinkImport extends AbstractGenotypeImport {
             Map<String, Type> nonSnpVariantTypeMap = new HashMap<>();
             
             File rotatedFile = null;
-            rotatedFile = rotatePlinkPedFile(variants, pedFile, userIndividualToPopulationMap, nonSnpVariantTypeMap, progress);
+            try {
+            	m_nCurrentlyTransposingMatrixCount++;
+            	rotatedFile = transposePlinkPedFile(variants, pedFile, userIndividualToPopulationMap, nonSnpVariantTypeMap, progress);
+            }
+            finally {
+            	m_nCurrentlyTransposingMatrixCount--;
+            }
              
             progress.addStep("Checking genotype consistency between synonyms");
             progress.moveToNextStep();
@@ -418,7 +427,7 @@ public class PlinkImport extends AbstractGenotypeImport {
     	return allocatableMemory;
     }
     
-    private File rotatePlinkPedFile(String[] variants, File pedFile, Map<String, String> userIndividualToPopulationMapToFill, Map<String, Type> nonSnpVariantTypeMapToFill, ProgressIndicator progress) throws Exception {
+    private File transposePlinkPedFile(String[] variants, File pedFile, Map<String, String> userIndividualToPopulationMapToFill, Map<String, Type> nonSnpVariantTypeMapToFill, ProgressIndicator progress) throws Exception {
         long before = System.currentTimeMillis();
         
         StackTraceElement[] stacktrace = Thread.currentThread().getStackTrace();
@@ -432,13 +441,13 @@ public class PlinkImport extends AbstractGenotypeImport {
         Pattern allelePattern = Pattern.compile("\\S+");
         Pattern outputFileSeparatorPattern = Pattern.compile("(/|\\t)");
         
-        // Read the line headers, fill the individual map and creates the block positions arrays
-        ArrayList<Integer> blockStartMarkers = new ArrayList<Integer>();
-        ArrayList<ArrayList<Integer>> blockLinePositions = new ArrayList<ArrayList<Integer>>();
+        ArrayList<Integer> blockStartMarkers = new ArrayList<Integer>();  // blockStartMarkers[i] = first marker of block i
+        ArrayList<ArrayList<Integer>> blockLinePositions = new ArrayList<ArrayList<Integer>>();  // blockLinePositions[line][block] = first character of `block` in `line`
         ArrayList<Integer> lineLengths = new ArrayList<Integer>();
         int maxLineLength = 0, maxPayloadLength = 0;
         blockStartMarkers.add(0);
         
+        // Read the line headers, fill the individual map and creates the block positions arrays
         BufferedReader reader = new BufferedReader(new FileReader(pedFile));
         String initLine;
         int nIndividuals = 0;
@@ -475,11 +484,12 @@ public class PlinkImport extends AbstractGenotypeImport {
         }
         reader.close();
         
-        // Counted as [allele, sep, allele, sep], -1 because trailing separators are not accounted for
+        // Counted as [allele, sep, allele, sep] : -1 because trailing separators are not accounted for
         final int nTrivialLineSize = 4*variants.length - 1;
         final int initialCapacity = nIndividuals * (2*maxPayloadLength - nTrivialLineSize + 1) / variants.length;  // +1 because of leading tabs, *2 because a char is 2 bytes
         final int maxBlockSize = (int)Math.ceil((float)variants.length / nConcurrentThreads);
         LOG.debug("Max line length : " + maxLineLength + ", initial capacity : " + initialCapacity);
+        
         final int cMaxLineLength = maxLineLength;
         final int cIndividuals = nIndividuals;
         final AtomicInteger nFinishedVariantCount = new AtomicInteger(0);
@@ -512,11 +522,13 @@ public class PlinkImport extends AbstractGenotypeImport {
 			        				if (blockStart >= variants.length)
 			        					return;
 			        				
+			        				// Take more memory if a significant amount has been released (e.g. when another import finished transposing)
 			        				long allocatableMemory = getAllocatableMemory(fCalledFromCommandLine);
 			        				if (allocatableMemory > memoryPool.get())
-			        					memoryPool.set(allocatableMemory);
+			        					memoryPool.set((allocatableMemory + memoryPool.get()) / 2);
 			        				
 			        				long blockGenotypesMemory = memoryPool.get() / nConcurrentThreads - cMaxLineLength;
+			        				//                   max block size with the given amount of memory   | remaining variants to read
 			        				blockSize = Math.min((int)(blockGenotypesMemory / (2*initialCapacity)), variants.length - blockStart);
 			        				blockSize = Math.min(blockSize, maxBlockSize);
 			        				if (blockSize < 1)
@@ -526,7 +538,7 @@ public class PlinkImport extends AbstractGenotypeImport {
 			        				LOG.debug("Thread " + cThreadIndex + " starts block " + blockIndex + " : " + blockSize + " markers starting at marker " + blockStart + " (" + blockGenotypesMemory + " allowed)");
 			        				
 			        				
-			        				if (transposed.size() < blockSize) {
+			        				if (transposed.size() < blockSize) {  // Allocate more buffers if needed
 			        					transposed.ensureCapacity(blockSize);
 			        					for (int i = transposed.size(); i < blockSize; i++) {
 			        						transposed.add(new StringBuilder(initialCapacity));
@@ -534,6 +546,7 @@ public class PlinkImport extends AbstractGenotypeImport {
 			        				}
 			        			}
 			        			
+			        			// Reset the transposed variants buffers
 			        			for (int marker = 0; marker < blockSize; marker++) {
 			                        transposed.get(marker).setLength(0);
 			                    }
@@ -661,6 +674,7 @@ public class PlinkImport extends AbstractGenotypeImport {
         for (int i = 0; i < nConcurrentThreads; i++)
         	transposeThreads[i].join();
         
+        // Fill the variant type map with the variant type array
         for (int i = 0; i < variants.length; i++) {
         	if (variantTypes[i] != null)
         		nonSnpVariantTypeMapToFill.put(variants[i], variantTypes[i]);
@@ -668,7 +682,7 @@ public class PlinkImport extends AbstractGenotypeImport {
         outputWriter.close();
         LOG.info("PED matrix transposition took " + (System.currentTimeMillis() - before) + "ms for " + variants.length + " markers and " + userIndividualToPopulationMapToFill.size() + " individuals");
         
-        Runtime.getRuntime().gc();
+        Runtime.getRuntime().gc();  // Release our (lots of) memory as soon as possible
         return outputFile;
     }
 
