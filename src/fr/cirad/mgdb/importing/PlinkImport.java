@@ -486,8 +486,9 @@ public class PlinkImport extends AbstractGenotypeImport {
         
         // Counted as [allele, sep, allele, sep] : -1 because trailing separators are not accounted for
         final int nTrivialLineSize = 4*variants.length - 1;
-        final int initialCapacity = nIndividuals * (2*maxPayloadLength - nTrivialLineSize + 1) / variants.length;  // +1 because of leading tabs, *2 because a char is 2 bytes
+        final int initialCapacity = (int)((long)nIndividuals * (long)(2*maxPayloadLength - nTrivialLineSize + 1) / variants.length);  // +1 because of leading tabs
         final int maxBlockSize = (int)Math.ceil((float)variants.length / nConcurrentThreads);
+        LOG.debug(nIndividuals + " individuals, " + variants.length + " variants, maxPayloadLength=" + maxPayloadLength + ", nTrivialLineSize=" + nTrivialLineSize + " : " + (nIndividuals * (2*maxPayloadLength - nTrivialLineSize + 1) / variants.length));
         LOG.debug("Max line length : " + maxLineLength + ", initial capacity : " + initialCapacity);
         
         final int cMaxLineLength = maxLineLength;
