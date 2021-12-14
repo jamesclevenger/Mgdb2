@@ -662,9 +662,8 @@ public class PlinkImport extends AbstractGenotypeImport {
 		        			}
 	        			}
         			} catch (Throwable t) {
-        				LOG.error(t);
-        				t.printStackTrace();
-        				progress.setError(t.getMessage());
+        				progress.setError("PED matrix transposition failed with error: " + t.getMessage());
+        				LOG.error(progress.getError(), t);
         				return;
         			}
         		}
@@ -681,7 +680,8 @@ public class PlinkImport extends AbstractGenotypeImport {
         		nonSnpVariantTypeMapToFill.put(variants[i], variantTypes[i]);
         }
         outputWriter.close();
-        LOG.info("PED matrix transposition took " + (System.currentTimeMillis() - before) + "ms for " + variants.length + " markers and " + userIndividualToPopulationMapToFill.size() + " individuals");
+        if (progress.getError() == null)
+        	LOG.info("PED matrix transposition took " + (System.currentTimeMillis() - before) + "ms for " + variants.length + " markers and " + userIndividualToPopulationMapToFill.size() + " individuals");
         
         Runtime.getRuntime().gc();  // Release our (lots of) memory as soon as possible
         return outputFile;
