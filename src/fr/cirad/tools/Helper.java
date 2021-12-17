@@ -388,9 +388,12 @@ public class Helper {
 		return runsByProject;
     }
     
-    static public void convertIdFiltersToRunFormat(BasicDBList filters) {
-        for (Object filter : filters)
-            if (((BasicDBObject) filter).containsField("_id"))
-                ((BasicDBObject) filter).append("_id." + VariantRunDataId.FIELDNAME_VARIANT_ID, ((BasicDBObject) filter).remove("_id"));
+    static public void convertIdFiltersToRunFormat(Collection<BasicDBList> filters) {
+        for (BasicDBList query: filters) {
+            for (Object filter : query) {
+                if (((BasicDBObject) filter).containsField("_id"))
+                    ((BasicDBObject) filter).append("_id." + VariantRunDataId.FIELDNAME_VARIANT_ID, ((BasicDBObject) filter).remove("_id"));
+            }
+        }
     }
 }
