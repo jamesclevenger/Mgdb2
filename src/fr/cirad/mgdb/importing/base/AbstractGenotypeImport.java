@@ -208,6 +208,7 @@ public class AbstractGenotypeImport {
             }
         };
 
+        // TODO : This could be enhanced with an ExecutorService
         if (chunkIndex % nNConcurrentThreads == (nNConcurrentThreads - 1)) {
             threadsToWaitFor.add(insertionThread); // only needed to have an accurate count
             insertionThread.run();	// run synchronously
