@@ -301,12 +301,12 @@ public class PlinkImport extends AbstractGenotypeImport {
             LOG.info("Importing by chunks of size " + nNumberOfVariantsToSaveAtOnce);
             HashMap<String /*individual*/, GenotypingSample> previouslyCreatedSamples = new HashMap<>();
             
-            //final AtomicInteger chunkIndex = new AtomicInteger(0);
+            final AtomicInteger chunkIndex = new AtomicInteger(0);
             reader = new BufferedReader(new FileReader(tempFile));
             
             final BufferedReader finalReader = reader;
             Thread[] importThreads = new Thread[nNConcurrentThreads];
-            BlockingQueue<Runnable> saveServiceQueue = new LinkedBlockingQueue<Runnable>(nNConcurrentThreads*2);
+            BlockingQueue<Runnable> saveServiceQueue = new LinkedBlockingQueue<Runnable>(nNConcurrentThreads*4);
             ExecutorService saveService = new ThreadPoolExecutor(1, nNConcurrentThreads, 30, TimeUnit.SECONDS, saveServiceQueue, new ThreadPoolExecutor.CallerRunsPolicy());
             
             for (int threadIndex = 0; threadIndex < nNConcurrentThreads; threadIndex++) {
@@ -317,7 +317,6 @@ public class PlinkImport extends AbstractGenotypeImport {
             				long processedVariants = 0;
             	            HashSet<VariantData> unsavedVariants = new HashSet<VariantData>();  // HashSet allows no duplicates
             		        HashSet<VariantRunData> unsavedRuns = new HashSet<VariantRunData>();
-            		        //int linesDone = 0;
             		        while (progress.getError() == null && !progress.isAborted()) {
 	            				String line;
 	            				synchronized (finalReader) {
@@ -375,7 +374,7 @@ public class PlinkImport extends AbstractGenotypeImport {
 
 	                                String[][] alleles = new String[2][individuals.length];
 	                                int nIndividualIndex = 0;
-	                                while (nIndividualIndex < individuals.length)
+	                               while (nIndividualIndex < individuals.length)
 	                                {
 	                                    String[] genotype = splitLine[nIndividualIndex + 1].split("/");
 	                                    if (inconsistencies != null && !inconsistencies.isEmpty()) {
@@ -410,8 +409,8 @@ public class PlinkImport extends AbstractGenotypeImport {
 	                                        unsavedRuns.add(runToSave);
 	                                }
 
-	                                else if (processedVariants % nNumberOfVariantsToSaveAtOnce == 0) {
-	                                    saveChunk(unsavedVariants, unsavedRuns, existingVariantIDs, mongoTemplate, progress, saveService);
+	                                if (processedVariants % nNumberOfVariantsToSaveAtOnce == 0) {
+	                                    saveChunk(chunkIndex.incrementAndGet(), unsavedVariants, unsavedRuns, existingVariantIDs, mongoTemplate, progress, saveService);
 	                                    unsavedVariants = new HashSet<VariantData>();
 	                                    unsavedRuns = new HashSet<VariantRunData>();
 	                                    

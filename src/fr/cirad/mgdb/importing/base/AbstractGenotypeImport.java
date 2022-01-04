@@ -193,16 +193,19 @@ public class AbstractGenotypeImport {
 		return !fLooksLikePreprocessedVariantList;
 	}	
 	
-	protected void saveChunk(Collection<VariantData> unsavedVariants, Collection<VariantRunData> unsavedRuns, HashMap<String, String> existingVariantIDs, MongoTemplate finalMongoTemplate, ProgressIndicator progress, ExecutorService saveService) throws InterruptedException {
+	protected void saveChunk(int chunkIndex, Collection<VariantData> unsavedVariants, Collection<VariantRunData> unsavedRuns, HashMap<String, String> existingVariantIDs, MongoTemplate finalMongoTemplate, ProgressIndicator progress, ExecutorService saveService) throws InterruptedException {
 		Collection<VariantData> finalUnsavedVariants = unsavedVariants;
         Collection<VariantRunData> finalUnsavedRuns = unsavedRuns;
+        //LOG.warn("Chunk " + chunkIndex + " scheduled");
         
         Thread insertionThread = new Thread() {
             @Override
             public void run() {
         		try {
+        			//LOG.warn("Chunk " + chunkIndex + " starts");
 					persistVariantsAndGenotypes(!existingVariantIDs.isEmpty(), finalMongoTemplate, finalUnsavedVariants, finalUnsavedRuns);
-				} catch (InterruptedException e) {
+					//LOG.warn("Chunk " + chunkIndex + " finished");
+        		} catch (InterruptedException e) {
 					progress.setError(e.getMessage());
 					LOG.error(e);
 				}
@@ -250,25 +253,26 @@ public class AbstractGenotypeImport {
 //		long t1 = System.currentTimeMillis() - b4;
 //		b4 = System.currentTimeMillis();
 		
-		List<VariantRunData> syncList = new ArrayList<>(), asyncList = new ArrayList<>();
+		/*List<VariantRunData> syncList = new ArrayList<>(), asyncList = new ArrayList<>();
 		int i = 0;
 		for (VariantRunData vrd : unsavedRuns)
-			(i++ < unsavedRuns.size() / 2 ? syncList : asyncList).add(vrd);
+			(i++ < unsavedRuns.size() / 2 ? syncList : asyncList).add(vrd);*/
 	    		
 		try {
-			Thread vrdAsyncThread = new Thread() {
+			/*Thread vrdAsyncThread = new Thread() {
 				public void run() {
 			    	mongoTemplate.insert(asyncList, VariantRunData.class);	// this should always work but fails when a same variant is provided several times (using different synonyms)
 				}
 			};
 			vrdAsyncThread.start();
 	    	mongoTemplate.insert(syncList, VariantRunData.class);	// this should always work but fails when a same variant is provided several times (using different synonyms)
-			vrdAsyncThread.join();
+			vrdAsyncThread.join();*/
+			mongoTemplate.insert(unsavedRuns);
 		}
 		catch (DuplicateKeyException dke)
 		{
 			LOG.info("Persisting runs using save() because of synonym variants: " + dke.getMessage());
-			Thread vrdAsyncThread = new Thread() {	// using 2 threads is faster when calling save, but slower when calling insert 
+			/*Thread vrdAsyncThread = new Thread() {	// using 2 threads is faster when calling save, but slower when calling insert 
 				public void run() {
 			    	asyncList.stream().forEach(vrd -> mongoTemplate.save(vrd));
 				}
@@ -276,9 +280,11 @@ public class AbstractGenotypeImport {
 			vrdAsyncThread.start();
     		syncList.stream().forEach(vrd -> mongoTemplate.save(vrd));
 			vrdAsyncThread.join();
+			*/
+			unsavedRuns.stream().forEach(vrd -> mongoTemplate.save(vrd));
 		}
 
-		vdAsyncThread.join();	
+		vdAsyncThread.join();
 //		System.err.println("VD: " + t1 + " / VRD: " + (System.currentTimeMillis() - b4));
     }
     
