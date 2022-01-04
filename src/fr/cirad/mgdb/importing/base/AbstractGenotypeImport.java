@@ -22,6 +22,7 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
 import java.util.stream.Collectors;
 
 import org.apache.commons.lang3.StringUtils;
@@ -192,7 +193,7 @@ public class AbstractGenotypeImport {
 		return !fLooksLikePreprocessedVariantList;
 	}	
 	
-	protected void saveChunk(Collection<VariantData> unsavedVariants, Collection<VariantRunData> unsavedRuns, HashMap<String, String> existingVariantIDs, MongoTemplate finalMongoTemplate, ProgressIndicator progress, int nNumberOfVariantsToSaveAtOnce, int nProcessedVariantCount, Integer nTotalVariantCount, ArrayList<Thread> threadsToWaitFor, int nNConcurrentThreads, int chunkIndex) throws InterruptedException {
+	protected void saveChunk(Collection<VariantData> unsavedVariants, Collection<VariantRunData> unsavedRuns, HashMap<String, String> existingVariantIDs, MongoTemplate finalMongoTemplate, ProgressIndicator progress, ExecutorService saveService) throws InterruptedException {
 		Collection<VariantData> finalUnsavedVariants = unsavedVariants;
         Collection<VariantRunData> finalUnsavedRuns = unsavedRuns;
         
@@ -207,9 +208,10 @@ public class AbstractGenotypeImport {
 				}
             }
         };
+        
+        saveService.execute(insertionThread);
 
-        // TODO : This could be enhanced with an ExecutorService
-        if (chunkIndex % nNConcurrentThreads == (nNConcurrentThreads - 1)) {
+        /* if (chunkIndex % nNConcurrentThreads == (nNConcurrentThreads - 1)) {
             threadsToWaitFor.add(insertionThread); // only needed to have an accurate count
             insertionThread.run();	// run synchronously
             
@@ -223,7 +225,7 @@ public class AbstractGenotypeImport {
 
         progress.setCurrentStepProgress(nTotalVariantCount != null ? nProcessedVariantCount * 100 / nTotalVariantCount : nProcessedVariantCount);
         if (nProcessedVariantCount % (nNumberOfVariantsToSaveAtOnce*50) == 0)
-            LOG.debug(nProcessedVariantCount + " lines processed");
+            LOG.debug(nProcessedVariantCount + " lines processed");*/
 	}
 
     public void persistVariantsAndGenotypes(boolean fDBAlreadyContainsVariants, MongoTemplate mongoTemplate, Collection<VariantData> unsavedVariants, Collection<VariantRunData> unsavedRuns) throws InterruptedException

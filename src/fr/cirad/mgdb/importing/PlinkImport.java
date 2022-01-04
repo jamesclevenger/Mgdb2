@@ -35,6 +35,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.Scanner;
 import java.util.TreeSet;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.LinkedBlockingDeque;
+import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.regex.Matcher;
@@ -295,20 +301,23 @@ public class PlinkImport extends AbstractGenotypeImport {
             LOG.info("Importing by chunks of size " + nNumberOfVariantsToSaveAtOnce);
             HashMap<String /*individual*/, GenotypingSample> previouslyCreatedSamples = new HashMap<>();
             
-            final AtomicInteger chunkIndex = new AtomicInteger(0);
+            //final AtomicInteger chunkIndex = new AtomicInteger(0);
             reader = new BufferedReader(new FileReader(tempFile));
             
             final BufferedReader finalReader = reader;
             Thread[] importThreads = new Thread[nNConcurrentThreads];
+            BlockingQueue<Runnable> saveServiceQueue = new LinkedBlockingQueue<Runnable>(nNConcurrentThreads*2);
+            ExecutorService saveService = new ThreadPoolExecutor(1, nNConcurrentThreads, 30, TimeUnit.SECONDS, saveServiceQueue, new ThreadPoolExecutor.CallerRunsPolicy());
+            
             for (int threadIndex = 0; threadIndex < nNConcurrentThreads; threadIndex++) {
             	importThreads[threadIndex] = new Thread() {
             		@Override
             		public void run() {
             			try {
-            				final ArrayList<Thread> threadsToWaitFor = new ArrayList<>();
+            				long processedVariants = 0;
             	            HashSet<VariantData> unsavedVariants = new HashSet<VariantData>();  // HashSet allows no duplicates
             		        HashSet<VariantRunData> unsavedRuns = new HashSet<VariantRunData>();
-            		        int linesDone = 0;
+            		        //int linesDone = 0;
             		        while (progress.getError() == null && !progress.isAborted()) {
 	            				String line;
 	            				synchronized (finalReader) {
@@ -401,23 +410,22 @@ public class PlinkImport extends AbstractGenotypeImport {
 	                                        unsavedRuns.add(runToSave);
 	                                }
 
-	                                if (count.get() == 0) {
-	                                    
-	                                }
-	                                else if (count.get() % nNumberOfVariantsToSaveAtOnce == 0) {
-	                                    saveChunk(unsavedVariants, unsavedRuns, existingVariantIDs, mongoTemplate, progress, nNumberOfVariantsToSaveAtOnce, count.get(), variantsAndPositions.size(), threadsToWaitFor, nNConcurrentThreads, linesDone);
+	                                else if (processedVariants % nNumberOfVariantsToSaveAtOnce == 0) {
+	                                    saveChunk(unsavedVariants, unsavedRuns, existingVariantIDs, mongoTemplate, progress, saveService);
 	                                    unsavedVariants = new HashSet<VariantData>();
 	                                    unsavedRuns = new HashSet<VariantRunData>();
+	                                    
+	                                    progress.setCurrentStepProgress(count.get() * 100 / variantsAndPositions.size());
+	                                        
 	                                }
 	                            }
-	                            count.incrementAndGet();
-	                            linesDone += 1;
+	                            int newCount = count.incrementAndGet();
+	                            if (newCount % (nNumberOfVariantsToSaveAtOnce*50) == 0)
+	                            	LOG.debug(newCount + " lines processed");
+	                            processedVariants += 1;
             				}
             		        
             		        persistVariantsAndGenotypes(!existingVariantIDs.isEmpty(), mongoTemplate, unsavedVariants, unsavedRuns);
-            		        for (Thread t : threadsToWaitFor) // wait for all threads before moving to next phase
-            	                t.join();
-            		        
             			} catch (Throwable t) {
             				progress.setError("Genotypes import failed with error: " + t.getMessage());
             				LOG.error(progress.getError(), t);
@@ -426,7 +434,14 @@ public class PlinkImport extends AbstractGenotypeImport {
             				
             		}
             	};
+            	
+            	importThreads[threadIndex].start();
             }
+            
+            for (int i = 0; i < nNConcurrentThreads; i++)
+            	importThreads[i].join();
+            saveService.shutdown();
+            saveService.awaitTermination(Integer.MAX_VALUE, TimeUnit.DAYS);
 
             // save project data
             if (!project.getRuns().contains(sRun))
