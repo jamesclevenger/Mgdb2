@@ -36,6 +36,7 @@ import java.util.Map;
 import java.util.Scanner;
 import java.util.TreeSet;
 import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
@@ -299,17 +300,18 @@ public class PlinkImport extends AbstractGenotypeImport {
             
             final int nNumberOfVariantsToSaveAtOnce = Math.max(1, nMaxChunkSize / individuals.length);
             LOG.info("Importing by chunks of size " + nNumberOfVariantsToSaveAtOnce);
-            HashMap<String /*individual*/, GenotypingSample> previouslyCreatedSamples = new HashMap<>();
+            ConcurrentHashMap<String /*individual*/, GenotypingSample> previouslyCreatedSamples = new ConcurrentHashMap<>();
             
             final AtomicInteger chunkIndex = new AtomicInteger(0);
             reader = new BufferedReader(new FileReader(tempFile));
             
             final BufferedReader finalReader = reader;
-            Thread[] importThreads = new Thread[nNConcurrentThreads];
-            BlockingQueue<Runnable> saveServiceQueue = new LinkedBlockingQueue<Runnable>(nNConcurrentThreads*4);
-            ExecutorService saveService = new ThreadPoolExecutor(1, nNConcurrentThreads, 30, TimeUnit.SECONDS, saveServiceQueue, new ThreadPoolExecutor.CallerRunsPolicy());
+            int nImportThreads = Math.max(1, nNConcurrentThreads - 1);
+            Thread[] importThreads = new Thread[nImportThreads];
+            BlockingQueue<Runnable> saveServiceQueue = new LinkedBlockingQueue<Runnable>(saveServiceQueueLength(nNConcurrentThreads));
+            ExecutorService saveService = new ThreadPoolExecutor(1, saveServiceThreads(nNConcurrentThreads), 30, TimeUnit.SECONDS, saveServiceQueue, new ThreadPoolExecutor.CallerRunsPolicy());
             
-            for (int threadIndex = 0; threadIndex < nNConcurrentThreads; threadIndex++) {
+            for (int threadIndex = 0; threadIndex < nImportThreads; threadIndex++) {
             	importThreads[threadIndex] = new Thread() {
             		@Override
             		public void run() {
@@ -374,7 +376,7 @@ public class PlinkImport extends AbstractGenotypeImport {
 
 	                                String[][] alleles = new String[2][individuals.length];
 	                                int nIndividualIndex = 0;
-	                               while (nIndividualIndex < individuals.length)
+	                                while (nIndividualIndex < individuals.length)
 	                                {
 	                                    String[] genotype = splitLine[nIndividualIndex + 1].split("/");
 	                                    if (inconsistencies != null && !inconsistencies.isEmpty()) {
@@ -410,12 +412,11 @@ public class PlinkImport extends AbstractGenotypeImport {
 	                                }
 
 	                                if (processedVariants % nNumberOfVariantsToSaveAtOnce == 0) {
-	                                    saveChunk(chunkIndex.incrementAndGet(), unsavedVariants, unsavedRuns, existingVariantIDs, mongoTemplate, progress, saveService);
+	                                    saveChunk(unsavedVariants, unsavedRuns, existingVariantIDs, mongoTemplate, progress, saveService);
 	                                    unsavedVariants = new HashSet<VariantData>();
 	                                    unsavedRuns = new HashSet<VariantRunData>();
 	                                    
-	                                    progress.setCurrentStepProgress(count.get() * 100 / variantsAndPositions.size());
-	                                        
+	                                    progress.setCurrentStepProgress(count.get() * 100 / variantsAndPositions.size());   
 	                                }
 	                            }
 	                            int newCount = count.incrementAndGet();
@@ -437,7 +438,7 @@ public class PlinkImport extends AbstractGenotypeImport {
             	importThreads[threadIndex].start();
             }
             
-            for (int i = 0; i < nNConcurrentThreads; i++)
+            for (int i = 0; i < nImportThreads; i++)
             	importThreads[i].join();
             saveService.shutdown();
             saveService.awaitTermination(Integer.MAX_VALUE, TimeUnit.DAYS);
@@ -743,35 +744,41 @@ public class PlinkImport extends AbstractGenotypeImport {
         int i = -1;
         HashMap<String, Integer> alleleIndexMap = new HashMap<>();  // should be more efficient not to call indexOf too often...
         LinkedHashSet<String> individualsWithoutPopulation = new LinkedHashSet<>();
+        LinkedHashSet<String> knownAlleles = variantToFeed.getKnownAlleles();
         for (String sIndividual : userIndividualToPopulationMap.keySet())
         {
             i++;
-            for (int j=0; j<=1; j++) { // 2 alleles per genotype
+            
+            if ("0".equals(alleles[0][i]) || "0".equals(alleles[1][i]))
+            	continue;  // Do not add missing genotypes
+            
+            for (int j = 0; j < 2; j++) { // 2 alleles per genotype
                 Integer alleleIndex = alleleIndexMap.get(alleles[j][i]);
                 if (alleleIndex == null && alleles[j][i].matches("[AaTtGgCc]+")) { // New allele
-                    alleleIndex = variantToFeed.getKnownAlleles().size();
-                    variantToFeed.getKnownAlleles().add(alleles[j][i]);
+                    alleleIndex = knownAlleles.size();
+                    knownAlleles.add(alleles[j][i]);
                     alleleIndexMap.put(alleles[j][i], alleleIndex);
                 }
             }
 
-            String gtCode = null;
-            if (!"0".equals(alleles[0][i]) && !"0".equals(alleles[1][i]))
-                try {
-                    gtCode = Arrays.asList(alleles[0][i], alleles[1][i]).stream().map(allele -> alleleIndexMap.get(allele)).sorted().map(index -> index.toString()).collect(Collectors.joining("/"));
-                }
-                catch (Exception e) {
-                    LOG.warn("Ignoring invalid PLINK genotype \"" + alleles[0][i] + "/" + alleles[1][i] + "\" for variant " + variantToFeed.getId() + " and individual " + sIndividual);
-                }
+            String gtCode;
+            try {
+                gtCode = Arrays.asList(alleles[0][i], alleles[1][i]).stream().map(allele -> alleleIndexMap.get(allele)).sorted().map(index -> index.toString()).collect(Collectors.joining("/"));
+            }
+            catch (Exception e) {
+                LOG.warn("Ignoring invalid PLINK genotype \"" + alleles[0][i] + "/" + alleles[1][i] + "\" for variant " + variantToFeed.getId() + " and individual " + sIndividual);
+                continue;
+            }
 
-            if (gtCode == null)
-                continue;   // we don't add missing genotypes
+            /*if (gtCode == null)
+                continue;   // we don't add missing genotypes*/
             
             SampleGenotype aGT = new SampleGenotype(gtCode);
             if (!usedSamples.containsKey(sIndividual))  // we don't want to persist each sample several times
             {
                 Individual ind = mongoTemplate.findById(sIndividual, Individual.class);
-                boolean fAlreadyExists = ind != null, fNeedToSave = true;
+                boolean fAlreadyExists = ind != null;
+                boolean fNeedToSave = true;
                 if (!fAlreadyExists)
                     ind = new Individual(sIndividual);
                 String sPop = userIndividualToPopulationMap.get(sIndividual);

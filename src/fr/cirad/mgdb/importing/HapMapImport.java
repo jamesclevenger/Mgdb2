@@ -26,6 +26,11 @@ import java.util.Iterator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 import org.apache.log4j.Logger;
@@ -219,12 +224,14 @@ public class HapMapImport extends AbstractGenotypeImport {
 			progress.addStep("Processing variant lines");
 			progress.moveToNextStep();
 
-            final ArrayList<Thread> threadsToWaitFor = new ArrayList<>();
             int chunkIndex = 0, nNConcurrentThreads = Math.max(1, nNumProc);
             LOG.debug("Importing project '" + sProject + "' into " + sModule + " using " + nNConcurrentThreads + " threads");
             
             Iterator<RawHapMapFeature> it = reader.iterator();
             count = 0;
+            
+            BlockingQueue<Runnable> saveServiceQueue = new LinkedBlockingQueue<Runnable>(saveServiceQueueLength(nNConcurrentThreads));
+            ExecutorService saveService = new ThreadPoolExecutor(1, saveServiceThreads(nNConcurrentThreads), 30, TimeUnit.SECONDS, saveServiceQueue, new ThreadPoolExecutor.CallerRunsPolicy());
       
 			while (it.hasNext()) {   // loop over each variation
 				if (progress.getError() != null || progress.isAborted())
@@ -278,9 +285,13 @@ public class HapMapImport extends AbstractGenotypeImport {
 						LOG.info("Importing by chunks of size " + nNumberOfVariantsToSaveAtOnce);
 					}
 					else if (count % nNumberOfVariantsToSaveAtOnce == 0) {
-						saveChunk(unsavedVariants, unsavedRuns, existingVariantIDs, mongoTemplate, progress, nNumberOfVariantsToSaveAtOnce, count, null, threadsToWaitFor, nNConcurrentThreads, chunkIndex++);
+						saveChunk(unsavedVariants, unsavedRuns, existingVariantIDs, mongoTemplate, progress, saveService);
 				        unsavedVariants = new ArrayList<>();
 				        unsavedRuns = new ArrayList<>();
+				        
+				        progress.setCurrentStepProgress(count);
+				        if (count % (nNumberOfVariantsToSaveAtOnce*50) == 0)
+				            LOG.debug(count + " lines processed");
 					}
 
 					count++;
@@ -293,8 +304,8 @@ public class HapMapImport extends AbstractGenotypeImport {
 			reader.close();
 
 			persistVariantsAndGenotypes(!existingVariantIDs.isEmpty(), mongoTemplate, unsavedVariants, unsavedRuns);
-            for (Thread t : threadsToWaitFor) // wait for all threads before moving to next phase
-           		t.join();
+			saveService.shutdown();
+            saveService.awaitTermination(Integer.MAX_VALUE, TimeUnit.DAYS);
 
 			// save project data
 			if (!project.getRuns().contains(sRun))
