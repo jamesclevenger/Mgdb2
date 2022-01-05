@@ -150,7 +150,7 @@ public class ExportManager
         long nTotalNumberOfSamplesInDB = Helper.estimDocCount(mongoTemplate, GenotypingSample.class);
         long percentageOfExportedSamples = 100 * samplesToExport.size() / nTotalNumberOfSamplesInDB;
         sampleIDsToExport = samplesToExport == null ? new ArrayList() : samplesToExport.stream().map(sp -> sp.getId()).collect(Collectors.toList());
-        Collection<Integer>    sampleIDsNotToExport = percentageOfExportedSamples >= 98 ? new ArrayList() /* if almost all individuals are being exported we directly omit the $project stage */ : (percentageOfExportedSamples > 50 ? mongoTemplate.findDistinct(new Query(Criteria.where("_id").not().in(sampleIDsToExport)), "_id", GenotypingSample.class, Integer.class) : null);
+        Collection<Integer> sampleIDsNotToExport = percentageOfExportedSamples >= 98 ? new ArrayList() /* if almost all individuals are being exported we directly omit the $project stage */ : (percentageOfExportedSamples > 50 ? mongoTemplate.findDistinct(new Query(Criteria.where("_id").not().in(sampleIDsToExport)), "_id", GenotypingSample.class, Integer.class) : null);
 
         if (!varQuery.isEmpty()) {
             if (!fWorkingOnTempColl && !projectFilterList.isEmpty()) {
@@ -180,9 +180,9 @@ public class ExportManager
                 projection.append(AbstractVariantData.SECTION_ADDITIONAL_INFO, 0);
 
             projectStage = new BasicDBObject("$project", projection);
-            if (markerCount != null && markerCount > 5000 && nTotalNumberOfSamplesInDB > 200 && sampleIDsNotToExport != null && !sampleIDsNotToExport.isEmpty()) {   // we may only attempt removing $project if exported markers are numerous enough, if overall sample count is large enough and more than a half of them is involved
+            if (markerCount != null && markerCount > 5000 && nTotalNumberOfSamplesInDB > 200 && sampleIDsNotToExport != null && !sampleIDsNotToExport.isEmpty()) {   // we may only attempt evaluating if it's worth removing $project when exported markers are numerous enough, overall sample count is large enough and more than a half of them is involved
                 double nTotalChunkCount = Math.ceil(markerCount.intValue() / nQueryChunkSize);
-                if (nTotalChunkCount > 30)   // at least 10 chunks would be used for comparison, we only bother doing it if the optimization can be applied to at least 20 more
+                if (nTotalChunkCount >= 30)   // at least 10 chunks would be used for comparison, we only bother doing it if the optimization can be applied to at least 20 more
                     nNumberOfChunksUsedForSpeedEstimation = markerCount == null ? 5 : Math.max(5, (int) nTotalChunkCount / 100 /*1% of the whole stuff*/);
             }
         }
@@ -249,8 +249,11 @@ public class ExportManager
                 else
                     pipeline.set(0, initialMatchStage);    // replace existing $match
 
-                if (nChunkIndex == 1)
+                if (nChunkIndex == 1) {
+                	if (nNumberOfChunksUsedForSpeedEstimation == null && projectStage != null)
+                		pipeline.add(projectStage);	// it was decided to use this $project and not to test removing test
                     LOG.debug("Export pipeline: " + pipeline);
+                }
 
                 ArrayList<VariantRunData> runs = runColl.aggregate(pipeline, VariantRunData.class).allowDiskUse(true).into(new ArrayList<>()); // we don't use collation here because it leads to unexpected behaviour (sometimes fetches some additional variants to those in currentMarkerIDs) => we'll have to sort each chunk by hand
                 Collections.sort(runs, vrdComparator);    // make sure variants within this chunk are correctly sorted
@@ -273,7 +276,7 @@ public class ExportManager
                 }
                 currentMarkerIDs.clear();
 
-                if (nNumberOfChunksUsedForSpeedEstimation != null) {  // pipeline contains a $project stage: let's compare execution speed with and without it (best option so many things that we can't find it out otherwise)
+                if (nNumberOfChunksUsedForSpeedEstimation != null) {  // pipeline contains a $project stage that we need to assess: let's compare execution speed with and without it (best option depends on so many things that we can't find it out otherwise)
                     if (nChunkIndex == nNumberOfChunksUsedForSpeedEstimation) { // we just tested without $project, let's try with it now
                         timeSpentReadingWithoutProjectStage = System.currentTimeMillis() - chunkProcessingStartTime;
                         pipeline.add(projectStage);
@@ -332,7 +335,7 @@ public class ExportManager
         
         final MongoCursor[] markerCursors = new MongoCursor[2]; // First item always exists. Second only exists if we need to compare speed with and without $project stage
         Thread threadCreatingComparisonCursor = null;
-        if (nNumberOfChunksUsedForSpeedEstimation != null) {  // pipeline contains a $project stage: let's compare execution speed with and without it(best option so many things that we can't find it out otherwise)
+        if (nNumberOfChunksUsedForSpeedEstimation != null) {  // pipeline contains a $project stage that we need to assess: let's compare execution speed with and without it (best option depends on so many things that we can't find it out otherwise)
             List<BasicDBObject> pipelineClone = new ArrayList<>(pipeline);
             pipelineClone.add(nPosAfterSortStage, new BasicDBObject("$skip", nQueryChunkSize * nNumberOfChunksUsedForSpeedEstimation));
             threadCreatingComparisonCursor = new Thread() {
@@ -344,6 +347,7 @@ public class ExportManager
 
             pipeline.remove(pipeline.size() - 1);   // remove $project
         }
+
         markerCursors[0] = varColl.aggregate(pipeline, resultType).collation(IExportHandler.collationObj).allowDiskUse(true).batchSize(nQueryChunkSize).iterator();   /*FIXME: didn't find a way to set noCursorTimeOut on aggregation cursors*/
 
         if (threadCreatingComparisonCursor != null)
