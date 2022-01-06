@@ -40,7 +40,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.LinkedBlockingDeque;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
@@ -300,12 +299,42 @@ public class PlinkImport extends AbstractGenotypeImport {
             
             final int nNumberOfVariantsToSaveAtOnce = Math.max(1, nMaxChunkSize / individuals.length);
             LOG.info("Importing by chunks of size " + nNumberOfVariantsToSaveAtOnce);
-            ConcurrentHashMap<String /*individual*/, GenotypingSample> previouslyCreatedSamples = new ConcurrentHashMap<>();
             
-            final AtomicInteger chunkIndex = new AtomicInteger(0);
+            // Create the necessary samples
+            HashMap<String /*individual*/, GenotypingSample> samples = new HashMap<>();
+            LinkedHashSet<String> individualsWithoutPopulation = new LinkedHashSet<>();
+            for (String sIndividual : userIndividualToPopulationMap.keySet()) {
+                Individual ind = mongoTemplate.findById(sIndividual, Individual.class);
+                boolean fAlreadyExists = ind != null;
+                boolean fNeedToSave = true;
+                if (!fAlreadyExists)
+                    ind = new Individual(sIndividual);
+                String sPop = userIndividualToPopulationMap.get(sIndividual);
+                if (!sPop.equals(".") && sPop.length() == 3)
+                    ind.setPopulation(sPop);
+                else if (!sIndividual.substring(0, 3).matches(".*\\d+.*") && sIndividual.substring(3).matches("\\d+"))
+                    ind.setPopulation(sIndividual.substring(0, 3));
+                else {
+                	individualsWithoutPopulation.add(sIndividual);
+                    if (fAlreadyExists)
+                        fNeedToSave = false;
+                }
+                
+                if (fNeedToSave)
+                    mongoTemplate.save(ind);
+
+                int sampleId = AutoIncrementCounter.getNextSequence(mongoTemplate, MongoTemplateManager.getMongoCollectionName(GenotypingSample.class));
+                samples.put(sIndividual, new GenotypingSample(sampleId, project.getId(), sRun, sIndividual));   // add a sample for this individual to the project
+            }
+            
+            if (!individualsWithoutPopulation.isEmpty())
+            	LOG.warn("Unable to find 3-letter population code for individuals: " + StringUtils.join(individualsWithoutPopulation, ", "));
+            
             reader = new BufferedReader(new FileReader(tempFile));
             
             final BufferedReader finalReader = reader;
+            
+            // Leave one thread dedicated to the saveChunk service, it looks empirically faster that way
             int nImportThreads = Math.max(1, nNConcurrentThreads - 1);
             Thread[] importThreads = new Thread[nImportThreads];
             BlockingQueue<Runnable> saveServiceQueue = new LinkedBlockingQueue<Runnable>(saveServiceQueueLength(nNConcurrentThreads));
@@ -394,7 +423,7 @@ public class PlinkImport extends AbstractGenotypeImport {
 	                                    }
 	                                }
 
-	                                VariantRunData runToSave = addPlinkDataToVariant(mongoTemplate, variant, sequence, bpPosition, userIndividualToPopulationMap, nonSnpVariantTypeMap, alleles, project, sRun, previouslyCreatedSamples, fImportUnknownVariants);
+	                                VariantRunData runToSave = addPlinkDataToVariant(mongoTemplate, variant, sequence, bpPosition, userIndividualToPopulationMap, nonSnpVariantTypeMap, alleles, project, sRun, samples, fImportUnknownVariants);
 	                                
 	                                if (variant.getReferencePosition() != null)
 	                                    project.getSequences().add(variant.getReferencePosition().getSequence());
@@ -447,14 +476,14 @@ public class PlinkImport extends AbstractGenotypeImport {
             if (!project.getRuns().contains(sRun))
                 project.getRuns().add(sRun);
             mongoTemplate.save(project);    // always save project before samples otherwise the sample cleaning procedure in MgdbDao.prepareDatabaseForSearches may remove them if called in the meantime
-            mongoTemplate.insert(previouslyCreatedSamples.values(), GenotypingSample.class);
+            mongoTemplate.insert(samples.values(), GenotypingSample.class);
         }
         finally
         {
             if (reader != null)
             	reader.close();
-            if (tempFile != null)
-                tempFile.delete();
+            //if (tempFile != null)
+            //    tempFile.delete();
         }
         return count.get();
     }
@@ -743,7 +772,6 @@ public class PlinkImport extends AbstractGenotypeImport {
         // genotype fields
         int i = -1;
         HashMap<String, Integer> alleleIndexMap = new HashMap<>();  // should be more efficient not to call indexOf too often...
-        LinkedHashSet<String> individualsWithoutPopulation = new LinkedHashSet<>();
         LinkedHashSet<String> knownAlleles = variantToFeed.getKnownAlleles();
         for (String sIndividual : userIndividualToPopulationMap.keySet())
         {
@@ -774,35 +802,8 @@ public class PlinkImport extends AbstractGenotypeImport {
                 continue;   // we don't add missing genotypes*/
             
             SampleGenotype aGT = new SampleGenotype(gtCode);
-            if (!usedSamples.containsKey(sIndividual))  // we don't want to persist each sample several times
-            {
-                Individual ind = mongoTemplate.findById(sIndividual, Individual.class);
-                boolean fAlreadyExists = ind != null;
-                boolean fNeedToSave = true;
-                if (!fAlreadyExists)
-                    ind = new Individual(sIndividual);
-                String sPop = userIndividualToPopulationMap.get(sIndividual);
-                if (!sPop.equals(".") && sPop.length() == 3)
-                    ind.setPopulation(sPop);
-                else if (!sIndividual.substring(0, 3).matches(".*\\d+.*") && sIndividual.substring(3).matches("\\d+"))
-                    ind.setPopulation(sIndividual.substring(0, 3));
-                else {
-                	individualsWithoutPopulation.add(sIndividual);
-                    if (fAlreadyExists)
-                        fNeedToSave = false;
-                }
-                
-                if (fNeedToSave)
-                    mongoTemplate.save(ind);
-
-                int sampleId = AutoIncrementCounter.getNextSequence(mongoTemplate, MongoTemplateManager.getMongoCollectionName(GenotypingSample.class));
-                usedSamples.put(sIndividual, new GenotypingSample(sampleId, project.getId(), vrd.getRunName(), sIndividual));   // add a sample for this individual to the project
-            }
-        
             vrd.getSampleGenotypes().put(usedSamples.get(sIndividual).getId(), aGT);
         }
-    	if (!individualsWithoutPopulation.isEmpty())
-        	LOG.warn("Unable to find 3-letter population code for individuals: " + StringUtils.join(individualsWithoutPopulation, ", "));
 
         // mandatory fields
         if (!alleleIndexMap.isEmpty()) {
