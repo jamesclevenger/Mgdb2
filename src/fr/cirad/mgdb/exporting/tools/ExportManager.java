@@ -182,7 +182,7 @@ public class ExportManager
             projectStage = new BasicDBObject("$project", projection);
             if (markerCount != null && markerCount > 5000 && nTotalNumberOfSamplesInDB > 200 && sampleIDsNotToExport != null && !sampleIDsNotToExport.isEmpty()) {   // we may only attempt evaluating if it's worth removing $project when exported markers are numerous enough, overall sample count is large enough and more than a half of them is involved
                 double nTotalChunkCount = Math.ceil(markerCount.intValue() / nQueryChunkSize);
-                if (nTotalChunkCount >= 30)   // at least 10 chunks would be used for comparison, we only bother doing it if the optimization can be applied to at least 20 more
+                if (nTotalChunkCount > 30)   // at least 10 chunks would be used for comparison, we only bother doing it if the optimization can be applied to at more than 20 others
                     nNumberOfChunksUsedForSpeedEstimation = markerCount == null ? 5 : Math.max(5, (int) nTotalChunkCount / 100 /*1% of the whole stuff*/);
             }
         }
