@@ -22,6 +22,7 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
 import java.util.stream.Collectors;
 
 import org.apache.commons.lang3.StringUtils;
@@ -192,7 +193,7 @@ public class AbstractGenotypeImport {
 		return !fLooksLikePreprocessedVariantList;
 	}	
 	
-	protected void saveChunk(Collection<VariantData> unsavedVariants, Collection<VariantRunData> unsavedRuns, HashMap<String, String> existingVariantIDs, MongoTemplate finalMongoTemplate, ProgressIndicator progress, int nNumberOfVariantsToSaveAtOnce, int nProcessedVariantCount, Integer nTotalVariantCount, ArrayList<Thread> threadsToWaitFor, int nNConcurrentThreads, int chunkIndex) throws InterruptedException {
+	protected void saveChunk(Collection<VariantData> unsavedVariants, Collection<VariantRunData> unsavedRuns, HashMap<String, String> existingVariantIDs, MongoTemplate finalMongoTemplate, ProgressIndicator progress, ExecutorService saveService) throws InterruptedException {
 		Collection<VariantData> finalUnsavedVariants = unsavedVariants;
         Collection<VariantRunData> finalUnsavedRuns = unsavedRuns;
         
@@ -201,14 +202,16 @@ public class AbstractGenotypeImport {
             public void run() {
         		try {
 					persistVariantsAndGenotypes(!existingVariantIDs.isEmpty(), finalMongoTemplate, finalUnsavedVariants, finalUnsavedRuns);
-				} catch (InterruptedException e) {
+        		} catch (InterruptedException e) {
 					progress.setError(e.getMessage());
 					LOG.error(e);
 				}
             }
         };
+        
+        saveService.execute(insertionThread);
 
-        if (chunkIndex % nNConcurrentThreads == (nNConcurrentThreads - 1)) {
+        /* if (chunkIndex % nNConcurrentThreads == (nNConcurrentThreads - 1)) {
             threadsToWaitFor.add(insertionThread); // only needed to have an accurate count
             insertionThread.run();	// run synchronously
             
@@ -222,7 +225,15 @@ public class AbstractGenotypeImport {
 
         progress.setCurrentStepProgress(nTotalVariantCount != null ? nProcessedVariantCount * 100 / nTotalVariantCount : nProcessedVariantCount);
         if (nProcessedVariantCount % (nNumberOfVariantsToSaveAtOnce*50) == 0)
-            LOG.debug(nProcessedVariantCount + " lines processed");
+            LOG.debug(nProcessedVariantCount + " lines processed");*/
+	}
+	
+	protected int saveServiceQueueLength(int nConcurrentThreads) {
+		return nConcurrentThreads * 6;
+	}
+	
+	protected int saveServiceThreads(int nConcurrentThreads) {
+		return nConcurrentThreads * 3;
 	}
 
     public void persistVariantsAndGenotypes(boolean fDBAlreadyContainsVariants, MongoTemplate mongoTemplate, Collection<VariantData> unsavedVariants, Collection<VariantRunData> unsavedRuns) throws InterruptedException
@@ -230,16 +241,18 @@ public class AbstractGenotypeImport {
 //    	long b4 = System.currentTimeMillis();
 		Thread vdAsyncThread = new Thread() {	// using 2 threads is faster when calling save, but slower when calling insert 
 			public void run() {
-				if (!fDBAlreadyContainsVariants)	// we benefit from the fact that it's the first variant import into this database to use bulk insert which is much faster
+				if (!fDBAlreadyContainsVariants) {	// we benefit from the fact that it's the first variant import into this database to use bulk insert which is much faster
 					mongoTemplate.insert(unsavedVariants, VariantData.class);
-		        else
-			    	for (VariantData vd : unsavedVariants)
+				} else {
+			    	for (VariantData vd : unsavedVariants) {
 			        	try {
 			        		mongoTemplate.save(vd);
 			        	}
 						catch (OptimisticLockingFailureException olfe) {
 							mongoTemplate.save(vd);	// try again
 						}
+			    	}
+				}
 			}
 		};
 		vdAsyncThread.start();
@@ -275,7 +288,7 @@ public class AbstractGenotypeImport {
 			vrdAsyncThread.join();
 		}
 
-		vdAsyncThread.join();	
+		vdAsyncThread.join();
 //		System.err.println("VD: " + t1 + " / VRD: " + (System.currentTimeMillis() - b4));
     }
     

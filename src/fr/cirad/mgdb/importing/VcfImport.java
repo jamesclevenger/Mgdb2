@@ -25,6 +25,11 @@ import java.util.Iterator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 import org.apache.log4j.Logger;
@@ -275,10 +280,12 @@ public class VcfImport extends AbstractGenotypeImport {
             int count = 0;
             String generatedIdBaseString = Long.toHexString(System.currentTimeMillis());
 
-            final ArrayList<Thread> threadsToWaitFor = new ArrayList<>();
             int chunkIndex = 0, nNConcurrentThreads = Math.max(1, Runtime.getRuntime().availableProcessors());
             LOG.debug("Importing project '" + sProject + "' into " + sModule + " using " + nNConcurrentThreads + " threads");
-
+            
+            BlockingQueue<Runnable> saveServiceQueue = new LinkedBlockingQueue<Runnable>(saveServiceQueueLength(nNConcurrentThreads));
+            ExecutorService saveService = new ThreadPoolExecutor(1, saveServiceThreads(nNConcurrentThreads), 30, TimeUnit.SECONDS, saveServiceQueue, new ThreadPoolExecutor.CallerRunsPolicy());
+            
             // loop over each variation
             while (variantIterator.hasNext()) {
 				if (progress.getError() != null || progress.isAborted())
@@ -315,9 +322,13 @@ public class VcfImport extends AbstractGenotypeImport {
                         LOG.info("Importing by chunks of size " + nNumberOfVariantsToSaveAtOnce);
                     }
 					else if (count % nNumberOfVariantsToSaveAtOnce == 0) {
-						saveChunk(unsavedVariants, unsavedRuns, existingVariantIDs, mongoTemplate, progress, nNumberOfVariantsToSaveAtOnce, count, null, threadsToWaitFor, nNConcurrentThreads, chunkIndex++);
+						saveChunk(unsavedVariants, unsavedRuns, existingVariantIDs, mongoTemplate, progress, saveService);
 				        unsavedVariants = new ArrayList<>();
 				        unsavedRuns = new ArrayList<>();
+				        
+				        progress.setCurrentStepProgress(count);
+				        if (count % (nNumberOfVariantsToSaveAtOnce*50) == 0)
+				            LOG.debug(count + " lines processed");
 					}
 
                     project.getAlleleCounts().add(variant.getKnownAlleles().size());	// it's a Set so it will only be added if it's not already present
@@ -334,8 +345,8 @@ public class VcfImport extends AbstractGenotypeImport {
             reader.close();
 
             persistVariantsAndGenotypes(!existingVariantIDs.isEmpty(), mongoTemplate, unsavedVariants, unsavedRuns);
-            for (Thread t : threadsToWaitFor) // wait for all threads before moving to next phase
-           		t.join();
+            saveService.shutdown();
+            saveService.awaitTermination(Integer.MAX_VALUE, TimeUnit.DAYS);
 
         	// always save project before samples otherwise the sample cleaning procedure in MgdbDao.prepareDatabaseForSearches may remove them if called in the meantime
             if (!project.getRuns().contains(sRun))
