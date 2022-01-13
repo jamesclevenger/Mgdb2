@@ -357,9 +357,8 @@ public class PlinkImport extends AbstractGenotypeImport {
 	            					break;
 	            				String[] splitLine = line.split("\t");
 	            				
-	            				// Now handled directly in transposePlinkPedFile
-	            				//if (fSkipMonomorphic && Arrays.stream(splitLine, 1, splitLine.length).filter(gt -> !"0/0".equals(gt)).distinct().count() < 2)
-	                            //    continue; // skip non-variant positions
+	            				if (fSkipMonomorphic && Arrays.stream(splitLine, 1, splitLine.length).filter(gt -> !"0/0".equals(gt)).distinct().count() < 2)
+	                                continue; // skip non-variant positions
 	            				
 	            				String providedVariantId = splitLine[0];
 
@@ -708,9 +707,6 @@ public class PlinkImport extends AbstractGenotypeImport {
 			                        			.distinct()
 			                        			.map(allele -> Allele.create(allele))
 			                        			.collect(Collectors.toList());
-			                        
-			                        if (fSkipMonomorphic && alleleList.size() <= 1)
-			                        	continue;
 			                        
 			                        if (!alleleList.isEmpty()) {
 			                        	Type variantType = determineType(alleleList);
