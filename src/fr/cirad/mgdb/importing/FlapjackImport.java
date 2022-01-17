@@ -405,8 +405,9 @@ public class FlapjackImport extends AbstractGenotypeImport {
                                         project.getSequences().add(variant.getReferencePosition().getSequence());
 
                                     project.getAlleleCounts().add(variant.getKnownAlleles().size()); // it's a TreeSet so it will only be added if it's not already present
-                                    if (variant.getKnownAlleles().size() > 2)
-                                        LOG.warn("Variant " + variant.getId() + " (" + providedVariantId + ") has more than 2 alleles!");
+                                    // FIXME ?
+                                    //if (variant.getKnownAlleles().size() > 2)
+                                    //    LOG.warn("Variant " + variant.getId() + " (" + providedVariantId + ") has more than 2 alleles!");
 
                                     if (variant.getKnownAlleles().size() > 0)
                                     {   // we only import data related to a variant if we know its alleles
@@ -690,8 +691,12 @@ public class FlapjackImport extends AbstractGenotypeImport {
                                             String genotype = matcher.group();
                                             
                                             builder.append("\t");
+                                            // Missing data
+                                            if (genotype.length() == 0 || genotype.equals("-")) {
+                                            	builder.append("0/0");
+                                            }
                                             // Heterozygote
-                                            if (genotype.contains("/")) {
+                                            else if (genotype.contains("/")) {
                                             	builder.append(genotype);
                                             }
                                             // Collapsed homozygote
@@ -795,7 +800,7 @@ public class FlapjackImport extends AbstractGenotypeImport {
             
             for (int j = 0; j < 2; j++) { // 2 alleles per genotype
                 Integer alleleIndex = alleleIndexMap.get(alleles[j][i]);
-                if (alleleIndex == null && alleles[j][i].matches("[AaTtGgCc]+")) { // New allele
+                if (alleleIndex == null && alleles[j][i].matches("[AaTtGgCc\\*]+")) { // New allele
                     alleleIndex = variantToFeed.getKnownAlleles().size();
                     variantToFeed.getKnownAlleles().add(alleles[j][i]);
                     alleleIndexMap.put(alleles[j][i], alleleIndex);
