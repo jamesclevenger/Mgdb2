@@ -471,6 +471,9 @@ public class PlinkImport extends AbstractGenotypeImport {
                 importThreads[i].join();
             saveService.shutdown();
             saveService.awaitTermination(Integer.MAX_VALUE, TimeUnit.DAYS);
+            
+            if (progress.getError() != null || progress.isAborted())
+                return 0;
 
             // save project data
             if (!project.getRuns().contains(sRun))
@@ -482,8 +485,8 @@ public class PlinkImport extends AbstractGenotypeImport {
         {
             if (reader != null)
                 reader.close();
-            //if (tempFile != null)
-            //    tempFile.delete();
+            if (tempFile != null)
+                tempFile.delete();
         }
         return count.get();
     }
