@@ -276,7 +276,7 @@ public class VcfImport extends AbstractGenotypeImport {
             progress.addStep("Processing variant lines");
             progress.moveToNextStep();
 
-            AtomicInteger count = new AtomicInteger(0);
+            AtomicInteger totalProcessedVariantCount = new AtomicInteger(0);
             String generatedIdBaseString = Long.toHexString(System.currentTimeMillis());
 
             int nNConcurrentThreads = Math.max(1, Runtime.getRuntime().availableProcessors());
@@ -308,7 +308,7 @@ public class VcfImport extends AbstractGenotypeImport {
             if (!indsToAdd.isEmpty()) {
                 mongoTemplate.insert(indsToAdd, Individual.class);
                 indsToAdd = null;
-            }                
+            }
                 
             // loop over each variation
             while (variantIterator.hasNext()) {
@@ -349,11 +349,13 @@ public class VcfImport extends AbstractGenotypeImport {
                                     if (variant == null) {
                                         if (vcfEntry.hasID()) {
                                             variant = new VariantData((ObjectId.isValid(vcfEntry.getID()) ? "_" : "") + vcfEntry.getID());
-                                            count.getAndIncrement();
+                                            totalProcessedVariantCount.getAndIncrement();
                                         }
                                         else
-                                            variant = new VariantData(generatedIdBaseString + String.format(String.format("%09x", count.getAndIncrement())));
+                                            variant = new VariantData(generatedIdBaseString + String.format(String.format("%09x", totalProcessedVariantCount.getAndIncrement())));
                                     }
+                                    else
+                                        totalProcessedVariantCount.getAndIncrement();
                                     
                                     unsavedVariants.add(variant);
                                     VariantRunData runToSave = addVcfDataToVariant(finalMongoTemplate, header, variant, vcfEntry, finalProject, sRun, phasingGroups, individualToSampleMap, finalEffectAnnotationPos, finalGeneIdAnnotationPos);
@@ -366,13 +368,13 @@ public class VcfImport extends AbstractGenotypeImport {
                                 }
                                 
                                 saveChunk(unsavedVariants, unsavedRuns, existingVariantIDs, finalMongoTemplate, progress, saveService);
-                                progress.setCurrentStepProgress(count.get());
+                                progress.setCurrentStepProgress(totalProcessedVariantCount.get());
                                 if (!importThreads.contains(this) && progress.getCurrentStepProgress() % (vcChunkToImport.size()*50) == 0)
                                     LOG.debug(progress.getCurrentStepProgress() + " lines processed");
                             }
                             catch (Exception e) 
                             {
-                                progress.setError("Error occured importing variant number " + (count.get() + 1) + " (" + vcfEntry.getType().toString() + ":" + vcfEntry.getContig() + ":" + vcfEntry.getStart() + ")");
+                                progress.setError("Error occured importing variant number " + (totalProcessedVariantCount.get() + 1) + " (" + vcfEntry.getType().toString() + ":" + vcfEntry.getContig() + ":" + vcfEntry.getStart() + ")");
                                 LOG.error("Error", e);
                             }
                             finally {
@@ -415,7 +417,7 @@ public class VcfImport extends AbstractGenotypeImport {
             progress.moveToNextStep();
             MgdbDao.prepareDatabaseForSearches(mongoTemplate);
 
-            LOG.info("VcfImport took " + (System.currentTimeMillis() - before) / 1000 + "s for " + count + " records");
+            LOG.info("VcfImport took " + (System.currentTimeMillis() - before) / 1000 + "s for " + totalProcessedVariantCount + " records");
             progress.markAsComplete();
             return createdProject;
         }
