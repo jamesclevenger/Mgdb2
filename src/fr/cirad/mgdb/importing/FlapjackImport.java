@@ -67,7 +67,7 @@ import htsjdk.variant.variantcontext.Allele;
 import htsjdk.variant.variantcontext.VariantContext.Type;
 
 /**
- * The Class PlinkImport.
+ * The Class FlapjackImport.
  */
 public class FlapjackImport extends AbstractGenotypeImport {
 
@@ -164,7 +164,7 @@ public class FlapjackImport extends AbstractGenotypeImport {
     public Integer importToMongo(String sModule, String sProject, String sRun, String sTechnology, URL mapFileURL, File genotypeFile, boolean fSkipMonomorphic, int importMode) throws Exception
     {
         if (m_nCurrentlyTransposingMatrixCount > 3) // we allow up to 4 simultaneous matrix rotations
-            throw new Exception("The system is already busy rotating other PLINK datasets, please try again later");
+            throw new Exception("The system is already busy rotating other FLAPJACK datasets, please try again later");
         
         long before = System.currentTimeMillis();
         ProgressIndicator progress = ProgressIndicator.get(m_processID) != null ? ProgressIndicator.get(m_processID) : new ProgressIndicator(m_processID, new String[]{"Initializing import"}); // better to add it straight-away so the JSP doesn't get null in return when it checks for it (otherwise it will assume the process has ended)     
@@ -231,7 +231,6 @@ public class FlapjackImport extends AbstractGenotypeImport {
             	progress.setError("Map file parsing failed : " + exc.getMessage());
             	return 0;
             }
-            String[] variants = variantsAndPositions.keySet().toArray(new String[variantsAndPositions.size()]);
             
             // rotate matrix using temporary files
             info = "Reading and reorganizing genotypes";
@@ -264,7 +263,7 @@ public class FlapjackImport extends AbstractGenotypeImport {
             progress.moveToNextStep();
             MgdbDao.prepareDatabaseForSearches(mongoTemplate);
 
-            LOG.info("PlinkImport took " + (System.currentTimeMillis() - before) / 1000 + "s for " + count + " records");
+            LOG.info("FlapjackImport took " + (System.currentTimeMillis() - before) / 1000 + "s for " + count + " records");
             progress.markAsComplete();
             return createdProject;
         }
@@ -585,7 +584,7 @@ public class FlapjackImport extends AbstractGenotypeImport {
                                 int blockIndex, blockSize, blockStart;
                                 int bufferPosition = 0, bufferLength = 0;
                                 
-                                // Only one PLINK import thread can allocate its memory at once
+                                // Only one FLAPJACK import thread can allocate its memory at once
                                 synchronized (FlapjackImport.class) {
                                     blockIndex = blockStartMarkers.size() - 1;
                                     blockStart = blockStartMarkers.get(blockStartMarkers.size() - 1);
@@ -777,7 +776,7 @@ public class FlapjackImport extends AbstractGenotypeImport {
     }
 
     /**
-     * Adds the PLINK data to variant.
+     * Adds the FLAPJACK data to variant.
      * @param fImportUnknownVariants 
      */
     static private VariantRunData addFlapjackDataToVariant(MongoTemplate mongoTemplate, VariantData variantToFeed, VariantMapPosition position, List<String> individuals, Map<String, Type> nonSnpVariantTypeMap, String[][] alleles, GenotypingProject project, String runName, Map<String /*individual*/, GenotypingSample> usedSamples, boolean fImportUnknownVariants) throws Exception
