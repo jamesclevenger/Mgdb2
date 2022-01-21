@@ -20,7 +20,6 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.stream.Collectors;
@@ -57,13 +56,10 @@ public class AbstractGenotypeImport {
 	
 	private static final Logger LOG = Logger.getLogger(AbstractGenotypeImport.class);
 	
-	protected static final int nMaxChunkSize = 10000;
+	protected static final int nMaxChunkSize = 20000;
 
 	private boolean m_fAllowDbDropIfNoGenotypingData = true;
 
-//	/** String representing nucleotides considered as valid */
-//	protected static HashSet<String> validNucleotides = new HashSet<>(Arrays.asList(new String[] {"a", "A", "t", "T", "g", "G", "c", "C"}));
-	
 	protected static HashMap<String /*module*/, String /*project*/> currentlyImportedProjects = new HashMap<>();
 	
 	public static ArrayList<String> getIdentificationStrings(String sType, String sSeq, Long nStartPos, Collection<String> idAndSynonyms) throws Exception
@@ -193,15 +189,12 @@ public class AbstractGenotypeImport {
 		return !fLooksLikePreprocessedVariantList;
 	}	
 	
-	protected void saveChunk(Collection<VariantData> unsavedVariants, Collection<VariantRunData> unsavedRuns, HashMap<String, String> existingVariantIDs, MongoTemplate finalMongoTemplate, ProgressIndicator progress, ExecutorService saveService) throws InterruptedException {
-		Collection<VariantData> finalUnsavedVariants = unsavedVariants;
-        Collection<VariantRunData> finalUnsavedRuns = unsavedRuns;
-        
+	protected void saveChunk(final Collection<VariantData> unsavedVariants, final Collection<VariantRunData> unsavedRuns, HashMap<String, String> existingVariantIDs, MongoTemplate finalMongoTemplate, ProgressIndicator progress, ExecutorService saveService) throws InterruptedException {
         Thread insertionThread = new Thread() {
             @Override
             public void run() {
         		try {
-					persistVariantsAndGenotypes(!existingVariantIDs.isEmpty(), finalMongoTemplate, finalUnsavedVariants, finalUnsavedRuns);
+					persistVariantsAndGenotypes(!existingVariantIDs.isEmpty(), finalMongoTemplate, unsavedVariants, unsavedRuns);
         		} catch (InterruptedException e) {
 					progress.setError(e.getMessage());
 					LOG.error(e);
@@ -210,22 +203,6 @@ public class AbstractGenotypeImport {
         };
         
         saveService.execute(insertionThread);
-
-        /* if (chunkIndex % nNConcurrentThreads == (nNConcurrentThreads - 1)) {
-            threadsToWaitFor.add(insertionThread); // only needed to have an accurate count
-            insertionThread.run();	// run synchronously
-            
-            for (Thread t : threadsToWaitFor) // wait for all previously launched async threads
-           		t.join();
-            threadsToWaitFor.clear();
-        }
-        else {
-            insertionThread.start();	// run asynchronously for better speed
-        }
-
-        progress.setCurrentStepProgress(nTotalVariantCount != null ? nProcessedVariantCount * 100 / nTotalVariantCount : nProcessedVariantCount);
-        if (nProcessedVariantCount % (nNumberOfVariantsToSaveAtOnce*50) == 0)
-            LOG.debug(nProcessedVariantCount + " lines processed");*/
 	}
 	
 	protected int saveServiceQueueLength(int nConcurrentThreads) {
