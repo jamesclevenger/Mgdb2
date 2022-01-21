@@ -324,7 +324,7 @@ public class ExportManager
         if (matchStage != null) {
             Document matchContents = (Document) matchStage.get("$match");
             BasicDBList filters = matchContents.containsKey("$and") ? (BasicDBList) matchContents.get("$and") : new BasicDBList() {{ add(new BasicDBObject(matchContents)); }};
-            Helper.convertIdFiltersToRunFormat(filters);
+            Helper.convertIdFiltersToRunFormat(Arrays.asList(filters));
             pipeline.add(matchStage);
         }
         pipeline.add(sortStage);
