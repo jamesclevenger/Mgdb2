@@ -368,7 +368,6 @@ public class IntertekImport extends AbstractGenotypeImport {
                     LOG.info("Importing by chunks of size " + nNumberOfVariantsToSaveAtOnce);
                 } else if (count % nNumberOfVariantsToSaveAtOnce == 0) {
                     saveChunk(variantsChunk, variantRunsChunk, existingVariantIDs, mongoTemplate, progress, saveService);
-//                    saveChunk(variantsChunk, variantRunsChunk, existingVariantIDs, mongoTemplate, progress, nNumberOfVariantsToSaveAtOnce, count, null, threadsToWaitFor, nNConcurrentThreads, chunkIndex++);
                     variantRunsChunk = new HashSet<>();
                     variantsChunk = new HashSet<>();
                 }
@@ -377,7 +376,7 @@ public class IntertekImport extends AbstractGenotypeImport {
             
             //save last chunk
             if (!variantsChunk.isEmpty())
-                saveChunk(variantsChunk, variantRunsChunk, existingVariantIDs, mongoTemplate, progress, saveService);
+                persistVariantsAndGenotypes(!existingVariantIDs.isEmpty(), mongoTemplate, variantsChunk, variantRunsChunk);
             
             // Store the project
             // always save project before samples otherwise the sample cleaning procedure in MgdbDao.prepareDatabaseForSearches may remove them if called in the meantime
