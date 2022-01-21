@@ -108,7 +108,7 @@ public class IndividualMetadataImport {
         if (args.length < 3) {
             throw new Exception("You must pass 3 or 4 parameters as arguments: DATASOURCE name, metadata file path (TSV format with header on first line), label of column containing individual names (matching those in the DB), and optionally a CSV list of column labels for fields to import (all will be imported if no such parameter is supplied).");
         }
-        importIndividualMetadata(args[0], null, new File(args[1]).toURI().toURL(), args[2], args.length > 3 ? args[2] : null, null);
+        importIndividualMetadata(args[0], null, new File(args[1]).toURI().toURL(), args[2], args.length > 3 ? args[3] : null, null);
     }
 
     public static int importIndividualMetadata(String sModule, HttpSession session, URL metadataFileURL, String individualColName, String csvFieldListToImport, String username) throws Exception {
