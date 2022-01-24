@@ -585,8 +585,8 @@ public class PlinkImport extends AbstractGenotypeImport {
                                 int blockIndex, blockSize, blockStart;
                                 int bufferPosition = 0, bufferLength = 0;
                                 
-                                // Only one PLINK import thread can allocate its memory at once
-                                synchronized (PlinkImport.class) {
+                                // Only one import thread can allocate its memory at once
+                                synchronized (AbstractGenotypeImport.class) {
                                     blockIndex = blockStartMarkers.size() - 1;
                                     blockStart = blockStartMarkers.get(blockStartMarkers.size() - 1);
                                     if (blockStart >= variants.length)

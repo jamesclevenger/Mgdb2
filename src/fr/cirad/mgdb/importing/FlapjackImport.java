@@ -584,8 +584,8 @@ public class FlapjackImport extends AbstractGenotypeImport {
                                 int blockIndex, blockSize, blockStart;
                                 int bufferPosition = 0, bufferLength = 0;
                                 
-                                // Only one FLAPJACK import thread can allocate its memory at once
-                                synchronized (FlapjackImport.class) {
+                                // Only one import thread can allocate its memory at once
+                                synchronized (AbstractGenotypeImport.class) {
                                     blockIndex = blockStartMarkers.size() - 1;
                                     blockStart = blockStartMarkers.get(blockStartMarkers.size() - 1);
                                     if (blockStart >= cVariants)
