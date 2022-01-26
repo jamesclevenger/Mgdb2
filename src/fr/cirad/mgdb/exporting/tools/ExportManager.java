@@ -307,7 +307,7 @@ public class ExportManager
                 if (markerCount != null)
                     progress.setCurrentStepProgress(nWrittenmarkerCount * 100l / markerCount);
                 future = writingThread.writeRuns(tempMarkerRunsToWrite);
-                tempMarkerRunsToWrite.clear();
+                tempMarkerRunsToWrite = new ArrayDeque<>(nQueryChunkSize); 
             }
         }
 
