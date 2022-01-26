@@ -391,8 +391,13 @@ public class Helper {
     static public void convertIdFiltersToRunFormat(Collection<BasicDBList> filters) {
         for (BasicDBList query: filters) {
             for (Object filter : query) {
-                if (((BasicDBObject) filter).containsField("_id"))
-                    ((BasicDBObject) filter).append("_id." + VariantRunDataId.FIELDNAME_VARIANT_ID, ((BasicDBObject) filter).remove("_id"));
+                if (filter instanceof BasicDBObject) {
+                    if (((BasicDBObject) filter).containsField("_id"))
+                        ((BasicDBObject) filter).append("_id." + VariantRunDataId.FIELDNAME_VARIANT_ID, ((BasicDBObject) filter).remove("_id"));
+                }
+                else
+                    if (((Document) filter).containsKey("_id"))
+                        ((Document) filter).append("_id." + VariantRunDataId.FIELDNAME_VARIANT_ID, ((BasicDBObject) filter).remove("_id"));
             }
         }
     }
