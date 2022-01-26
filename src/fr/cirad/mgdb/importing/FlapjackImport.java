@@ -198,7 +198,7 @@ public class FlapjackImport extends AbstractGenotypeImport {
 
             mongoTemplate.getDb().runCommand(new BasicDBObject("profile", 0));  // disable profiling
             GenotypingProject project = mongoTemplate.findOne(new Query(Criteria.where(GenotypingProject.FIELDNAME_NAME).is(sProject)), GenotypingProject.class);
-            // FIXME : Polyploids
+
             if (importMode == 0 && project != null && project.getPloidyLevel() != 2)
                 throw new Exception("Ploidy levels differ between existing (" + project.getPloidyLevel() + ") and provided (" + 2 + ") data!");
 
@@ -214,7 +214,7 @@ public class FlapjackImport extends AbstractGenotypeImport {
                 project.setTechnology(sTechnology);
                 createdProject = project.getId();
             }
-            // FIXME : Polyploids
+
             project.setPloidyLevel(2);
 
             HashMap<String, String> existingVariantIDs = buildSynonymToIdMapForExistingVariants(mongoTemplate, false);
@@ -458,8 +458,8 @@ public class FlapjackImport extends AbstractGenotypeImport {
         {
             if (reader != null)
                 reader.close();
-            //if (tempFile != null)
-            //    tempFile.delete();
+            if (tempFile != null)
+                tempFile.delete();
         }
         return count.get();
     }
@@ -549,9 +549,6 @@ public class FlapjackImport extends AbstractGenotypeImport {
 
         if (variants.size() == 0)
         	throw new Exception("No variant names found, either the genotype matrix is empty, or the header line is missing or invalid");
-
-        // 440 individuals, 12983735 variants, maxPayloadLength=30029411, nTrivialLineSize=25967469 : 162
-        // Max line length : 30029416, initial capacity : 1155
 
         // Trivial case : each genotype is a collapsed homozygote SNP = 1 base + 1 separator, -1 because trailing separators are not accounted for
         final int nTrivialLineSize = 2*variants.size() - 1;
