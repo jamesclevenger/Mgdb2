@@ -123,26 +123,76 @@ public class MgdbDao {
         // empty count cache
         mongoTemplate.dropCollection(mongoTemplate.getCollectionName(CachedCount.class));
 
-        MongoCollection<Document> variantColl = mongoTemplate.getCollection(mongoTemplate.getCollectionName(VariantData.class));
         MongoCollection<Document> runColl = mongoTemplate.getCollection(mongoTemplate.getCollectionName(VariantRunData.class));
 
-        // create indexes
-        LOG.debug("Creating index on field " + VariantData.FIELDNAME_SYNONYMS + "." + VariantData.FIELDNAME_SYNONYM_TYPE_ID_ILLUMINA + " of collection " + variantColl.getNamespace());
-        variantColl.createIndex(new BasicDBObject(VariantData.FIELDNAME_SYNONYMS + "." + VariantData.FIELDNAME_SYNONYM_TYPE_ID_ILLUMINA, 1));
-        LOG.debug("Creating index on field " + VariantData.FIELDNAME_SYNONYMS + "." + VariantData.FIELDNAME_SYNONYM_TYPE_ID_INTERNAL + " of collection " + variantColl.getNamespace());
-        variantColl.createIndex(new BasicDBObject(VariantData.FIELDNAME_SYNONYMS + "." + VariantData.FIELDNAME_SYNONYM_TYPE_ID_ILLUMINA, 1));
-        LOG.debug("Creating index on field " + VariantData.FIELDNAME_SYNONYMS + "." + VariantData.FIELDNAME_SYNONYM_TYPE_ID_NCBI + " of collection " + variantColl.getNamespace());
-        variantColl.createIndex(new BasicDBObject(VariantData.FIELDNAME_SYNONYMS + "." + VariantData.FIELDNAME_SYNONYM_TYPE_ID_ILLUMINA, 1));
-        LOG.debug("Creating index on field " + VariantData.FIELDNAME_TYPE + " of collection " + variantColl.getNamespace());
-        try {
-            variantColl.createIndex(new BasicDBObject(VariantData.FIELDNAME_TYPE, 1));
-        } catch (MongoCommandException mce) {
-            if (!mce.getMessage().contains("already exists with a different name")) {
-                throw mce;	// otherwise we have nothing to do because it already exists anyway
-            }
-        }
-
+        // make sure positions are indexed with correct collation etc...
         ensurePositionIndexes(mongoTemplate, Arrays.asList(mongoTemplate.getCollection(mongoTemplate.getCollectionName(VariantData.class)), mongoTemplate.getCollection(mongoTemplate.getCollectionName(VariantRunData.class))));
+        
+        List<String> result = new ArrayList<>();
+        Thread t = new Thread() {
+            public void run() {
+                // create indexes
+                MongoCollection<Document> variantColl = mongoTemplate.getCollection(mongoTemplate.getCollectionName(VariantData.class));
+                LOG.debug("Creating index on field " + VariantData.FIELDNAME_SYNONYMS + "." + VariantData.FIELDNAME_SYNONYM_TYPE_ID_ILLUMINA + " of collection " + variantColl.getNamespace());
+                variantColl.createIndex(new BasicDBObject(VariantData.FIELDNAME_SYNONYMS + "." + VariantData.FIELDNAME_SYNONYM_TYPE_ID_ILLUMINA, 1));
+                LOG.debug("Creating index on field " + VariantData.FIELDNAME_SYNONYMS + "." + VariantData.FIELDNAME_SYNONYM_TYPE_ID_INTERNAL + " of collection " + variantColl.getNamespace());
+                variantColl.createIndex(new BasicDBObject(VariantData.FIELDNAME_SYNONYMS + "." + VariantData.FIELDNAME_SYNONYM_TYPE_ID_ILLUMINA, 1));
+                LOG.debug("Creating index on field " + VariantData.FIELDNAME_SYNONYMS + "." + VariantData.FIELDNAME_SYNONYM_TYPE_ID_NCBI + " of collection " + variantColl.getNamespace());
+                variantColl.createIndex(new BasicDBObject(VariantData.FIELDNAME_SYNONYMS + "." + VariantData.FIELDNAME_SYNONYM_TYPE_ID_ILLUMINA, 1));
+                LOG.debug("Creating index on field " + VariantData.FIELDNAME_TYPE + " of collection " + variantColl.getNamespace());
+                try {
+                    variantColl.createIndex(new BasicDBObject(VariantData.FIELDNAME_TYPE, 1));
+                } catch (MongoCommandException mce) {
+                    if (!mce.getMessage().contains("already exists with a different name")) {
+                        throw mce;  // otherwise we have nothing to do because it already exists anyway
+                    }
+                }
+
+                // tag variant IDs across database
+                mongoTemplate.dropCollection(COLLECTION_NAME_TAGGED_VARIANT_IDS);
+                long totalVariantCount = mongoTemplate.count(new Query(), VariantData.class);
+                long totalIndividualCount = mongoTemplate.count(new Query(), Individual.class);
+                long maxGenotypeCount = totalVariantCount * totalIndividualCount;
+                long numberOfTaggedVariants = Math.min(totalVariantCount / 2, maxGenotypeCount > 200000000 ? 500 : (maxGenotypeCount > 100000000 ? 300 : (maxGenotypeCount > 50000000 ? 100 : (maxGenotypeCount > 20000000 ? 50 : (maxGenotypeCount > 5000000 ? 40 : 25)))));
+                int nChunkSize = (int) Math.max(1, (int) totalVariantCount / Math.max(1, numberOfTaggedVariants - 1));
+                LOG.debug("Number of variants between 2 tagged ones: " + nChunkSize);
+
+                MongoCollection<Document> collection = mongoTemplate.getCollection(MgdbDao.COLLECTION_NAME_TAGGED_VARIANT_IDS);
+                collection.drop();
+                String cursor = null;
+                ArrayList<Document> taggedVariants = new ArrayList<>();
+                for (int nChunkNumber = 0; nChunkNumber < (float) totalVariantCount / nChunkSize; nChunkNumber++) {
+                    long before = System.currentTimeMillis();
+                    Query q = new Query();
+                    q.fields().include("_id");
+                    q.limit(nChunkSize);
+                    q.with(Sort.by(Arrays.asList(new Sort.Order(Sort.Direction.ASC, "_id"))));
+                    if (cursor != null) {
+                        q.addCriteria(Criteria.where("_id").gt(cursor));
+                    }
+                    List<VariantData> chunk = mongoTemplate.find(q, VariantData.class);
+                    try {
+                        cursor = chunk.get(chunk.size() - 1).getId();
+                    } catch (ArrayIndexOutOfBoundsException aioobe) {
+                        if (aioobe.getMessage().equals("-1")) {
+                            LOG.error("Database is mixing String and ObjectID types!");
+                            result.clear();
+                        }
+                    }
+                    taggedVariants.add(new Document("_id", cursor));
+                    result.add(cursor.toString());
+                    LOG.debug("Variant " + cursor + " tagged as position " + nChunkNumber + " (" + (System.currentTimeMillis() - before) + "ms)");
+                }
+                collection.insertMany(taggedVariants);
+            }
+            
+            /*  This is how it is internally handled when sharding the data:
+            var splitKeys = db.runCommand({splitVector: "mgdb_Musa_acuminata_v2_private.variantRunData", keyPattern: {"_id":1}, maxChunkSizeBytes: 40250000}).splitKeys;
+            for (var key in splitKeys)
+              db.taggedVariants.insert({"_id" : splitKeys[key]["_id"]["vi"]});
+             */
+        };
+        t.start();
 
         LOG.debug("Creating index on field " + VariantRunData.SECTION_ADDITIONAL_INFO + "." + VariantRunData.FIELDNAME_ADDITIONAL_INFO_EFFECT_GENE + " of collection " + runColl.getNamespace());
         runColl.createIndex(new BasicDBObject(VariantRunData.SECTION_ADDITIONAL_INFO + "." + VariantRunData.FIELDNAME_ADDITIONAL_INFO_EFFECT_GENE, 1));
@@ -156,49 +206,10 @@ public class MgdbDao {
 //		BasicDBObject runCollIndexKeys = new BasicDBObject("_id." + VariantRunDataId.FIELDNAME_VARIANT_ID, 1);
 //		runCollIndexKeys.put("_id." + VariantRunDataId.FIELDNAME_PROJECT_ID, 1);
 //		runColl.createIndex(runCollIndexKeys);
-
-        // tag variant IDs across database
-        List<String> result = new ArrayList<>();
-        mongoTemplate.dropCollection(COLLECTION_NAME_TAGGED_VARIANT_IDS);
-        long totalVariantCount = mongoTemplate.count(new Query(), VariantData.class);
-        long totalIndividualCount = mongoTemplate.count(new Query(), Individual.class);
-        long maxGenotypeCount = totalVariantCount * totalIndividualCount;
-        long numberOfTaggedVariants = Math.min(totalVariantCount / 2, maxGenotypeCount > 200000000 ? 500 : (maxGenotypeCount > 100000000 ? 300 : (maxGenotypeCount > 50000000 ? 100 : (maxGenotypeCount > 20000000 ? 50 : (maxGenotypeCount > 5000000 ? 40 : 25)))));
-        int nChunkSize = (int) Math.max(1, (int) totalVariantCount / Math.max(1, numberOfTaggedVariants - 1));
-        LOG.debug("Number of variants between 2 tagged ones: " + nChunkSize);
-
-        MongoCollection<Document> collection = mongoTemplate.getCollection(MgdbDao.COLLECTION_NAME_TAGGED_VARIANT_IDS);
-        collection.drop();
-        String cursor = null;
-        ArrayList<Document> taggedVariants = new ArrayList<>();
-        for (int nChunkNumber = 0; nChunkNumber < (float) totalVariantCount / nChunkSize; nChunkNumber++) {
-            long before = System.currentTimeMillis();
-            Query q = new Query();
-            q.fields().include("_id");
-            q.limit(nChunkSize);
-            q.with(Sort.by(Arrays.asList(new Sort.Order(Sort.Direction.ASC, "_id"))));
-            if (cursor != null) {
-                q.addCriteria(Criteria.where("_id").gt(cursor));
-            }
-            List<VariantData> chunk = mongoTemplate.find(q, VariantData.class);
-            try {
-                cursor = chunk.get(chunk.size() - 1).getId();
-            } catch (ArrayIndexOutOfBoundsException aioobe) {
-                if (aioobe.getMessage().equals("-1")) {
-                    throw new Exception("Database is mixing String and ObjectID types!");
-                }
-            }
-            taggedVariants.add(new Document("_id", cursor));
-            result.add(cursor.toString());
-            LOG.debug("Variant " + cursor + " tagged as position " + nChunkNumber + " (" + (System.currentTimeMillis() - before) + "ms)");
-        }
-        collection.insertMany(taggedVariants);
-
-        /*	This is how it is internally handled when sharding the data:
- 		var splitKeys = db.runCommand({splitVector: "mgdb_Musa_acuminata_v2_private.variantRunData", keyPattern: {"_id":1}, maxChunkSizeBytes: 40250000}).splitKeys;
-		for (var key in splitKeys)
-		  db.taggedVariants.insert({"_id" : splitKeys[key]["_id"]["vi"]});
-         */
+        
+        t.join();
+        if (result.isEmpty())
+            throw new Exception("An error occured while preparing database for searches, please check server logs");
         return result;
     }
 
@@ -391,7 +402,7 @@ public class MgdbDao {
      */
     public static LinkedHashMap<VariantData, Collection<VariantRunData>> getSampleGenotypes(MongoTemplate mongoTemplate, Collection<GenotypingSample> samples, List<Object> variantIdListToRestrictTo, boolean fReturnVariantTypes, Sort sort) throws Exception {
         ArrayList<String> variantFieldsToReturn = new ArrayList<String>();
-        variantFieldsToReturn.add(VariantData.FIELDNAME_KNOWN_ALLELE_LIST);
+        variantFieldsToReturn.add(VariantData.FIELDNAME_KNOWN_ALLELES);
         variantFieldsToReturn.add(VariantData.FIELDNAME_REFERENCE_POSITION);
         if (fReturnVariantTypes) {
             variantFieldsToReturn.add(VariantData.FIELDNAME_TYPE);
