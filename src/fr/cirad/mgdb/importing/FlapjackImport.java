@@ -656,6 +656,8 @@ public class FlapjackImport extends AbstractGenotypeImport {
                                         for (int marker = 0; marker < blockSize; marker++) {
                                             int nCurrentPos = individualPositions.get(0) + 2*(blockStart + marker);
                                             char collapsedGenotype = lineBuffer.charAt(nCurrentPos);
+                                            if (collapsedGenotype == '-')
+                                            	collapsedGenotype = '0';
                                             StringBuilder builder = transposed.get(marker);
                                             builder.append("\t");
                                             builder.append(collapsedGenotype);

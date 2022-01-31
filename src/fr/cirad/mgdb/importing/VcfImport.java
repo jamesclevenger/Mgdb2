@@ -248,8 +248,14 @@ public class VcfImport extends AbstractGenotypeImport {
 
             for (VCFContigHeaderLine contigLine : header.getContigLines()) {
                 Map<String, String> lineFields = contigLine.getGenericFields();
-                if (lineFields.keySet().contains("length"))
-                    mongoTemplate.save(new Sequence(contigLine.getID(), Long.parseLong(lineFields.get("length"))));
+                String sAssembly = lineFields.get("assembly"), sLength = lineFields.get("length");
+                if (sAssembly != null || sLength != null) {
+                    Sequence seq = new Sequence(contigLine.getID());
+                    seq.setAssembly(sAssembly);
+                    if (sLength != null)
+                        seq.setLength(Long.parseLong(sLength));
+                    mongoTemplate.save(seq);
+                }
             }
 
             Integer createdProject = null;
