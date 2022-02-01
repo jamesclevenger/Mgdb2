@@ -66,7 +66,7 @@ public class AbstractGenotypeImport {
 	/** Map that associates modules to projects currently undergoing a write operation, thus rendering them unavailable for other write operations
 	 * A null value in the set indicates the whole module is locked
 	 */
-	protected static HashMap<String /*module*/, Set<String> /*projects*/> currentlyImportedProjects = new HashMap<String, Set<String>>();
+	private static HashMap<String /*module*/, Set<String> /*projects*/> currentlyImportedProjects = new HashMap<String, Set<String>>();
 
 	public static ArrayList<String> getIdentificationStrings(String sType, String sSeq, Long nStartPos, Collection<String> idAndSynonyms) throws Exception
 	{

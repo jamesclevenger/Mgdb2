@@ -429,8 +429,6 @@ public class VcfImport extends AbstractGenotypeImport {
         }
         finally
         {
-            currentlyImportedProjects.remove(sModule);
-
             if (m_fCloseContextOpenAfterImport && ctx != null)
                 ctx.close();
 

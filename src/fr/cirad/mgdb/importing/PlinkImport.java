@@ -281,6 +281,7 @@ public class PlinkImport extends AbstractGenotypeImport {
         {
             if (m_fCloseContextOpenAfterImport && ctx != null)
                 ctx.close();
+            unlockProjectForWriting(sModule, sProject);
         }
     }
 
