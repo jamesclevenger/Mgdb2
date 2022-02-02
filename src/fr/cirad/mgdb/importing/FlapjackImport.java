@@ -31,9 +31,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Function;
@@ -61,6 +61,7 @@ import fr.cirad.mgdb.model.mongo.maintypes.VariantRunData;
 import fr.cirad.mgdb.model.mongo.subtypes.ReferencePosition;
 import fr.cirad.mgdb.model.mongo.subtypes.SampleGenotype;
 import fr.cirad.mgdb.model.mongodao.MgdbDao;
+import fr.cirad.tools.Helper;
 import fr.cirad.tools.ProgressIndicator;
 import fr.cirad.tools.mongo.MongoTemplateManager;
 import htsjdk.variant.variantcontext.Allele;
@@ -199,9 +200,6 @@ public class FlapjackImport extends AbstractGenotypeImport {
             mongoTemplate.getDb().runCommand(new BasicDBObject("profile", 0));  // disable profiling
             GenotypingProject project = mongoTemplate.findOne(new Query(Criteria.where(GenotypingProject.FIELDNAME_NAME).is(sProject)), GenotypingProject.class);
 
-            if (importMode == 0 && project != null && project.getPloidyLevel() != 2)
-                throw new Exception("Ploidy levels differ between existing (" + project.getPloidyLevel() + ") and provided (" + 2 + ") data!");
-
             lockProjectForWriting(sModule, sProject);
             cleanupBeforeImport(mongoTemplate, sModule, project, importMode, sRun);
 
@@ -216,8 +214,6 @@ public class FlapjackImport extends AbstractGenotypeImport {
                 createdProject = project.getId();
             }
 
-            project.setPloidyLevel(2);
-
             HashMap<String, String> existingVariantIDs = buildSynonymToIdMapForExistingVariants(mongoTemplate, false);
 
             String info = "Loading variant list from MAP file";
@@ -226,11 +222,11 @@ public class FlapjackImport extends AbstractGenotypeImport {
             progress.moveToNextStep();
             Map<String, VariantMapPosition> variantsAndPositions = null;
             try {
-            	variantsAndPositions = getVariantsAndPositions(mapFileURL);
+                variantsAndPositions = getVariantsAndPositions(mapFileURL);
             } catch (Exception exc) {
-            	LOG.error(exc);
-            	progress.setError("Map file parsing failed : " + exc.getMessage());
-            	return 0;
+                LOG.error(exc);
+                progress.setError("Map file parsing failed : " + exc.getMessage());
+                return 0;
             }
 
             // rotate matrix using temporary files
@@ -241,17 +237,17 @@ public class FlapjackImport extends AbstractGenotypeImport {
             Map<String, Type> nonSnpVariantTypeMap = new HashMap<>();
             ArrayList<String> individualNames = new ArrayList<>();
 
-            File rotatedFile = null;
+            File rotatedFile = File.createTempFile("fjImport-" + genotypeFile.getName() + "-", ".tsv");
             try {
                 m_nCurrentlyTransposingMatrixCount++;
-                rotatedFile = transposeGenotypeFile(genotypeFile, nonSnpVariantTypeMap, individualNames, fSkipMonomorphic, progress);
+                int nPloidy = transposeGenotypeFile(genotypeFile, rotatedFile, nonSnpVariantTypeMap, individualNames, fSkipMonomorphic, progress);
+                if (importMode == 0 && createdProject == null && project.getPloidyLevel() != nPloidy)
+                    throw new Exception("Ploidy levels differ between existing (" + project.getPloidyLevel() + ") and provided (" + nPloidy + ") data!");
+                project.setPloidyLevel(nPloidy);
             }
             finally {
                 m_nCurrentlyTransposingMatrixCount--;
             }
-
-            progress.addStep("Checking genotype consistency between synonyms");
-            progress.moveToNextStep();
 
             if (progress.getError() != null)
                 return 0;
@@ -277,31 +273,31 @@ public class FlapjackImport extends AbstractGenotypeImport {
     }
 
     private Map<String, VariantMapPosition> getVariantsAndPositions(URL mapFileURL) throws Exception {
-		LinkedHashMap<String, VariantMapPosition> variantsAndPositions = new LinkedHashMap<>();
-		BufferedReader mapReader = new BufferedReader(new InputStreamReader(mapFileURL.openStream()));
-		int nCurrentLine = -1;
-		String line;
-		while ((line = mapReader.readLine()) != null) {
-			line = line.trim();
-			nCurrentLine++;
+        LinkedHashMap<String, VariantMapPosition> variantsAndPositions = new LinkedHashMap<>();
+        BufferedReader mapReader = new BufferedReader(new InputStreamReader(mapFileURL.openStream()));
+        int nCurrentLine = -1;
+        String line;
+        while ((line = mapReader.readLine()) != null) {
+            line = line.trim();
+            nCurrentLine++;
 
-			if (line.length() == 0 || line.charAt(0) == '#')
-				continue;
+            if (line.length() == 0 || line.charAt(0) == '#')
+                continue;
 
-			String[] tokens = line.split("\\s+");
-			if (tokens.length < 3)
-				throw new Exception("Line " + nCurrentLine + " : invalid or unsupported data (less than 3 elements)");
+            String[] tokens = line.split("\\s+");
+            if (tokens.length < 3)
+                throw new Exception("Line " + nCurrentLine + " : invalid or unsupported data (less than 3 elements)");
 
-			VariantMapPosition position = new VariantMapPosition(tokens[1], Integer.parseInt(tokens[2]));
-			variantsAndPositions.put(tokens[0], position);
-		}
+            VariantMapPosition position = new VariantMapPosition(tokens[1], Integer.parseInt(tokens[2]));
+            variantsAndPositions.put(tokens[0], position);
+        }
 
-		mapReader.close();
-		return variantsAndPositions;
-	}
+        mapReader.close();
+        return variantsAndPositions;
+    }
 
-    // TODO : check incoherent variant names between map and genotype
-	public long importTempFileContents(ProgressIndicator progress, int nNConcurrentThreads, MongoTemplate mongoTemplate, File tempFile, Map<String, VariantMapPosition> variantsAndPositions, HashMap<String, String> existingVariantIDs, GenotypingProject project, String sRun, Map<String, Type> nonSnpVariantTypeMap, List<String> individuals, boolean fSkipMonomorphic) throws Exception
+    // TODO : check inconsistent variant names between map and genotype
+    public long importTempFileContents(ProgressIndicator progress, int nNConcurrentThreads, MongoTemplate mongoTemplate, File tempFile, Map<String, VariantMapPosition> variantsAndPositions, HashMap<String, String> existingVariantIDs, GenotypingProject project, String sRun, Map<String, Type> nonSnpVariantTypeMap, List<String> individuals, boolean fSkipMonomorphic) throws Exception
     {
         final AtomicInteger count = new AtomicInteger(0);
 
@@ -335,7 +331,6 @@ public class FlapjackImport extends AbstractGenotypeImport {
             }
 
             reader = new BufferedReader(new FileReader(tempFile));
-
             final BufferedReader finalReader = reader;
 
             // Leave one thread dedicated to the saveChunk service, it looks empirically faster that way
@@ -392,12 +387,13 @@ public class FlapjackImport extends AbstractGenotypeImport {
                                     if (variant == null)
                                         variant = new VariantData((ObjectId.isValid(providedVariantId) ? "_" : "") + providedVariantId);
 
-                                    String[][] alleles = new String[2][individuals.size()];
+                                    String[][] alleles = new String[individuals.size()][project.getPloidyLevel()];
                                     int nIndividualIndex = 0;
                                     while (nIndividualIndex < individuals.size()) {
                                         String[] genotype = splitLine[nIndividualIndex + 1].split("/");
-                                        alleles[0][nIndividualIndex] = genotype[0];
-                                        alleles[1][nIndividualIndex++] = (genotype.length > 1 ? genotype[1] : genotype[0]);  // Account for collapsed homozygotes
+                                        for (int i=0; i<project.getPloidyLevel(); i++)
+                                            alleles[nIndividualIndex][i] = genotype[genotype.length == 1 ? 0 : i];
+                                        nIndividualIndex++;
                                     }
 
                                     VariantRunData runToSave = addFlapjackDataToVariant(mongoTemplate, variant, position, individuals, nonSnpVariantTypeMap, alleles, project, sRun, samples, fImportUnknownVariants);
@@ -472,7 +468,7 @@ public class FlapjackImport extends AbstractGenotypeImport {
         return allocatableMemory;
     }
 
-    private File transposeGenotypeFile(File genotypeFile, Map<String, Type> nonSnpVariantTypeMapToFill, ArrayList<String> individualListToFill, boolean fSkipMonomorphic, ProgressIndicator progress) throws Exception {
+    private int transposeGenotypeFile(File genotypeFile, File outputFile, Map<String, Type> nonSnpVariantTypeMapToFill, ArrayList<String> individualListToFill, boolean fSkipMonomorphic, ProgressIndicator progress) throws Exception {
         long before = System.currentTimeMillis();
 
         StackTraceElement[] stacktrace = Thread.currentThread().getStackTrace();
@@ -480,7 +476,6 @@ public class FlapjackImport extends AbstractGenotypeImport {
 
         int nConcurrentThreads = Math.max(1, Runtime.getRuntime().availableProcessors());
 
-        File outputFile = File.createTempFile("fjImport-" + genotypeFile.getName() + "-", ".tsv");
         FileWriter outputWriter = new FileWriter(outputFile);
 
         Pattern allelePattern = Pattern.compile("\\S+");
@@ -499,11 +494,11 @@ public class FlapjackImport extends AbstractGenotypeImport {
         String initLine;
         int nIndividuals = 0, lineno = -1;
         while ((initLine = reader.readLine()) != null) {
-        	lineno += 1;
-        	if (initLine.trim().length() == 0 || initLine.charAt(0) == '#') {
-        		linesToIgnore.add(lineno);
-        		continue;
-        	}
+            lineno += 1;
+            if (initLine.trim().length() == 0 || initLine.charAt(0) == '#') {
+                linesToIgnore.add(lineno);
+                continue;
+            }
 
             Matcher initMatcher = allelePattern.matcher(initLine);
             initMatcher.find();
@@ -523,34 +518,34 @@ public class FlapjackImport extends AbstractGenotypeImport {
 
             // Normal data line
             else {
-            	String sIndividual = initMatcher.group().trim();
+                String sIndividual = initMatcher.group().trim();
 
-	            individualListToFill.add(sIndividual);
+                individualListToFill.add(sIndividual);
 
-	            ArrayList<Integer> positions = new ArrayList<Integer>();
+                ArrayList<Integer> positions = new ArrayList<Integer>();
 
-	            // Find the first allele to get the actual beginning of the genotypes, without the first separators
-	            initMatcher.find();
-	            int payloadStart = initMatcher.start();
-	            positions.add(payloadStart);
-	            blockLinePositions.add(positions);
+                // Find the first allele to get the actual beginning of the genotypes, without the first separators
+                initMatcher.find();
+                int payloadStart = initMatcher.start();
+                positions.add(payloadStart);
+                blockLinePositions.add(positions);
 
-	            // Find the length of the line's payload (without header and trailing separators)
-	            String sPayLoad = initLine.substring(payloadStart).trim();
-	            lineLengths.add(sPayLoad.length());
+                // Find the length of the line's payload (without header and trailing separators)
+                String sPayLoad = initLine.substring(payloadStart).trim();
+                lineLengths.add(sPayLoad.length());
 
-	            if (initLine.length() > maxLineLength)
-	                maxLineLength = initLine.length();
-	            if (sPayLoad.length() > maxPayloadLength)
-	                maxPayloadLength = sPayLoad.length();
+                if (initLine.length() > maxLineLength)
+                    maxLineLength = initLine.length();
+                if (sPayLoad.length() > maxPayloadLength)
+                    maxPayloadLength = sPayLoad.length();
 
-	            nIndividuals += 1;
+                nIndividuals += 1;
             }
         }
         reader.close();
 
         if (variants.size() == 0)
-        	throw new Exception("No variant names found, either the genotype matrix is empty, or the header line is missing or invalid");
+            throw new Exception("No variant names found, either the genotype matrix is empty, or the header line is missing or invalid");
 
         // Trivial case : each genotype is a collapsed homozygote SNP = 1 base + 1 separator, -1 because trailing separators are not accounted for
         final int nTrivialLineSize = 2*variants.size() - 1;
@@ -562,7 +557,7 @@ public class FlapjackImport extends AbstractGenotypeImport {
         final int cMaxLineLength = maxLineLength;
         final int cIndividuals = nIndividuals;
         final int cVariants = variants.size();
-        final AtomicInteger nFinishedVariantCount = new AtomicInteger(0);
+        final AtomicInteger nFinishedVariantCount = new AtomicInteger(0), ploidy = new AtomicInteger(1);
         final AtomicLong memoryPool = new AtomicLong(0);
         Thread[] transposeThreads = new Thread[nConcurrentThreads];
         Type[] variantTypes = new Type[cVariants];
@@ -598,7 +593,7 @@ public class FlapjackImport extends AbstractGenotypeImport {
                                         memoryPool.set((allocatableMemory + memoryPool.get()) / 2);
 
                                     long blockGenotypesMemory = memoryPool.get() / nConcurrentThreads - cMaxLineLength;
-                                    //                   max block size with the given amount of memory   | remaining variants to read
+                                    // max block size with the given amount of memory   | remaining variants to read
                                     blockSize = Math.min((int)(blockGenotypesMemory / (2*initialCapacity)), cVariants - blockStart);
                                     blockSize = Math.min(blockSize, maxBlockSize);
                                     if (blockSize < 1)
@@ -606,7 +601,6 @@ public class FlapjackImport extends AbstractGenotypeImport {
 
                                     blockStartMarkers.add(blockStart + blockSize);
                                     LOG.debug("Thread " + cThreadIndex + " starts block " + blockIndex + " : " + blockSize + " markers starting at marker " + blockStart + " (" + blockGenotypesMemory + " allowed)");
-
 
                                     if (transposed.size() < blockSize) {  // Allocate more buffers if needed
                                         transposed.ensureCapacity(blockSize);
@@ -630,8 +624,8 @@ public class FlapjackImport extends AbstractGenotypeImport {
                                     while (!reachedEOL) {
                                         for (int i = bufferPosition; i < bufferLength; i++) {
                                             if (fileBuffer[i] == '\n') {
-                                            	if (!ignore)
-                                            		lineBuffer.append(fileBuffer, bufferPosition, i - bufferPosition);
+                                                if (!ignore)
+                                                    lineBuffer.append(fileBuffer, bufferPosition, i - bufferPosition);
                                                 bufferPosition = i + 1;
                                                 reachedEOL = true;
                                                 break;
@@ -639,8 +633,8 @@ public class FlapjackImport extends AbstractGenotypeImport {
                                         }
 
                                         if (!reachedEOL) {
-                                        	if (!ignore)
-                                        		lineBuffer.append(fileBuffer, bufferPosition, bufferLength - bufferPosition);
+                                            if (!ignore)
+                                                lineBuffer.append(fileBuffer, bufferPosition, bufferLength - bufferPosition);
                                             if ((bufferLength = reader.read(fileBuffer, 0, cMaxLineLength)) < 0) {  // End of file
                                                 break;
                                             }
@@ -649,7 +643,7 @@ public class FlapjackImport extends AbstractGenotypeImport {
                                     }
 
                                     if (linesToIgnore.contains(lineno))
-                                    	continue;
+                                        continue;
 
                                     ArrayList<Integer> individualPositions = blockLinePositions.get(individual);
 
@@ -659,7 +653,7 @@ public class FlapjackImport extends AbstractGenotypeImport {
                                             int nCurrentPos = individualPositions.get(0) + 2*(blockStart + marker);
                                             char collapsedGenotype = lineBuffer.charAt(nCurrentPos);
                                             if (collapsedGenotype == '-')
-                                            	collapsedGenotype = '0';
+                                                collapsedGenotype = '0';
                                             StringBuilder builder = transposed.get(marker);
                                             builder.append("\t");
                                             builder.append(collapsedGenotype);
@@ -692,20 +686,18 @@ public class FlapjackImport extends AbstractGenotypeImport {
                                             StringBuilder builder = transposed.get(marker);
                                             String genotype = matcher.group();
 
-                                            builder.append("\t");
-                                            // Missing data
-                                            if (genotype.length() == 0 || genotype.equals("-")) {
-                                            	builder.append("0");
+                                            builder.append("\t");                                            
+                                            if (genotype.length() == 0 || genotype.equals("-")) { // Missing data
+                                                builder.append("0");
                                             }
-                                            // Heterozygote
-                                            else if (genotype.contains("/")) {
-                                            	builder.append(genotype);
-                                            }
-                                            // Collapsed homozygote
                                             else {
-                                            	builder.append(genotype);
-                                            	//builder.append("/");
-                                            	//builder.append(genotype);
+                                                if (genotype.contains("/") && ploidy.get() == 1) {
+                                                    ploidy.set(Helper.split(genotype, "\t").stream().filter(gt -> gt.contains("/")).findFirst().map(gt -> gt.split("/").length).get());
+                                                    LOG.info("Found ploidy level of " + ploidy.get() + " from genotype " + genotype);
+                                                }
+                                                builder.append(genotype);
+                                                //builder.append("/");
+                                                //builder.append(genotype);
                                             }
                                             matcher.find();
                                         }
@@ -775,7 +767,7 @@ public class FlapjackImport extends AbstractGenotypeImport {
             LOG.info("Genotype matrix transposition took " + (System.currentTimeMillis() - before) + "ms for " + cVariants + " markers and " + cIndividuals + " individuals");
 
         Runtime.getRuntime().gc();  // Release our (lots of) memory as soon as possible
-        return outputFile;
+        return ploidy.get();
     }
 
     /**
@@ -784,9 +776,6 @@ public class FlapjackImport extends AbstractGenotypeImport {
      */
     static private VariantRunData addFlapjackDataToVariant(MongoTemplate mongoTemplate, VariantData variantToFeed, VariantMapPosition position, List<String> individuals, Map<String, Type> nonSnpVariantTypeMap, String[][] alleles, GenotypingProject project, String runName, Map<String /*individual*/, GenotypingSample> usedSamples, boolean fImportUnknownVariants) throws Exception
     {
-        if (fImportUnknownVariants && variantToFeed.getReferencePosition() == null && position.getSequence() != null) // otherwise we leave it as it is (had some trouble with overridden end-sites)
-            variantToFeed.setReferencePosition(new ReferencePosition(position.getSequence(), position.getPosition(), position.getPosition()));
-
         VariantRunData vrd = new VariantRunData(new VariantRunData.VariantRunDataId(project.getId(), runName, variantToFeed.getId()));
 
         // genotype fields
@@ -797,33 +786,33 @@ public class FlapjackImport extends AbstractGenotypeImport {
         {
             i++;
 
-            if ("0".equals(alleles[0][i]) || "0".equals(alleles[1][i]))
+            if ("0".equals(alleles[i][0]))
                 continue;  // Do not add missing genotypes
 
-            for (int j = 0; j < 2; j++) { // 2 alleles per genotype
-                Integer alleleIndex = alleleIndexMap.get(alleles[j][i]);
-                if (alleleIndex == null && alleles[j][i].matches("[AaTtGgCc\\*]+")) { // New allele
+            for (int j = 0; j < project.getPloidyLevel(); j++) {
+                Integer alleleIndex = alleleIndexMap.get(alleles[i][j]);
+                if (alleleIndex == null && alleles[i][j].matches("[AaTtGgCc\\*]+")) { // New allele
                     alleleIndex = variantToFeed.getKnownAlleles().size();
-                    variantToFeed.getKnownAlleles().add(alleles[j][i]);
-                    alleleIndexMap.put(alleles[j][i], alleleIndex);
+                    variantToFeed.getKnownAlleles().add(alleles[i][j]);
+                    alleleIndexMap.put(alleles[i][j], alleleIndex);
                 }
             }
 
             String gtCode;
             try {
-                gtCode = Arrays.asList(alleles[0][i], alleles[1][i]).stream().map(allele -> alleleIndexMap.get(allele)).sorted().map(index -> index.toString()).collect(Collectors.joining("/"));
+                gtCode = Arrays.stream(alleles[i]).map(allele -> alleleIndexMap.get(allele)).sorted().map(index -> index.toString()).collect(Collectors.joining("/"));
             }
             catch (Exception e) {
-                LOG.warn("Ignoring invalid Flapjack genotype \"" + alleles[0][i] + "/" + alleles[1][i] + "\" for variant " + variantToFeed.getId() + " and individual " + sIndividual);
+                LOG.warn("Ignoring invalid Flapjack genotype \"" + alleles[i] + "\" for variant " + variantToFeed.getId() + " and individual " + sIndividual);
                 continue;
             }
-
-            /*if (gtCode == null)
-                continue;   // we don't add missing genotypes*/
 
             SampleGenotype aGT = new SampleGenotype(gtCode);
             vrd.getSampleGenotypes().put(usedSamples.get(sIndividual).getId(), aGT);
         }
+        
+        if (fImportUnknownVariants && variantToFeed.getReferencePosition() == null && position.getSequence() != null) // otherwise we leave it as it is (had some trouble with overridden end-sites)
+            variantToFeed.setReferencePosition(new ReferencePosition(position.getSequence(), position.getPosition(), position.getPosition() + variantToFeed.getKnownAlleles().iterator().next().length() - 1));
 
         // mandatory fields
         if (!alleleIndexMap.isEmpty()) {

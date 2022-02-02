@@ -766,9 +766,6 @@ public class PlinkImport extends AbstractGenotypeImport {
      */
     static private VariantRunData addPlinkDataToVariant(MongoTemplate mongoTemplate, VariantData variantToFeed, String sequence, Long bpPos, Map<String, String> userIndividualToPopulationMap, Map<String, Type> nonSnpVariantTypeMap, String[][] alleles, GenotypingProject project, String runName, Map<String /*individual*/, GenotypingSample> usedSamples, boolean fImportUnknownVariants) throws Exception
     {
-        if (fImportUnknownVariants && variantToFeed.getReferencePosition() == null && sequence != null) // otherwise we leave it as it is (had some trouble with overridden end-sites)
-            variantToFeed.setReferencePosition(new ReferencePosition(sequence, bpPos, bpPos));
-
         VariantRunData vrd = new VariantRunData(new VariantRunData.VariantRunDataId(project.getId(), runName, variantToFeed.getId()));
 
         // genotype fields
@@ -806,6 +803,9 @@ public class PlinkImport extends AbstractGenotypeImport {
             SampleGenotype aGT = new SampleGenotype(gtCode);
             vrd.getSampleGenotypes().put(usedSamples.get(sIndividual).getId(), aGT);
         }
+        
+        if (fImportUnknownVariants && variantToFeed.getReferencePosition() == null && sequence != null) // otherwise we leave it as it is (had some trouble with overridden end-sites)
+            variantToFeed.setReferencePosition(new ReferencePosition(sequence, bpPos, bpPos + variantToFeed.getKnownAlleles().iterator().next().length() - 1));
 
         // mandatory fields
         if (!alleleIndexMap.isEmpty()) {
