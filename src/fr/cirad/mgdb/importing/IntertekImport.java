@@ -179,8 +179,6 @@ public class IntertekImport extends AbstractGenotypeImport {
                 m_processID = "IMPORT__" + sModule + "__" + sProject + "__" + sRun + "__" + System.currentTimeMillis();
             }
 
-            mongoTemplate.getDb().runCommand(new BasicDBObject("profile", 0));	// disable profiling
-
             final String[] snpHeader = {"SNPID","SNPNum","AlleleY","AlleleX","Sequence"};
             int snpColIndex = Arrays.asList(snpHeader).indexOf("SNPID");
             int yColIndex = Arrays.asList(snpHeader).indexOf("AlleleY");
