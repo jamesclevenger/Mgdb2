@@ -39,6 +39,8 @@ import java.util.TreeSet;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
+import javax.servlet.http.HttpServletResponse;
+
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.lang.StringUtils;
@@ -171,6 +173,8 @@ public class BrapiImport extends AbstractGenotypeImport {
 
 			GenotypingProject project = mongoTemplate.findOne(new Query(Criteria.where(GenotypingProject.FIELDNAME_NAME).is(sProject)), GenotypingProject.class);
 
+			lockProjectForWriting(sModule, sProject);
+			
 			cleanupBeforeImport(mongoTemplate, sModule, project, importMode, sRun);
 
 			Integer createdProject = null;
@@ -255,8 +259,12 @@ public class BrapiImport extends AbstractGenotypeImport {
 						continue;	// we already have this one
 
 					VariantData variant = new VariantData((ObjectId.isValid(bmp.getMarkerDbId()) ? "_" : "") + bmp.getMarkerDbId());	// prevent use of ObjectId class
-					long startSite = (long) Double.parseDouble(bmp.getLocation());
-					variant.setReferencePosition(new ReferencePosition(bmp.getLinkageGroupName(), startSite));
+					try {
+					    variant.setReferencePosition(new ReferencePosition(bmp.getLinkageGroupName(), (long) Double.parseDouble(bmp.getLocation())));
+					}
+					catch (NumberFormatException nfe) {
+					    LOG.info("No location for marker " + bmp.getMarkerDbId());
+					}
 					variantsToCreate.put(bmp.getMarkerDbId(), variant);
 				}
 
@@ -335,6 +343,7 @@ public class BrapiImport extends AbstractGenotypeImport {
 					}
 					try
 					{
+					    LOG.info("Inserting " + variantsToCreate.size() + " variants from BrAPI source");
 						mongoTemplate.insertAll(variantsToCreate.values());
 					}
 					catch (DuplicateKeyException dke)
@@ -409,11 +418,11 @@ public class BrapiImport extends AbstractGenotypeImport {
 				body.put("sepUnphased", unphasedGenotypeSeparator);
 				body.put("pageSize", Integer.parseInt(genotypePager.getPageSize()));
 				body.put("page", Integer.parseInt(genotypePager.getPage()));
-				Response<BrapiBaseResource<BrapiAlleleMatrix>> response = service.getAlleleMatrix_byPost(body).execute();
-				if (!response.isSuccessful())
-					throw new Exception(new String(response.errorBody().bytes()));
+				Response<BrapiBaseResource<BrapiAlleleMatrix>> alleleMatrixResponse = service.getAlleleMatrix_byPost(body).execute();
+				if (!alleleMatrixResponse.isSuccessful())
+					throw new Exception(new String(alleleMatrixResponse.errorBody().bytes()));
 				
-				BrapiBaseResource<BrapiAlleleMatrix> br = response.body();
+				BrapiBaseResource<BrapiAlleleMatrix> br = alleleMatrixResponse.body();
 				List<Status> statusList = br.getMetadata().getStatus();
 				String extractId = statusList != null && statusList.size() > 0 && statusList.get(0).getCode().equals("asynchid") ? statusList.get(0).getMessage() : null;
 				
@@ -422,7 +431,13 @@ public class BrapiImport extends AbstractGenotypeImport {
 					Call<BrapiBaseResource<Object>> statusCall = service.getAlleleMatrixStatus(extractId);
 
 					// Make an initial call to check the status on the resource
-					BrapiBaseResource<Object> statusPoll = statusCall.execute().body();
+					Response<BrapiBaseResource<Object>> statusResponse = statusCall.execute();
+					if (HttpServletResponse.SC_OK != statusResponse.code()) {
+                        progress.setError("Wrong http code checking for allele-matrix status: " + statusResponse.code());
+                        return null;
+					}
+					    
+					BrapiBaseResource<Object> statusPoll = statusResponse.body();
 					Status status = AsyncChecker.checkAsyncStatus(statusPoll.getMetadata().getStatus());
 
 					// Keep checking until the async call returns anything else than "INPROCESS"
@@ -617,6 +632,8 @@ public class BrapiImport extends AbstractGenotypeImport {
 			}
 			if (ctx != null)
 				ctx.close();
+			
+			unlockProjectForWriting(sModule, sProject);
 		}
 	}
 	

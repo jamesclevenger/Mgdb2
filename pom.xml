@@ -3,7 +3,7 @@
     <modelVersion>4.0.0</modelVersion>
     
     <properties>
-	    <project.version>2.4.1-RELEASE</project.version>
+	    <project.version>2.5-alpha</project.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.compiler.source>1.8</maven.compiler.source>
@@ -160,6 +160,12 @@
             <artifactId>commons-lang</artifactId>
             <version>2.6</version>
         </dependency>
+        
+		<dependency>
+		  <groupId>commons-io</groupId>
+		  <artifactId>commons-io</artifactId>
+		  <version>2.11.0</version>
+		</dependency>
 
         <dependency>
             <groupId>org.apache.commons</groupId>
