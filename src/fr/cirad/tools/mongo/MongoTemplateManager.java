@@ -35,9 +35,9 @@ import java.util.Properties;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
+import java.util.stream.Collectors;
 
 import org.apache.log4j.Logger;
-import org.bson.Document;
 import org.springframework.beans.BeansException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationContext;
@@ -52,7 +52,6 @@ import org.springframework.stereotype.Component;
 import com.mongodb.BasicDBObject;
 import com.mongodb.ServerAddress;
 import com.mongodb.client.MongoClient;
-import com.mongodb.client.MongoCollection;
 import com.mongodb.connection.ClusterDescription;
 import com.mongodb.connection.ServerDescription;
 
@@ -151,14 +150,17 @@ public class MongoTemplateManager implements ApplicationContextAware {
         for (String sModule : templateMap.keySet()) {
         	List<ServerDescription> serverDescriptions = mongoClients.get(getModuleHost(sModule)).getClusterDescription().getServerDescriptions();
             MongoTemplate mongoTemplate = templateMap.get(sModule);
-            if (authorizedCleanupServers == null || (serverDescriptions.size() == 1 && authorizedCleanupServers.contains(serverDescriptions.get(0).getAddress().toString()))) {
-                for (String collName : mongoTemplate.getCollectionNames()) {
-                    if (collName.startsWith(TEMP_COLL_PREFIX)) {
-                        mongoTemplate.dropCollection(collName);
-                        LOG.debug("Dropped collection " + collName + " in module " + sModule);
+            if (authorizedCleanupServers == null || (serverDescriptions.size() == 1 && authorizedCleanupServers.contains(serverDescriptions.get(0).getAddress().toString()))) 
+                new Thread() {
+                    public void run() {
+                        for (String collName : mongoTemplate.getCollectionNames()) {
+                            if (collName.startsWith(TEMP_COLL_PREFIX)) {
+                                mongoTemplate.dropCollection(collName);
+                                LOG.debug("Dropped collection " + collName + " in module " + sModule);
+                            }
+                        }
                     }
-                }
-            }
+                }.start();
         }
     }
 
@@ -498,18 +500,21 @@ public class MongoTemplateManager implements ApplicationContextAware {
         return publicDatabases;
     }
 
-    static public void dropAllTempColls(String token) {
-    	if (token == null)
-    		return;
+    static public void dropAllTempColls(Collection<String> tokens) {
+    	List<String> tempCollNames = tokens.stream().filter(token -> token != null && !tokens.isEmpty()).map(token -> MongoTemplateManager.TEMP_COLL_PREFIX + Helper.convertToMD5(token)).collect(Collectors.toList());
+        if (tokens.isEmpty())
+            return;
     	
-        MongoCollection<Document> tmpColl;
-        String tempCollName = MongoTemplateManager.TEMP_COLL_PREFIX + Helper.convertToMD5(token);
-        for (String module : MongoTemplateManager.getTemplateMap().keySet()) {
-            // drop all temp collections associated to this token
-            tmpColl = templateMap.get(module).getCollection(tempCollName);
-//            LOG.debug("Dropping " + module + "." + tempCollName + " from dropAllTempColls");
-            tmpColl.drop();
-        }
+        new Thread() {
+            public void run() {
+                for (String module : MongoTemplateManager.getTemplateMap().keySet()) {
+                    for (String tempCollName : tempCollNames) { // drop all temp collections associated to this token in this module
+                        templateMap.get(module).getCollection(tempCollName).drop();
+                        LOG.debug("Dropped " + module + "." + tempCollName + " from dropAllTempColls");
+                    }
+                }
+            }
+        }.start();
     }
 
     /**
