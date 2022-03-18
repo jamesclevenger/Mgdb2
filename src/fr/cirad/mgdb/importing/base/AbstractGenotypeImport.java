@@ -63,8 +63,8 @@ public class AbstractGenotypeImport {
 
 	private boolean m_fAllowDbDropIfNoGenotypingData = true;
 
-	/** Map that associates modules to projects currently undergoing a write operation, thus rendering them unavailable for other write operations
-	 * A null value in the set indicates the whole module is locked
+	/** Map that associates modules to projects currently undergoing a write operation, thus making them unavailable for other write operations
+	 *  A null value in the set indicates the whole module is locked (i.e., a dump is being generated or restored)
 	 */
 	private static HashMap<String /*module*/, Set<String> /*projects*/> currentlyImportedProjects = new HashMap<String, Set<String>>();
 
