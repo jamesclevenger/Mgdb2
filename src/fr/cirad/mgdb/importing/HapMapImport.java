@@ -434,7 +434,7 @@ public class HapMapImport extends AbstractGenotypeImport {
 		
 		// take into account ref and alt alleles (if it's not too late)
 		if (variantToFeed.getKnownAlleles().size() == 0)
-			variantToFeed.setKnownAlleles(Arrays.stream(hmFeature.getAlleles()).collect(Collectors.toCollection(LinkedHashSet::new)));
+			variantToFeed.setKnownAlleles(Arrays.stream(hmFeature.getAlleles()).collect(Collectors.toList()));
 
 		VariantRunData vrd = new VariantRunData(new VariantRunData.VariantRunDataId(project.getId(), runName, variantToFeed.getId()));
 		

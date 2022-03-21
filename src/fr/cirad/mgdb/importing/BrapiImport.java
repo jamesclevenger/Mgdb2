@@ -329,7 +329,7 @@ public class BrapiImport extends AbstractGenotypeImport {
 							if (fGotKnownAllelesWhenImportingVariants == null)
 								fGotKnownAllelesWhenImportingVariants = marker.getRefAlt() != null && marker.getRefAlt().size() > 0;
 							if (fGotKnownAllelesWhenImportingVariants)
-								variant.setKnownAlleles(new LinkedHashSet(marker.getRefAlt()));
+								variant.setKnownAlleles(marker.getRefAlt());
 							
 							// update list of existing variants (FIXME: this should be a separate method in AbstractGenotypeImport) 
 							ArrayList<String> idAndSynonyms = new ArrayList<>();
@@ -826,7 +826,7 @@ public class BrapiImport extends AbstractGenotypeImport {
 									variant.getKnownAlleles().add(alleles[indexToUse]);	// it's the first time we encounter this alternate allele for this variant
 									fNewAllelesEncountered = true;
 								}
-								alleleIndexList.add(variant.getKnownAlleleList().indexOf(alleles[indexToUse]));
+								alleleIndexList.add(variant.getKnownAlleles().indexOf(alleles[indexToUse]));
 							}
 					}
 					Collections.sort(alleleIndexList);
@@ -846,7 +846,7 @@ public class BrapiImport extends AbstractGenotypeImport {
 				update.set(VariantData.FIELDNAME_KNOWN_ALLELES, variant.getKnownAlleles());
 			if (variant.getType() == null && update != null)
 			{	// no variant type was explicitly specified, so try and determine it
-				variant.setType(VariantData.determinePolymorphicType(variant.getKnownAlleleList()).toString());
+				variant.setType(VariantData.determinePolymorphicType(variant.getKnownAlleles()).toString());
 				update.set(VariantData.FIELDNAME_TYPE, variant.getType());
 				project.getVariantTypes().add(variant.getType());
 			}

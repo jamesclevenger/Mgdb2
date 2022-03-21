@@ -32,7 +32,7 @@ import java.util.TreeSet;
 import java.util.stream.Collectors;
 
 import org.bson.codecs.pojo.annotations.BsonProperty;
-import org.springframework.data.annotation.Transient;
+//import org.springframework.data.annotation.Transient;
 import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.mapping.Field;
 
@@ -40,6 +40,7 @@ import fr.cirad.mgdb.model.mongo.maintypes.GenotypingSample;
 import fr.cirad.mgdb.model.mongo.maintypes.VariantData;
 import fr.cirad.mgdb.model.mongo.maintypes.VariantRunData;
 import fr.cirad.tools.Helper;
+import fr.cirad.tools.SetUniqueListWithConstructor;
 import htsjdk.variant.variantcontext.Allele;
 import htsjdk.variant.variantcontext.Genotype;
 import htsjdk.variant.variantcontext.GenotypeBuilder;
@@ -143,10 +144,7 @@ abstract public class AbstractVariantData
     /** The known alleles. */
     @BsonProperty(FIELDNAME_KNOWN_ALLELES)
     @Field(FIELDNAME_KNOWN_ALLELES)
-    protected LinkedHashSet<String> knownAlleles;
-    
-    @Transient
-    protected List<String> knownAlleleList = null;
+    protected SetUniqueListWithConstructor<String> knownAlleles;
 
     /** The additional info. */
     @BsonProperty(SECTION_ADDITIONAL_INFO)
@@ -436,21 +434,10 @@ abstract public class AbstractVariantData
      *
      * @return the known alleles
      */
-    public LinkedHashSet<String> getKnownAlleles() {
+    public SetUniqueListWithConstructor<String> getKnownAlleles() {
         if (knownAlleles == null)
-            knownAlleles = new LinkedHashSet<String>();
+            knownAlleles = new SetUniqueListWithConstructor<String>();
         return knownAlleles;
-    }
-
-    /**
-     * Gets the known allele list.
-     *
-     * @return the known allele list
-     */
-    public List<String> getKnownAlleleList() {
-        if (knownAlleleList == null)
-            knownAlleleList = new ArrayList<String>(getKnownAlleles());
-        return knownAlleleList;
     }
 
     /**
@@ -458,8 +445,8 @@ abstract public class AbstractVariantData
      *
      * @param knownAlleles the new known allele list
      */
-    public void setKnownAlleles(LinkedHashSet<String> knownAlleles) {
-        this.knownAlleles = knownAlleles;
+    public void setKnownAlleles(List<String> knownAlleles) {
+        this.knownAlleles = new SetUniqueListWithConstructor(knownAlleles);
         for (String allele : this.knownAlleles)
             allele.intern();
     }
@@ -516,13 +503,13 @@ abstract public class AbstractVariantData
     public List<String> safelyGetAllelesFromGenotypeCode(String code, MongoTemplate mongoTemplate) throws NoSuchElementException
     {
         try {
-            return staticGetAllelesFromGenotypeCode(getKnownAlleleList(), code);
+            return staticGetAllelesFromGenotypeCode(getKnownAlleles(), code);
         }
         catch (NoSuchElementException e1) {
             setKnownAlleles(mongoTemplate.findById(getVariantId(), VariantData.class).getKnownAlleles());
             mongoTemplate.save(this);
             try {
-                return staticGetAllelesFromGenotypeCode(getKnownAlleleList(), code);
+                return staticGetAllelesFromGenotypeCode(getKnownAlleles(), code);
             }
             catch (NoSuchElementException e2) {
                 throw new NoSuchElementException("Variant " + this + " - " + e2.getMessage());
@@ -541,7 +528,7 @@ abstract public class AbstractVariantData
     {
         try
         {
-            return staticGetAllelesFromGenotypeCode(getKnownAlleleList(), code);
+            return staticGetAllelesFromGenotypeCode(getKnownAlleles(), code);
         }
         catch (NoSuchElementException e)
         {
@@ -716,8 +703,8 @@ abstract public class AbstractVariantData
                             int[] adArray = Helper.csvToIntArray(ad);
                             if (knownAlleles.size() > adArray.length)
                             {
-                                alleleListAtImportTimeIfDifferentFromNow = getKnownAlleleList().subList(0, adArray.length);
-                                adArray = VariantData.fixAdFieldValue(adArray, alleleListAtImportTimeIfDifferentFromNow, getKnownAlleleList());
+                                alleleListAtImportTimeIfDifferentFromNow = getKnownAlleles().subList(0, adArray.length);
+                                adArray = VariantData.fixAdFieldValue(adArray, alleleListAtImportTimeIfDifferentFromNow, getKnownAlleles());
                             }
                             gb.AD(adArray);
                         }
@@ -740,7 +727,7 @@ abstract public class AbstractVariantData
                         {
                             int[] plArray = VCFConstants.GENOTYPE_PL_KEY.equals(key) ? Helper.csvToIntArray(fieldVal) : GenotypeLikelihoods.fromGLField(fieldVal).getAsPLs();
                             if (alleleListAtImportTimeIfDifferentFromNow != null)
-                                plArray = VariantData.fixPlFieldValue(plArray, individualAlleles.size(), alleleListAtImportTimeIfDifferentFromNow, getKnownAlleleList());
+                                plArray = VariantData.fixPlFieldValue(plArray, individualAlleles.size(), alleleListAtImportTimeIfDifferentFromNow, getKnownAlleles());
                             gb.PL(plArray);
                         }
                     }

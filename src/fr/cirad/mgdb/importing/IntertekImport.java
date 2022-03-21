@@ -252,8 +252,8 @@ public class IntertekImport extends AbstractGenotypeImport {
                                 variant.setType(Type.SNP.toString());                                                               
                             }                            
                             variantsToSave.add(variant);
-                            variantAllelesMap.put(variantId, variant.getKnownAlleleList());
-                            project.getAlleleCounts().add(variant.getKnownAlleleList().size());
+                            variantAllelesMap.put(variantId, variant.getKnownAlleles());
+                            project.getAlleleCounts().add(variant.getKnownAlleles().size());
                         }
 
                         if (Arrays.asList(values).containsAll(Arrays.asList(dataHeader))) {

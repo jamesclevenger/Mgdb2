@@ -471,7 +471,7 @@ public class VcfImport extends AbstractGenotypeImport {
         for (String vcAllele : allelesInVC)
             if (!knownAlleleList.contains(vcAllele))
                 knownAlleleList.add(vcAllele);
-        variantToFeed.setKnownAlleles(new LinkedHashSet(knownAlleleList));
+        variantToFeed.setKnownAlleles(knownAlleleList);
 
         if (variantToFeed.getReferencePosition() == null) // otherwise we leave it as it is (had some trouble with overridden end-sites)
             variantToFeed.setReferencePosition(new ReferencePosition(vc.getContig(), vc.getStart(), (long) vc.getEnd()));
