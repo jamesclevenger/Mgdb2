@@ -143,7 +143,7 @@ public class BrapiImport extends AbstractGenotypeImport {
 		{
 			LOG.warn("Unable to parse input mode. Using default (0): overwrite run if exists.");
 		}
-		new BrapiImport().importToMongo(args[0], args[1], args[2], args[3], args[4], args[5], args[6], mode);
+		new BrapiImport().importToMongo(args[0], args[1], args[2], args[3], args[4], args[5], args[6], null, mode);
 	}
 
 	/**
@@ -154,11 +154,14 @@ public class BrapiImport extends AbstractGenotypeImport {
 	 * @param sRun the run
 	 * @param sTechnology the technology
 	 * @param endpoint URL
+	 * @param studyDbId BrAPI study id
+	 * @param mapDbId BrAPI map id
+	 * @param brapiToken BrAPI token
 	 * @param importMode the import mode
 	 * @return a project ID if it was created by this method, otherwise null
 	 * @throws Exception the exception
 	 */
-	public Integer importToMongo(String sModule, String sProject, String sRun, String sTechnology, String endpointUrl, String studyDbId, String mapDbId, int importMode) throws Exception
+	public Integer importToMongo(String sModule, String sProject, String sRun, String sTechnology, String endpointUrl, String studyDbId, String mapDbId, String brapiToken, int importMode) throws Exception
 	{
 		long before = System.currentTimeMillis();
 		final ProgressIndicator progress = ProgressIndicator.get(m_processID) != null ? ProgressIndicator.get(m_processID) : new ProgressIndicator(m_processID, new String[]{"Initializing import"});	// better to add it straight-away so the JSP doesn't get null in return when it checks for it (otherwise it will assume the process has ended)
@@ -188,7 +191,7 @@ public class BrapiImport extends AbstractGenotypeImport {
 			}
 
 			BrapiClient client = new BrapiClient();	
-			client.initService(endpointUrl, null);
+			client.initService(endpointUrl, brapiToken);
 			client.getCalls();
 			client.ensureGenotypesCanBeImported();
 			final BrapiService service = client.getService();
@@ -420,7 +423,7 @@ public class BrapiImport extends AbstractGenotypeImport {
 				body.put("page", Integer.parseInt(genotypePager.getPage()));
 				Response<BrapiBaseResource<BrapiAlleleMatrix>> alleleMatrixResponse = service.getAlleleMatrix_byPost(body).execute();
 				if (!alleleMatrixResponse.isSuccessful())
-					throw new Exception(new String(alleleMatrixResponse.errorBody().bytes()));
+					throw new Exception("Error invoking allelematrix-search (response code " + alleleMatrixResponse.code() + ") " + new String(alleleMatrixResponse.errorBody().bytes()));
 				
 				BrapiBaseResource<BrapiAlleleMatrix> br = alleleMatrixResponse.body();
 				List<Status> statusList = br.getMetadata().getStatus();
