@@ -32,7 +32,6 @@ import java.util.TreeSet;
 import java.util.stream.Collectors;
 
 import org.bson.codecs.pojo.annotations.BsonProperty;
-//import org.springframework.data.annotation.Transient;
 import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.mapping.Field;
 
@@ -548,6 +547,9 @@ abstract public class AbstractVariantData
      */
     public static String rebuildVcfFormatGenotype(Map<String, Integer> knownAlleleStringToIndexMap, List<String> genotypeAlleles, boolean fPhased, boolean keepCurrentPhasingInfo) throws Exception
     {
+    	if (genotypeAlleles.contains("."))
+    		return null;
+
         StringBuilder result = new StringBuilder();
         String separator = keepCurrentPhasingInfo && fPhased ? "|" : "/";
         for (String gtA : genotypeAlleles) {
