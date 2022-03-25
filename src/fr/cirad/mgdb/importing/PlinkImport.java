@@ -210,7 +210,7 @@ public class PlinkImport extends AbstractGenotypeImport {
             if (importMode == 0 && project != null && project.getPloidyLevel() != 2)
                 throw new Exception("Ploidy levels differ between existing (" + project.getPloidyLevel() + ") and provided (" + 2 + ") data!");
 
-            lockProjectForWriting(sModule, sProject);
+            MongoTemplateManager.lockProjectForWriting(sModule, sProject);
 
             cleanupBeforeImport(mongoTemplate, sModule, project, importMode, sRun);
 
@@ -283,7 +283,7 @@ public class PlinkImport extends AbstractGenotypeImport {
         {
             if (m_fCloseContextOpenAfterImport && ctx != null)
                 ctx.close();
-            unlockProjectForWriting(sModule, sProject);
+            MongoTemplateManager.unlockProjectForWriting(sModule, sProject);
         }
     }
 

@@ -22,7 +22,6 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Iterator;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -42,8 +41,6 @@ import org.springframework.context.support.GenericXmlApplicationContext;
 import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.query.Criteria;
 import org.springframework.data.mongodb.core.query.Query;
-
-import com.mongodb.BasicDBObject;
 
 import fr.cirad.mgdb.importing.base.AbstractGenotypeImport;
 import fr.cirad.mgdb.model.mongo.maintypes.AutoIncrementCounter;
@@ -223,7 +220,7 @@ public class VcfImport extends AbstractGenotypeImport {
             if (importMode == 0 && project != null && project.getPloidyLevel() != nPloidy)
                 throw new Exception("Ploidy levels differ between existing (" + project.getPloidyLevel() + ") and provided (" + nPloidy + ") data!");
 
-            lockProjectForWriting(sModule, sProject);
+            MongoTemplateManager.lockProjectForWriting(sModule, sProject);
 
             cleanupBeforeImport(mongoTemplate, sModule, project, importMode, sRun);
 
@@ -432,7 +429,7 @@ public class VcfImport extends AbstractGenotypeImport {
                 ctx.close();
 
             reader.close();
-            unlockProjectForWriting(sModule, sProject);
+            MongoTemplateManager.unlockProjectForWriting(sModule, sProject);
         }
     }
 

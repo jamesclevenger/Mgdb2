@@ -137,7 +137,7 @@ public class STDVariantImport extends AbstractGenotypeImport {
             
 			fImportUnknownVariants = doesDatabaseSupportImportingUnknownVariants(sModule);
 			
-			lockProjectForWriting(sModule, sProject);
+			MongoTemplateManager.lockProjectForWriting(sModule, sProject);
 			
 			cleanupBeforeImport(mongoTemplate, sModule, project, importMode, sRun);
 			
@@ -292,7 +292,7 @@ public class STDVariantImport extends AbstractGenotypeImport {
 			if (ctx != null)
 				ctx.close();
 			
-			unlockProjectForWriting(sModule, sProject);
+			MongoTemplateManager.unlockProjectForWriting(sModule, sProject);
 		}
 	}
 	

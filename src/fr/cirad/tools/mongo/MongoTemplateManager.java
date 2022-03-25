@@ -28,6 +28,7 @@ import java.util.Collection;
 import java.util.Date;
 import java.util.Enumeration;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.MissingResourceException;
@@ -139,6 +140,11 @@ public class MongoTemplateManager implements ApplicationContextAware {
     @Autowired private AppConfig appConfig;
     
     private static final List<String> addressesConsideredLocal = Arrays.asList("127.0.0.1", "localhost");
+    
+	/** Map that associates modules to projects currently undergoing a write operation, thus making them unavailable for other write operations
+	 *  A null value in the set indicates the whole module is locked (i.e., a dump is being generated or restored)
+	 */
+	private static HashMap<String /*module*/, Set<String> /*projects*/> currentlyImportedProjects = new HashMap<String, Set<String>>();
 
     @Override
     public void setApplicationContext(ApplicationContext ac) throws BeansException {
@@ -612,7 +618,7 @@ public class MongoTemplateManager implements ApplicationContextAware {
 		String taxonName = splitTaxonDetails[1].isEmpty() && splitTaxonDetails.length > 2 ? splitTaxonDetails[2] : splitTaxonDetails[1];
 		return "".equals(taxonName) ? null : taxonName;
 	}
-	
+
 	public static String getSpecies(String database) {
 		String taxon = taxonMap.get(database);
 		if (taxon == null)
@@ -666,6 +672,48 @@ public class MongoTemplateManager implements ApplicationContextAware {
     	return dataSource.split(",")[1];
     }
     
+	public static boolean isModuleAvailableForWriting(String sModule) {
+		Set<String> projects = currentlyImportedProjects.get(sModule);
+		if (projects != null) {
+			return projects.size() == 0;
+		} else {
+			return true;
+		}
+	}
+
+	public static void lockProjectForWriting(String sModule, String sProject) {
+		Set<String> projects = currentlyImportedProjects.get(sModule);
+		if (projects != null) {
+			projects.add(sProject);
+		} else {
+			projects = new HashSet<String>();
+			projects.add(sProject);
+			currentlyImportedProjects.put(sModule, projects);
+		}
+	}
+
+	public static void unlockProjectForWriting(String sModule, String sProject) {
+		currentlyImportedProjects.get(sModule).remove(sProject);
+	}
+
+	public static void lockModuleForWriting(String sModule) {
+		Set<String> projects = currentlyImportedProjects.get(sModule);
+		if (projects != null) {
+			projects.add(null);
+		} else {
+			projects = new HashSet<String>();
+			projects.add(null);
+			currentlyImportedProjects.put(sModule, projects);
+		}
+	}
+
+	public static void unlockModuleForWriting(String sModule) {
+		Set<String> projects = currentlyImportedProjects.get(sModule);
+		if (projects != null) {
+			projects.clear();
+		}
+	}
+	
     public static void updateDatabaseLastModification(String sModule) {
     	MongoTemplateManager.updateDatabaseLastModification(sModule, new Date(), false);
     }

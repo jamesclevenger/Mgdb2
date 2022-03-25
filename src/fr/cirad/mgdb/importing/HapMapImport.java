@@ -203,7 +203,7 @@ public class HapMapImport extends AbstractGenotypeImport {
             if (importMode == 0 && project != null && nPloidy != null && project.getPloidyLevel() != nPloidy)
             	throw new Exception("Ploidy levels differ between existing (" + project.getPloidyLevel() + ") and provided (" + nPloidy + ") data!");
 
-            lockProjectForWriting(sModule, sProject);
+            MongoTemplateManager.lockProjectForWriting(sModule, sProject);
             
             cleanupBeforeImport(mongoTemplate, sModule, project, importMode, sRun);
 
@@ -401,7 +401,7 @@ public class HapMapImport extends AbstractGenotypeImport {
 
 			reader.close();
 			
-			unlockProjectForWriting(sModule, sProject);
+			MongoTemplateManager.unlockProjectForWriting(sModule, sProject);
 		}
 	}
 

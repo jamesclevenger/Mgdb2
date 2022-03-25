@@ -199,7 +199,7 @@ public class IntertekImport extends AbstractGenotypeImport {
             HashMap<String /*individual ID*/, GenotypingSample> samples = new HashMap<>();
 
             GenotypingProject project = mongoTemplate.findOne(new Query(Criteria.where(GenotypingProject.FIELDNAME_NAME).is(sProject)), GenotypingProject.class);
-            lockProjectForWriting(sModule, sProject);
+            MongoTemplateManager.lockProjectForWriting(sModule, sProject);
             cleanupBeforeImport(mongoTemplate, sModule, project, importMode, sRun);
 
             Integer createdProject = null;
@@ -395,7 +395,7 @@ public class IntertekImport extends AbstractGenotypeImport {
         } finally {
             if (m_fCloseContextOpenAfterImport && ctx != null)
                 ctx.close();
-            unlockProjectForWriting(sModule, sProject);
+            MongoTemplateManager.unlockProjectForWriting(sModule, sProject);
         }
     }
 }

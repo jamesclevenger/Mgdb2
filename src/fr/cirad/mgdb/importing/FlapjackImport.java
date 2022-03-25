@@ -200,7 +200,7 @@ public class FlapjackImport extends AbstractGenotypeImport {
 
             GenotypingProject project = mongoTemplate.findOne(new Query(Criteria.where(GenotypingProject.FIELDNAME_NAME).is(sProject)), GenotypingProject.class);
 
-            lockProjectForWriting(sModule, sProject);
+            MongoTemplateManager.lockProjectForWriting(sModule, sProject);
             cleanupBeforeImport(mongoTemplate, sModule, project, importMode, sRun);
 
             Integer createdProject = null;
@@ -273,7 +273,7 @@ public class FlapjackImport extends AbstractGenotypeImport {
         {
             if (m_fCloseContextOpenAfterImport && ctx != null)
                 ctx.close();
-            unlockProjectForWriting(sModule, sProject);
+            MongoTemplateManager.unlockProjectForWriting(sModule, sProject);
         }
     }
 
