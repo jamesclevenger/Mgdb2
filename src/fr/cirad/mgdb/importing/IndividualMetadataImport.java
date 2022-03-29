@@ -60,6 +60,7 @@ import jhi.brapi.api.BrapiBaseResource;
 import jhi.brapi.api.BrapiListResource;
 import jhi.brapi.api.germplasm.BrapiGermplasm;
 import jhi.brapi.api.germplasm.BrapiGermplasmAttributes;
+import jhi.brapi.api.germplasm.BrapiGermplasmAttributes.Attribute;
 import jhi.brapi.api.samples.BrapiSample;
 import jhi.brapi.api.search.BrapiSearchResult;
 import org.brapi.v2.model.Germplasm;
@@ -792,6 +793,7 @@ public class IndividualMetadataImport {
 
             BrapiV2Client.Pager attributesPager = new BrapiV2Client.Pager();
             while (attributesPager.isPaging()) {
+                String res = resultResp.getSearchResultsDbId();
                 GermplasmAttributeValueListResponse attributesResp = service.searchAttributesResult(resultResp.getSearchResultsDbId(), attributesPager.getPageSize(), attributesPager.getPage()).execute().body();
                 attributesList.addAll(attributesResp.getResult().getData());
                 attributesPager.paginate(attributesResp.getMetadata());
@@ -838,7 +840,7 @@ public class IndividualMetadataImport {
             for (Germplasm germplasm : germplasmList) {
                 Map<String, Object> aiMap = mapper.convertValue(germplasm, Map.class);
                 if (attributesMap.get(germplasm.getGermplasmDbId()) != null && !attributesMap.get(germplasm.getGermplasmDbId()).isEmpty()) {
-                    attributesMap.get(germplasm.getGermplasmDbId()).forEach(k -> aiMap.put(k.getAttributeDbId(), k.getValue()));
+                    attributesMap.get(germplasm.getGermplasmDbId()).forEach(k -> aiMap.put(!StringUtils.isBlank(k.getAttributeName()) ? k.getAttributeName():  k.getAttributeDbId(), k.getValue()));
                 }
 
                 germplasmMap.put(germplasm.getGermplasmDbId(), aiMap);
@@ -893,7 +895,7 @@ public class IndividualMetadataImport {
                 if (response.code() != 404) {
                     handleErrorCode(response.code());
                     BrapiBaseResource<BrapiGermplasmAttributes> moreAttributes = response.body();
-                    moreAttributes.getResult().getData().forEach(k -> aiMap.put(k.getAttributeDbId(), k.getValue()));
+                    moreAttributes.getResult().getData().forEach(k -> aiMap.put(!StringUtils.isBlank(k.getAttributeName()) ? k.getAttributeName() :  k.getAttributeDbId(), k.getValue()));
                 }
             }
             germplasmMap.put(germplasm.getGermplasmDbId(), aiMap);
