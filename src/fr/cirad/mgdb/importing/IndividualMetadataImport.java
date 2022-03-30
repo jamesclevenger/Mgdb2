@@ -18,6 +18,7 @@
 package fr.cirad.mgdb.importing;
 
 import java.io.File;
+import java.io.IOException;
 import java.net.URL;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -26,6 +27,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Scanner;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 import javax.servlet.http.HttpSession;
@@ -33,6 +35,14 @@ import javax.servlet.http.HttpSession;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang.StringUtils;
 import org.apache.log4j.Logger;
+import org.brapi.v2.model.Germplasm;
+import org.brapi.v2.model.GermplasmAttributeValue;
+import org.brapi.v2.model.GermplasmAttributeValueListResponse;
+import org.brapi.v2.model.GermplasmListResponse;
+import org.brapi.v2.model.Sample;
+import org.brapi.v2.model.SampleListResponse;
+import org.brapi.v2.model.SuccessfulSearchResponse;
+import org.brapi.v2.model.SuccessfulSearchResponseResult;
 import org.springframework.context.support.GenericXmlApplicationContext;
 import org.springframework.data.mongodb.core.BulkOperations;
 import org.springframework.data.mongodb.core.MongoTemplate;
@@ -54,24 +64,12 @@ import fr.cirad.mgdb.model.mongo.maintypes.Individual;
 import fr.cirad.tools.Helper;
 import fr.cirad.tools.ProgressIndicator;
 import fr.cirad.tools.mongo.MongoTemplateManager;
-import java.io.IOException;
-import java.util.Set;
 import jhi.brapi.api.BrapiBaseResource;
 import jhi.brapi.api.BrapiListResource;
 import jhi.brapi.api.germplasm.BrapiGermplasm;
 import jhi.brapi.api.germplasm.BrapiGermplasmAttributes;
-import jhi.brapi.api.germplasm.BrapiGermplasmAttributes.Attribute;
 import jhi.brapi.api.samples.BrapiSample;
 import jhi.brapi.api.search.BrapiSearchResult;
-import org.brapi.v2.model.Germplasm;
-import org.brapi.v2.model.GermplasmAttributeValue;
-import org.brapi.v2.model.GermplasmAttributeValueListResponse;
-import org.brapi.v2.model.GermplasmListResponse;
-import org.brapi.v2.model.Sample;
-import org.brapi.v2.model.SampleListResponse;
-import org.brapi.v2.model.SuccessfulSearchResponse;
-import org.brapi.v2.model.SuccessfulSearchResponseResult;
-
 import retrofit2.Response;
 
 /**
@@ -793,7 +791,6 @@ public class IndividualMetadataImport {
 
             BrapiV2Client.Pager attributesPager = new BrapiV2Client.Pager();
             while (attributesPager.isPaging()) {
-                String res = resultResp.getSearchResultsDbId();
                 GermplasmAttributeValueListResponse attributesResp = service.searchAttributesResult(resultResp.getSearchResultsDbId(), attributesPager.getPageSize(), attributesPager.getPage()).execute().body();
                 attributesList.addAll(attributesResp.getResult().getData());
                 attributesPager.paginate(attributesResp.getMetadata());
