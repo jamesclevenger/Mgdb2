@@ -308,7 +308,7 @@ public class VcfImport extends AbstractGenotypeImport {
                 }
 
                 int sampleId = AutoIncrementCounter.getNextSequence(mongoTemplate, MongoTemplateManager.getMongoCollectionName(GenotypingSample.class));
-                individualToSampleMap.put(sIndOrSpId, new GenotypingSample(sampleId, project.getId(), sRun, sIndividual, sampleToIndividualMap == null ? null : sIndOrSpId));   // add a sample for this individual to the project
+                individualToSampleMap.put(sIndividual, new GenotypingSample(sampleId, project.getId(), sRun, sIndividual, sampleToIndividualMap == null ? null : sIndOrSpId));   // add a sample for this individual to the project
             }
             if (!indsToAdd.isEmpty()) {
                 mongoTemplate.insert(indsToAdd, Individual.class);
