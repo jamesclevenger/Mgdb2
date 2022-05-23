@@ -17,13 +17,23 @@
  */
 package fr.cirad.mgdb.importing;
 
+import java.io.BufferedReader;
 import java.io.File;
+import java.io.InputStreamReader;
 import java.net.URL;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 
 import org.apache.log4j.Logger;
 import org.springframework.beans.factory.BeanDefinitionStoreException;
@@ -32,7 +42,6 @@ import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.query.Criteria;
 import org.springframework.data.mongodb.core.query.Query;
 
-import com.mongodb.BasicDBObject;
 import com.opencsv.CSVReader;
 
 import fr.cirad.mgdb.importing.base.AbstractGenotypeImport;
@@ -51,16 +60,6 @@ import htsjdk.variant.variantcontext.VariantContext.Type;
 import htsjdk.variant.vcf.VCFFormatHeaderLine;
 import htsjdk.variant.vcf.VCFHeader;
 import htsjdk.variant.vcf.VCFHeaderLineType;
-import java.io.BufferedReader;
-import java.io.InputStreamReader;
-import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
-import java.util.Set;
-import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.ThreadPoolExecutor;
-import java.util.concurrent.TimeUnit;
 
 /**
  * The Class IntertekImport.
@@ -130,11 +129,11 @@ public class IntertekImport extends AbstractGenotypeImport {
 
         int mode = 0;
         try {
-            mode = Integer.parseInt(args[6]);
+            mode = Integer.parseInt(args[5]);
         } catch (Exception e) {
             LOG.warn("Unable to parse input mode. Using default (0): overwrite run if exists.");
         }
-        new IntertekImport().importToMongo(args[0], args[1], args[2], args[3], new File(args[4]).toURI().toURL(), false, mode);
+        new IntertekImport().importToMongo(args[0], args[1], args[2], args[3], new File(args[4]).toURI().toURL(), null, false, mode);
     }
 
     /**
@@ -145,12 +144,13 @@ public class IntertekImport extends AbstractGenotypeImport {
      * @param sRun the run
      * @param sTechnology the technology
      * @param fileURL
+     * @param sampleToIndividualMap the sample-individual mapping
      * @param importMode the import mode
      * @param fSkipMonomorphic whether or not to skip import of variants that have no polymorphism (where all individuals have the same genotype)
      * @return a project ID if it was created by this method, otherwise null
      * @throws Exception the exception
      */
-    public Integer importToMongo(String sModule, String sProject, String sRun, String sTechnology, URL fileURL, boolean fSkipMonomorphic, int importMode) throws Exception {
+    public Integer importToMongo(String sModule, String sProject, String sRun, String sTechnology, URL fileURL, Map<String, String> sampleToIndividualMap, boolean fSkipMonomorphic, int importMode) throws Exception {
         long before = System.currentTimeMillis();
         ProgressIndicator progress = ProgressIndicator.get(m_processID) != null ? ProgressIndicator.get(m_processID) : new ProgressIndicator(m_processID, new String[]{"Initializing import"});	// better to add it straight-away so the JSP doesn't get null in return when it checks for it (otherwise it will assume the process has ended)
         progress.setPercentageEnabled(false);        

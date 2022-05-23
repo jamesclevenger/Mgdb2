@@ -61,13 +61,26 @@ public class GenotypingSample {
 	 * @param projectId the project id
 	 * @param run the run name
 	 * @param individual the individual
+	 * @param sampleName the sampleName
 	 */
-	public GenotypingSample(int sampleId, int projectId, String run, String individual) {
+	public GenotypingSample(int sampleId, int projectId, String run, String individual, String sampleName) {
 		this.id = sampleId;
 		this.projectId = projectId;
 		this.run = run;
 		this.individual = individual;
-		sampleName = getIndividual() + "-" + getProjectId() + "-" + getRun();
+		this.sampleName = sampleName != null ? sampleName : getIndividual() + "-" + getProjectId() + "-" + getRun();
+	}
+	
+	/**
+	 * Instantiates a new GenotypingSample.
+	 *
+	 * @param sampleId the sample id
+	 * @param projectId the project id
+	 * @param run the run name
+	 * @param individual the individual
+	 */
+	public GenotypingSample(int sampleId, int projectId, String run, String individual) {
+		this(sampleId, projectId, run, individual, null);
 	}
 
 	public Integer getProjectId() {

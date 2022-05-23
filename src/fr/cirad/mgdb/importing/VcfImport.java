@@ -134,7 +134,7 @@ public class VcfImport extends AbstractGenotypeImport {
      */
     public static void main(String[] args) throws Exception {
         if (args.length < 5) {
-            throw new Exception("You must pass 5 parameters as arguments: DATASOURCE name, PROJECT name, RUN name, TECHNOLOGY string, and VCF file! Two optionals parameters: 6th supports values '1' (empty project data before importing) and '2' (empty all variant data before importing, including marker list)");
+            throw new Exception("You must pass 5 parameters as arguments: DATASOURCE name, PROJECT name, RUN name, TECHNOLOGY string, and VCF file! An optional 6th parameter supports values '1' (empty project data before importing) and '2' (empty all variant data before importing, including marker list)");
         }
 
         File mainFile = new File(args[4]);
@@ -148,7 +148,7 @@ public class VcfImport extends AbstractGenotypeImport {
         } catch (Exception e) {
             LOG.warn("Unable to parse input mode. Using default (0): overwrite run if exists.");
         }
-        new VcfImport().importToMongo(args[4].toLowerCase().endsWith(".bcf"), args[0], args[1], args[2], args[3], new File(args[4]).toURI().toURL(), false, mode);
+        new VcfImport().importToMongo(args[4].toLowerCase().endsWith(".bcf"), args[0], args[1], args[2], args[3], new File(args[4]).toURI().toURL(), null, false, mode);
     }
 
     /**
@@ -160,12 +160,13 @@ public class VcfImport extends AbstractGenotypeImport {
      * @param sRun the run
      * @param sTechnology the technology
      * @param mainFileUrl the main file URL
+     * @param sampleToIndividualMap the sample-individual mapping
      * @param fSkipMonomorphic whether or not to skip import of variants that have no polymorphism (where all individuals have the same genotype)
      * @param importMode the import mode
      * @return a project ID if it was created by this method, otherwise null
      * @throws Exception the exception
      */
-    public Integer importToMongo(boolean fIsBCF, String sModule, String sProject, String sRun, String sTechnology, URL mainFileUrl, boolean fSkipMonomorphic, int importMode) throws Exception {
+    public Integer importToMongo(boolean fIsBCF, String sModule, String sProject, String sRun, String sTechnology, URL mainFileUrl, Map<String, String> sampleToIndividualMap, boolean fSkipMonomorphic, int importMode) throws Exception {
         long before = System.currentTimeMillis();
         ProgressIndicator progress = ProgressIndicator.get(m_processID) != null ? ProgressIndicator.get(m_processID) : new ProgressIndicator(m_processID, new String[]{"Initializing import"}); // better to add it straight-away so the JSP doesn't get null in return when it checks for it (otherwise it will assume the process has ended)
         progress.setPercentageEnabled(false);
@@ -179,7 +180,8 @@ public class VcfImport extends AbstractGenotypeImport {
             VCFCodec vc = new VCFCodec();
             reader = AbstractFeatureReader.getFeatureReader(mainFileUrl.toString(), vc, false);
         }
-        // not compatible java 1.8 ?
+        
+        // not compatible with java 1.8 ?
         // FeatureReader<VariantContext> reader = AbstractFeatureReader.getFeatureReader(mainFilePath, fIsBCF ? new BCF2Codec() : new VCFCodec(), false);
         GenericXmlApplicationContext ctx = null;
         try {
@@ -295,7 +297,8 @@ public class VcfImport extends AbstractGenotypeImport {
             HashMap<String /*individual*/, GenotypingSample> individualToSampleMap = new HashMap<String /*individual*/, GenotypingSample>();
             List<Individual> indsToAdd = new ArrayList<>();
             boolean fDbAlreadyContainedIndividuals = mongoTemplate.findOne(new Query(), Individual.class) != null, fDbAlreadyContainedVariants = mongoTemplate.findOne(new Query() {{ fields().include("_id"); }}, VariantData.class) != null;
-            for (String sIndividual : header.getSampleNamesInOrder()) {
+            for (String sIndOrSpId : header.getSampleNamesInOrder()) {
+            	String sIndividual = sampleToIndividualMap == null ? sIndOrSpId : sampleToIndividualMap.get(sIndOrSpId);
                 if (!fDbAlreadyContainedIndividuals || mongoTemplate.findById(sIndividual, Individual.class) == null)  // we don't have any population data so we don't need to update the Individual if it already exists
                     indsToAdd.add(new Individual(sIndividual));
 
@@ -305,7 +308,7 @@ public class VcfImport extends AbstractGenotypeImport {
                 }
 
                 int sampleId = AutoIncrementCounter.getNextSequence(mongoTemplate, MongoTemplateManager.getMongoCollectionName(GenotypingSample.class));
-                individualToSampleMap.put(sIndividual, new GenotypingSample(sampleId, project.getId(), sRun, sIndividual));   // add a sample for this individual to the project
+                individualToSampleMap.put(sIndOrSpId, new GenotypingSample(sampleId, project.getId(), sRun, sIndividual, sampleToIndividualMap == null ? null : sIndOrSpId));   // add a sample for this individual to the project
             }
             if (!indsToAdd.isEmpty()) {
                 mongoTemplate.insert(indsToAdd, Individual.class);
@@ -433,7 +436,7 @@ public class VcfImport extends AbstractGenotypeImport {
         }
     }
 
-    /**
+	/**
      * Adds the vcf data to variant.
      *
      * @param mongoTemplate the mongo template

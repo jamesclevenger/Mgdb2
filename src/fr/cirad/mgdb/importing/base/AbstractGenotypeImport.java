@@ -16,11 +16,16 @@
  *******************************************************************************/
 package fr.cirad.mgdb.importing.base;
 
+import java.io.File;
+import java.io.FileNotFoundException;
+import java.net.URISyntaxException;
+import java.net.URL;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Scanner;
 import java.util.concurrent.ExecutorService;
 import java.util.stream.Collectors;
 
@@ -74,6 +79,26 @@ public class AbstractGenotypeImport {
 			throw new Exception("Not enough info provided to build identification strings");
 
 		return result;
+	}
+	
+	static public HashMap<String, String> readSampleMappingFile(URL sampleMappingFileURL) throws FileNotFoundException, URISyntaxException {
+		if (sampleMappingFileURL == null)
+			return null;
+
+        HashMap<String, String> sampleToIndividualMap = new HashMap<>();
+    	Scanner sampleMappingScanner = new Scanner(new File(sampleMappingFileURL.toURI()));
+    	int nIndividualColPos = -1, nSampleColPos = -1;
+    	while (sampleMappingScanner.hasNextLine()) {
+    		String[] splitLine = sampleMappingScanner.nextLine().split("\t");
+    		if (nIndividualColPos == -1) {
+    			nIndividualColPos = "individual".equals(splitLine[0].toLowerCase()) ? 0 : 1;
+    			nSampleColPos = nIndividualColPos == 0 ? 1 : 0;
+    		}
+    		else
+    			sampleToIndividualMap.put(splitLine[nSampleColPos], splitLine[nIndividualColPos]);
+    	}
+    	sampleMappingScanner.close();
+		return sampleToIndividualMap;
 	}
 
 
