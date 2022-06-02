@@ -353,7 +353,7 @@ public class IndividualMetadataImport {
                 LOG.warn("Found no metadata to import for germplasm " + germplasmId);
                 continue;
             }
-            aiMap.remove(BrapiService.BRAPI_FIELD_germplasmDbId); // we don't want to persist this field as it's internal to the remote source but not to the present system
+            aiMap.put(BrapiService.BRAPI_FIELD_extGermplasmDbId, aiMap.remove(BrapiService.BRAPI_FIELD_germplasmDbId));		// use a dedicated field name to avoid confusion
 
             Update update = new Update();
             if (username == null) {
@@ -425,7 +425,7 @@ public class IndividualMetadataImport {
                 LOG.warn("Found no metadata to import for germplasm " + germplasmId);
                 continue;
             }
-            aiMap.remove(BrapiService.BRAPI_FIELD_germplasmDbId); // we don't want to persist this field as it's internal to the remote source but not to the present system
+            aiMap.put(BrapiService.BRAPI_FIELD_extGermplasmDbId, aiMap.remove(BrapiService.BRAPI_FIELD_germplasmDbId));		// use a dedicated field name to avoid confusion
 
             Update update = new Update();
             if (username == null) {
@@ -687,25 +687,23 @@ public class IndividualMetadataImport {
             progress.setCurrentStepProgress((long) (i * 100f / sampleList.size()));
 
             if (aiMap.isEmpty()) {
-                LOG.warn("Found no metadata to import for germplasm " + sample.getSampleDbId());
+                LOG.warn("Found no metadata to import for sample " + sample.getSampleDbId());
                 continue;
             }
             aiMap.remove(BrapiService.BRAPI_FIELD_sampleDbId); // we don't want to persist this field as it's internal to the remote source but not to the present system
-            aiMap.put(BrapiService.BRAPI_FIELD_extGermplasmDbId, aiMap.remove(BrapiService.BRAPI_FIELD_germplasmDbId));
+            aiMap.put(BrapiService.BRAPI_FIELD_extGermplasmDbId, aiMap.remove(BrapiService.BRAPI_FIELD_germplasmDbId));		// use a dedicated field name to avoid confusion
 
             Update update = new Update();
             if (username == null) {
                 aiMap.forEach((k, v) -> update.set(Individual.SECTION_ADDITIONAL_INFO + "." + k, v));
                 bulkOperations.updateMulti(new Query(Criteria.where("_id").is(entityTypeToDbIdToIndividualMap.get(REF_TYPE_SAMPLE).get(sample.getSampleDbId()))), update);
-            } else if (!fIsAnonymous) {
+            }
+            else if (!fIsAnonymous) {
                 aiMap.forEach((k, v) -> update.set(CustomIndividualMetadata.SECTION_ADDITIONAL_INFO + "." + k, v));
                 bulkOperations.upsert(new Query(Criteria.where("_id").is(new CustomIndividualMetadata.CustomIndividualMetadataId(entityTypeToDbIdToIndividualMap.get(REF_TYPE_SAMPLE).get(sample.getSampleDbId()), username))), update);
-            } else// if (session != null)
-            {
-                sessionObject.get(entityTypeToDbIdToIndividualMap.get(REF_TYPE_SAMPLE).get(sample.getSampleDbId())).putAll(aiMap);
             }
-//                else
-//                	LOG.warn("Unable to save metadata for anonymous user (passed HttpSession was null)");
+            else// if (session != null)
+                sessionObject.get(entityTypeToDbIdToIndividualMap.get(REF_TYPE_SAMPLE).get(sample.getSampleDbId())).putAll(aiMap);
         }
 
         progress.addStep("Persisting metadata found at " + endpointUrl);
@@ -714,7 +712,8 @@ public class IndividualMetadataImport {
         if (!fIsAnonymous) {
             BulkWriteResult wr = bulkOperations.execute();
             return wr.getModifiedCount() + wr.getUpserts().size();
-        } else {
+        }
+        else {
             LOG.info("Database " + sModule + ": metadata was persisted into session for anonymous user");
             return 1;
         }
