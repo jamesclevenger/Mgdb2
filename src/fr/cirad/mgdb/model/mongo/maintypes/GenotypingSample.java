@@ -16,6 +16,8 @@
  *******************************************************************************/
 package fr.cirad.mgdb.model.mongo.maintypes;
 
+import static fr.cirad.mgdb.model.mongo.maintypes.Individual.SECTION_ADDITIONAL_INFO;
+import java.util.LinkedHashMap;
 import org.springframework.data.annotation.Id;
 import org.springframework.data.annotation.TypeAlias;
 import org.springframework.data.mongodb.core.mapping.Document;
@@ -53,6 +55,12 @@ public class GenotypingSample {
 	/** The run. */
 	@Field(FIELDNAME_RUN)
 	private String run;
+        
+        /**
+         * The additional info.
+         */
+        @Field(SECTION_ADDITIONAL_INFO)
+        private LinkedHashMap<String, Object> additionalInfo = null;
 
 	/**
 	 * Instantiates a new GenotypingSample.
@@ -106,6 +114,14 @@ public class GenotypingSample {
 //	public void setIndividual(String individual) {
 //		this.individual = individual;
 //	}
+
+        public LinkedHashMap<String, Object> getAdditionalInfo() {
+            return additionalInfo;
+        }
+
+        public void setAdditionalInfo(LinkedHashMap<String, Object> additionalInfo) {
+            this.additionalInfo = additionalInfo;
+        }
 	
 	@Override
 	public boolean equals(Object o)

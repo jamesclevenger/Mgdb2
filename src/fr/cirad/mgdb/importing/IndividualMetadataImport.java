@@ -17,6 +17,7 @@
  */
 package fr.cirad.mgdb.importing;
 
+import com.fasterxml.jackson.annotation.JsonInclude.Include;
 import java.io.File;
 import java.io.IOException;
 import java.net.URL;
@@ -60,7 +61,10 @@ import fr.cirad.io.brapi.BrapiService;
 import fr.cirad.io.brapi.BrapiV2Client;
 import fr.cirad.io.brapi.BrapiV2Service;
 import fr.cirad.mgdb.model.mongo.maintypes.CustomIndividualMetadata;
+import fr.cirad.mgdb.model.mongo.maintypes.CustomSampleMetadata;
+import fr.cirad.mgdb.model.mongo.maintypes.GenotypingSample;
 import fr.cirad.mgdb.model.mongo.maintypes.Individual;
+import fr.cirad.mgdb.model.mongodao.MgdbDao;
 import fr.cirad.tools.Helper;
 import fr.cirad.tools.ProgressIndicator;
 import fr.cirad.tools.mongo.MongoTemplateManager;
@@ -87,13 +91,14 @@ public class IndividualMetadataImport {
     public static final String BRAPI_FILTER_SAMPLE_IDS = "sampleDbIds";
     public static final String BRAPI_FILTER_GERMPLASM_IDS = "germplasmDbIds";
     
-    public static final ObjectMapper mapper = new ObjectMapper();
+    public static final ObjectMapper mapper = new ObjectMapper();    
     
     static {
         //use a custom serializer to convert Germplasm to Map (some complex types are transformed or not kept)
         SimpleModule module = new SimpleModule();
         module.addSerializer(Germplasm.class, new GermplasmSerializer());
         mapper.registerModule(module);
+        mapper.setSerializationInclusion(Include.NON_NULL);
     }    
     
 
@@ -137,8 +142,18 @@ public class IndividualMetadataImport {
             HashMap<Integer, String> columnLabels = new HashMap<Integer, String>();
             int idColumn = -1;
             String sLine = null;
-            BulkOperations bulkOperations = mongoTemplate.bulkOps(BulkOperations.BulkMode.ORDERED, username == null ? Individual.class : CustomIndividualMetadata.class);
+            
+            BulkOperations bulkOperations;
+            if (individualColName.equals("individual")) {
+                bulkOperations = mongoTemplate.bulkOps(BulkOperations.BulkMode.ORDERED, username == null ? Individual.class : CustomIndividualMetadata.class);
+            } else {
+                bulkOperations = mongoTemplate.bulkOps(BulkOperations.BulkMode.ORDERED, username == null ? GenotypingSample.class : CustomSampleMetadata.class);
+                
+                
+            }   
+            
             List<String> passedIndList = new ArrayList<>();
+            
             while (scanner.hasNextLine()) {
                 sLine = scanner.nextLine().trim();
                 if (sLine.length() == 0) {
@@ -163,7 +178,7 @@ public class IndividualMetadataImport {
                     if (idColumn == -1) {
                         throw new Exception(cells.size() <= 1 ? "Provided file does not seem to be tab-delimited!" : "Unable to find individual name column \"" + individualColName + "\" in file header!");
                     }
-
+                    
                     continue;
                 }
 
@@ -176,27 +191,52 @@ public class IndividualMetadataImport {
                 }
 
                 String individualId = cells.get(idColumn);
+                
                 passedIndList.add(individualId);
-                if (username == null) {
-                    bulkOperations.updateMulti(new Query(Criteria.where("_id").is(individualId)), new Update().set(Individual.SECTION_ADDITIONAL_INFO, additionalInfo));
+                       
+                if (username == null) {                    
+                    if (individualColName.equals("sample")) {
+                        bulkOperations.updateMulti(new Query(Criteria.where("nm").is(individualId)), new Update().set(Individual.SECTION_ADDITIONAL_INFO, additionalInfo));
+                    } else {
+                        bulkOperations.updateMulti(new Query(Criteria.where("_id").is(individualId)), new Update().set(Individual.SECTION_ADDITIONAL_INFO, additionalInfo));
+                    }                    
                 } else if (!fIsAnonymous) {
-                    bulkOperations.upsert(new Query(Criteria.where("_id").is(new CustomIndividualMetadata.CustomIndividualMetadataId(individualId, username))), new Update().set(CustomIndividualMetadata.SECTION_ADDITIONAL_INFO, additionalInfo));
+                    if (individualColName.equals("sample")) {
+                        bulkOperations.upsert(new Query(Criteria.where("_id").is(new CustomSampleMetadata.CustomSampleMetadataId(individualId, username))), new Update().set(CustomSampleMetadata.SECTION_ADDITIONAL_INFO, additionalInfo));
+                    } else {
+                        bulkOperations.upsert(new Query(Criteria.where("_id").is(new CustomIndividualMetadata.CustomIndividualMetadataId(individualId, username))), new Update().set(CustomIndividualMetadata.SECTION_ADDITIONAL_INFO, additionalInfo));
+                    }
                 } else
                     sessionObject.put(individualId, additionalInfo);
             }
 
+            Map<String /*sample name*/, Integer /*sample id*/> samplesMap;
             if (passedIndList.size() == 0) {
                 if (username == null) {
                     bulkOperations.updateMulti(new Query(), new Update().unset(Individual.SECTION_ADDITIONAL_INFO)); // a blank metadata file was submitted: let's delete any existing metadata				
                 } else {
-                    bulkOperations.remove(new Query(Criteria.where("_id." + CustomIndividualMetadata.CustomIndividualMetadataId.FIELDNAME_USER).is(username)));
+                    if (individualColName.equals("sample")) {
+                        bulkOperations.remove(new Query(Criteria.where("_id." + CustomSampleMetadata.CustomSampleMetadataId.FIELDNAME_USER).is(username)));
+                    } else {
+                        bulkOperations.remove(new Query(Criteria.where("_id." + CustomIndividualMetadata.CustomIndividualMetadataId.FIELDNAME_USER).is(username)));
+                    }
                 }
             } else {	// first check if any passed individuals are unknown
-                Query verificationQuery = new Query(Criteria.where("_id").in(passedIndList));
-                verificationQuery.fields().include("_id");
-                List<String> foundIndList = mongoTemplate.find(verificationQuery, Individual.class).stream().map(ind -> ind.getId()).collect(Collectors.toList());
-                if (foundIndList.size() < passedIndList.size()) {
-                    throw new Exception("The following individuals do not exist in the selected database: " + StringUtils.join(CollectionUtils.disjunction(passedIndList, foundIndList), ", "));
+                
+                if (individualColName.equals("sample")) {
+                    Query query = new Query(Criteria.where(GenotypingSample.FIELDNAME_NAME).in(passedIndList));
+                    List<String> foundSamples = mongoTemplate.find(query, GenotypingSample.class).stream().map(s -> s.getSampleName()).collect(Collectors.toList());
+  
+                    if (foundSamples.size() < passedIndList.size()) {
+                        throw new Exception("The following samples do not exist in the selected database: " + StringUtils.join(CollectionUtils.disjunction(passedIndList, foundSamples), ", "));
+                    }
+                } else {
+                    Query verificationQuery = new Query(Criteria.where("_id").in(passedIndList));
+                    verificationQuery.fields().include("_id");
+                    List<String> foundIndList = mongoTemplate.find(verificationQuery, Individual.class).stream().map(ind -> ind.getId()).collect(Collectors.toList());
+                    if (foundIndList.size() < passedIndList.size()) {
+                        throw new Exception("The following individuals do not exist in the selected database: " + StringUtils.join(CollectionUtils.disjunction(passedIndList, foundIndList), ", "));
+                    }
                 }
             }
             if (!fIsAnonymous) {
@@ -219,7 +259,7 @@ public class IndividualMetadataImport {
         }
     }
 
-    public static int importBrapiMetadata(String sModule, HttpSession session, String endpointUrl, HashMap<String, HashMap<String, String>> entityTypeToDbIdToIndividualMap, String username, String authToken, ProgressIndicator progress) throws Exception {
+    public static int importBrapiMetadata(String sModule, HttpSession session, String endpointUrl, HashMap<String, String> entityTypeToDbIdToIndividualMap, String username, String authToken, ProgressIndicator progress, String metadataType) throws Exception {
         if (entityTypeToDbIdToIndividualMap == null || entityTypeToDbIdToIndividualMap.isEmpty()) {
             return 0;    // we must know which individuals to update
         }
@@ -236,33 +276,21 @@ public class IndividualMetadataImport {
         }
 
         int modifiedCount = 0;
-        HashMap<String, String> germplasmDbIdToIndividualMap = null, sampleDbIdToIndividualMap = null;
-        for (String type : entityTypeToDbIdToIndividualMap.keySet()) {
-            if (REF_TYPE_GERMPLASM.equals(type)) {
-                germplasmDbIdToIndividualMap = entityTypeToDbIdToIndividualMap.get(REF_TYPE_GERMPLASM);
-            } else if (REF_TYPE_SAMPLE.equals(type)) {
-                sampleDbIdToIndividualMap = entityTypeToDbIdToIndividualMap.get(REF_TYPE_SAMPLE);
-            } else {
-                LOG.warn("Skipping unsupported " + BrapiService.BRAPI_FIELD_germplasmExternalReferenceType + ": " + type);
-            }
-        }
 
         String fixedEndpointUrl = !endpointUrl.endsWith("/") ? endpointUrl + "/" : endpointUrl;
         if (fixedEndpointUrl.endsWith("/brapi/v1/")) {
-            if (germplasmDbIdToIndividualMap != null && !germplasmDbIdToIndividualMap.isEmpty()) {
+            if (metadataType.equals("individual")) {
                 modifiedCount += importBrapiV1Germplasm(
                         sModule,
                         session,
                         endpointUrl,
-                        entityTypeToDbIdToIndividualMap.get(REF_TYPE_GERMPLASM),
+                        entityTypeToDbIdToIndividualMap,
                         username,
                         authToken,
                         progress,
                         mongoTemplate
                 );
-            }
-
-            if (sampleDbIdToIndividualMap != null && !sampleDbIdToIndividualMap.isEmpty()) {
+            } else if (metadataType.equals("sample")) {
                 modifiedCount += importBrapiV1Samples(
                         sModule,
                         session,
@@ -274,21 +302,20 @@ public class IndividualMetadataImport {
                         mongoTemplate
                 );
             }
+
         } else if (fixedEndpointUrl.endsWith("/brapi/v2/")) {
-            if (germplasmDbIdToIndividualMap != null && !germplasmDbIdToIndividualMap.isEmpty()) {
+            if (metadataType.equals("individual")) {
                 modifiedCount += importBrapiV2Germplasm(
                         sModule,
                         session,
                         endpointUrl,
-                        entityTypeToDbIdToIndividualMap.get(REF_TYPE_GERMPLASM),
+                        entityTypeToDbIdToIndividualMap,
                         username,
                         authToken,
                         progress,
                         mongoTemplate
                 );
-            }
-
-            if (sampleDbIdToIndividualMap != null && !sampleDbIdToIndividualMap.isEmpty()) {
+             } else if (metadataType.equals("sample")) {
                 modifiedCount += importBrapiV2Samples(
                         sModule,
                         session,
@@ -455,14 +482,14 @@ public class IndividualMetadataImport {
             String sModule,
             HttpSession session,
             String endpointUrl,
-            HashMap<String, HashMap<String, String>> entityTypeToDbIdToIndividualMap,
+            HashMap<String, String> entityTypeToDbIdToIndividualMap,
             String username,
             String authToken,
             ProgressIndicator progress,
             MongoTemplate mongoTemplate) throws Exception {
 
         HashMap<String, Object> reqBody = new HashMap<>();
-        reqBody.put(BRAPI_FILTER_SAMPLE_IDS, entityTypeToDbIdToIndividualMap.get(REF_TYPE_SAMPLE).keySet());
+        reqBody.put(BRAPI_FILTER_SAMPLE_IDS, entityTypeToDbIdToIndividualMap.keySet());
 
         BrapiClient client = new BrapiClient();
 
@@ -516,19 +543,19 @@ public class IndividualMetadataImport {
         progress.moveToNextStep();
 
         //fill map with germplasmDbIds to get linked information
-        for (BrapiSample sample : sampleList) {
-            String sampleDbId = sample.getSampleDbId();
-            String germplasmDbId = sample.getGermplasmDbId();
-            String individual = entityTypeToDbIdToIndividualMap.get(REF_TYPE_SAMPLE).get(sampleDbId);
-            if (entityTypeToDbIdToIndividualMap.get(REF_TYPE_GERMPLASM) == null) {
-                entityTypeToDbIdToIndividualMap.put(REF_TYPE_GERMPLASM, new HashMap<>());
-            }
-            entityTypeToDbIdToIndividualMap.get(REF_TYPE_GERMPLASM).put(germplasmDbId, individual);
-        }
-
-        //Getting information from germplasm and attributes linked to the samples
-        boolean fCanQueryAttributes = client.hasCallGetAttributes();
-        Map<String, Map<String, Object>> germplasmMap = getBrapiV1GermplasmWithAttributes(service, endpointUrl, entityTypeToDbIdToIndividualMap.get(REF_TYPE_GERMPLASM).keySet(), fCanQueryAttributes, progress);
+//        for (BrapiSample sample : sampleList) {
+//            String sampleDbId = sample.getSampleDbId();
+//            String germplasmDbId = sample.getGermplasmDbId();
+//            String individual = entityTypeToDbIdToIndividualMap.get(REF_TYPE_SAMPLE).get(sampleDbId);
+//            if (entityTypeToDbIdToIndividualMap.get(REF_TYPE_GERMPLASM) == null) {
+//                entityTypeToDbIdToIndividualMap.put(REF_TYPE_GERMPLASM, new HashMap<>());
+//            }
+//            entityTypeToDbIdToIndividualMap.get(REF_TYPE_GERMPLASM).put(germplasmDbId, individual);
+//        }
+//
+//        //Getting information from germplasm and attributes linked to the samples
+//        boolean fCanQueryAttributes = client.hasCallGetAttributes();
+//        Map<String, Map<String, Object>> germplasmMap = getBrapiV1GermplasmWithAttributes(service, endpointUrl, entityTypeToDbIdToIndividualMap.get(REF_TYPE_GERMPLASM).keySet(), fCanQueryAttributes, progress);
 
         progress.addStep("Importing samples information from " + endpointUrl);
         progress.moveToNextStep();
@@ -549,14 +576,14 @@ public class IndividualMetadataImport {
         for (int i = 0; i < sampleList.size(); i++) {
             BrapiSample sample = sampleList.get(i);
             Map<String, Object> aiMap = mapper.convertValue(sample, Map.class);
-            Map<String, Object> gMap = germplasmMap.get(sample.getGermplasmDbId());
+            //Map<String, Object> gMap = germplasmMap.get(sample.getGermplasmDbId());
             //merging 2 maps
-            aiMap.putAll(gMap);
+            //aiMap.putAll(gMap);
 
             progress.setCurrentStepProgress((long) (i * 100f / sampleList.size()));
 
             if (aiMap.isEmpty()) {
-                LOG.warn("Found no metadata to import for germplasm " + sample.getSampleDbId());
+                LOG.warn("Found no metadata to import for sample " + sample.getSampleDbId());
                 continue;
             }
             aiMap.remove(BrapiService.BRAPI_FIELD_sampleDbId); // we don't want to persist this field as it's internal to the remote source but not to the present system
@@ -564,12 +591,12 @@ public class IndividualMetadataImport {
             Update update = new Update();
             if (username == null) {
                 aiMap.forEach((k, v) -> update.set(Individual.SECTION_ADDITIONAL_INFO + "." + k, v));
-                bulkOperations.updateMulti(new Query(Criteria.where("_id").is(entityTypeToDbIdToIndividualMap.get(REF_TYPE_SAMPLE).get(sample.getSampleDbId()))), update);
+                bulkOperations.updateMulti(new Query(Criteria.where("_id").is(entityTypeToDbIdToIndividualMap.get(sample.getSampleDbId()))), update);
             } else if (!fIsAnonymous) {
                 aiMap.forEach((k, v) -> update.set(CustomIndividualMetadata.SECTION_ADDITIONAL_INFO + "." + k, v));
-                bulkOperations.upsert(new Query(Criteria.where("_id").is(new CustomIndividualMetadata.CustomIndividualMetadataId(entityTypeToDbIdToIndividualMap.get(REF_TYPE_SAMPLE).get(sample.getSampleDbId()), username))), update);
+                bulkOperations.upsert(new Query(Criteria.where("_id").is(new CustomIndividualMetadata.CustomIndividualMetadataId(entityTypeToDbIdToIndividualMap.get(sample.getSampleDbId()), username))), update);
             } else
-                sessionObject.get(entityTypeToDbIdToIndividualMap.get(REF_TYPE_SAMPLE).get(sample.getSampleDbId())).putAll(aiMap);
+                sessionObject.get(entityTypeToDbIdToIndividualMap.get(sample.getSampleDbId())).putAll(aiMap);
         }
 
         progress.addStep("Persisting metadata found at " + endpointUrl);
@@ -588,14 +615,14 @@ public class IndividualMetadataImport {
             String sModule,
             HttpSession session,
             String endpointUrl,
-            HashMap<String, HashMap<String, String>> entityTypeToDbIdToIndividualMap,
+            HashMap<String, String> entityTypeToDbIdToIndividualMap,
             String username,
             String authToken,
             ProgressIndicator progress,
             MongoTemplate mongoTemplate) throws Exception {
 
         HashMap<String, Object> reqBody = new HashMap<>();
-        reqBody.put(BRAPI_FILTER_SAMPLE_IDS, entityTypeToDbIdToIndividualMap.get(REF_TYPE_SAMPLE).keySet());
+        reqBody.put(BRAPI_FILTER_SAMPLE_IDS, entityTypeToDbIdToIndividualMap.keySet());
 
         BrapiV2Client client = new BrapiV2Client();
         client.initService(endpointUrl, authToken);
@@ -647,19 +674,19 @@ public class IndividualMetadataImport {
         progress.moveToNextStep();
 
         //fill map with germplasmDbIds to get linked information
-        for (Sample sample : sampleList) {
-            String sampleDbId = sample.getSampleDbId();
-            String germplasmDbId = sample.getGermplasmDbId();
-            String individual = entityTypeToDbIdToIndividualMap.get(REF_TYPE_SAMPLE).get(sampleDbId);
-            if (entityTypeToDbIdToIndividualMap.get(REF_TYPE_GERMPLASM) == null) {
-                entityTypeToDbIdToIndividualMap.put(REF_TYPE_GERMPLASM, new HashMap<>());
-            }
-            entityTypeToDbIdToIndividualMap.get(REF_TYPE_GERMPLASM).put(germplasmDbId, individual);
-        }
+//        for (Sample sample : sampleList) {
+//            String sampleDbId = sample.getSampleDbId();
+//            String germplasmDbId = sample.getGermplasmDbId();
+//            String individual = entityTypeToDbIdToIndividualMap.get(REF_TYPE_SAMPLE).get(sampleDbId);
+//            if (entityTypeToDbIdToIndividualMap.get(REF_TYPE_GERMPLASM) == null) {
+//                entityTypeToDbIdToIndividualMap.put(REF_TYPE_GERMPLASM, new HashMap<>());
+//            }
+//            entityTypeToDbIdToIndividualMap.get(REF_TYPE_GERMPLASM).put(germplasmDbId, individual);
+//        }
 
         //Getting information from germplasm and attributes linked to the samples
-        boolean fCanQueryAttributes = client.hasCallSearchAttributes();
-        Map<String, Map<String, Object>> germplasmMap = getBrapiV2GermplasmWithAttributes(service, endpointUrl, entityTypeToDbIdToIndividualMap.get(REF_TYPE_GERMPLASM).keySet(), fCanQueryAttributes, progress);
+//        boolean fCanQueryAttributes = client.hasCallSearchAttributes();
+//        Map<String, Map<String, Object>> germplasmMap = getBrapiV2GermplasmWithAttributes(service, endpointUrl, entityTypeToDbIdToIndividualMap.get(REF_TYPE_GERMPLASM).keySet(), fCanQueryAttributes, progress);
 
         progress.addStep("Importing samples information from " + endpointUrl);
         progress.moveToNextStep();
@@ -669,20 +696,20 @@ public class IndividualMetadataImport {
         }
 
         boolean fIsAnonymous = "anonymousUser".equals(username);
-        HashMap<String /*individual*/, HashMap<String, Object>> sessionObject = (HashMap<String, HashMap<String, Object>>) session.getAttribute("individuals_metadata_" + sModule);
+        HashMap<String /*individual*/, HashMap<String, Object>> sessionObject = (HashMap<String, HashMap<String, Object>>) session.getAttribute("samples_metadata_" + sModule);
         if (fIsAnonymous && sessionObject == null) {
             sessionObject = new LinkedHashMap<>();
             session.setAttribute("individuals_metadata_" + sModule, sessionObject);
         }
 
-        // Inserting samples (also germplasm and attributes) information in DB as additional info
-        BulkOperations bulkOperations = mongoTemplate.bulkOps(BulkOperations.BulkMode.ORDERED, username == null ? Individual.class : CustomIndividualMetadata.class);
+        // Inserting samples information in DB as additional info
+        BulkOperations bulkOperations = mongoTemplate.bulkOps(BulkOperations.BulkMode.ORDERED, username == null ? GenotypingSample.class : CustomSampleMetadata.class);
         for (int i = 0; i < sampleList.size(); i++) {
             Sample sample = sampleList.get(i);
             Map<String, Object> aiMap = mapper.convertValue(sample, Map.class);
-            Map<String, Object> gMap = germplasmMap.get(sample.getGermplasmDbId());
+            //Map<String, Object> gMap = germplasmMap.get(sample.getGermplasmDbId());
             //merging 2 maps
-            aiMap.putAll(gMap);
+            //aiMap.putAll(gMap);
 
             progress.setCurrentStepProgress((long) (i * 100f / sampleList.size()));
 
@@ -691,19 +718,18 @@ public class IndividualMetadataImport {
                 continue;
             }
             aiMap.remove(BrapiService.BRAPI_FIELD_sampleDbId); // we don't want to persist this field as it's internal to the remote source but not to the present system
-            aiMap.put(BrapiService.BRAPI_FIELD_extGermplasmDbId, aiMap.remove(BrapiService.BRAPI_FIELD_germplasmDbId));		// use a dedicated field name to avoid confusion
+            //aiMap.put(BrapiService.BRAPI_FIELD_extGermplasmDbId, aiMap.remove(BrapiService.BRAPI_FIELD_germplasmDbId));
 
             Update update = new Update();
             if (username == null) {
                 aiMap.forEach((k, v) -> update.set(Individual.SECTION_ADDITIONAL_INFO + "." + k, v));
-                bulkOperations.updateMulti(new Query(Criteria.where("_id").is(entityTypeToDbIdToIndividualMap.get(REF_TYPE_SAMPLE).get(sample.getSampleDbId()))), update);
-            }
-            else if (!fIsAnonymous) {
+                bulkOperations.updateMulti(new Query(Criteria.where("nm").is(entityTypeToDbIdToIndividualMap.get(sample.getSampleDbId()))), update);
+            } else if (!fIsAnonymous) {
                 aiMap.forEach((k, v) -> update.set(CustomIndividualMetadata.SECTION_ADDITIONAL_INFO + "." + k, v));
-                bulkOperations.upsert(new Query(Criteria.where("_id").is(new CustomIndividualMetadata.CustomIndividualMetadataId(entityTypeToDbIdToIndividualMap.get(REF_TYPE_SAMPLE).get(sample.getSampleDbId()), username))), update);
+                bulkOperations.upsert(new Query(Criteria.where("nm").is(new CustomIndividualMetadata.CustomIndividualMetadataId(entityTypeToDbIdToIndividualMap.get(sample.getSampleDbId()), username))), update);
+            } else {// if (session != null)            
+                sessionObject.get(entityTypeToDbIdToIndividualMap.get(sample.getSampleDbId())).putAll(aiMap);
             }
-            else// if (session != null)
-                sessionObject.get(entityTypeToDbIdToIndividualMap.get(REF_TYPE_SAMPLE).get(sample.getSampleDbId())).putAll(aiMap);
         }
 
         progress.addStep("Persisting metadata found at " + endpointUrl);
