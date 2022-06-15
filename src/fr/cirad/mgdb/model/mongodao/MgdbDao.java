@@ -64,11 +64,15 @@ import fr.cirad.mgdb.model.mongo.maintypes.VariantRunData;
 import fr.cirad.mgdb.model.mongo.maintypes.CustomIndividualMetadata.CustomIndividualMetadataId;
 import fr.cirad.mgdb.model.mongo.maintypes.VariantRunData.VariantRunDataId;
 import fr.cirad.mgdb.model.mongo.subtypes.ReferencePosition;
+import fr.cirad.mgdb.model.mongo.subtypes.SampleGenotype;
 import fr.cirad.tools.mongo.MongoTemplateManager;
+import fr.cirad.tools.security.base.AbstractTokenManager;
 import htsjdk.variant.vcf.VCFConstants;
 import htsjdk.variant.vcf.VCFFormatHeaderLine;
 import htsjdk.variant.vcf.VCFHeaderLineCount;
 import htsjdk.variant.vcf.VCFHeaderLineType;
+import java.util.HashSet;
+import javax.ejb.ObjectNotFoundException;
 
 /**
  * The Class MgdbDao.
@@ -434,7 +438,7 @@ public class MgdbDao {
         return result;
     }
 
-    public static Set<String> getProjectIndividuals(String sModule, int projId) {
+    public static Set<String> getProjectIndividuals(String sModule, int projId) throws ObjectNotFoundException {
         return getSamplesByIndividualForProject(sModule, projId, null).keySet();
     }
 
@@ -454,9 +458,12 @@ public class MgdbDao {
         return result;
     }
 
-    public static TreeMap<String /*individual*/, ArrayList<GenotypingSample>> getSamplesByIndividualForProject(final String sModule, final int projId, final Collection<String> individuals) {
+    public static TreeMap<String /*individual*/, ArrayList<GenotypingSample>> getSamplesByIndividualForProject(final String sModule, final int projId, final Collection<String> individuals) throws ObjectNotFoundException {
         TreeMap<String /*individual*/, ArrayList<GenotypingSample>> result = new TreeMap<>();
         MongoTemplate mongoTemplate = MongoTemplateManager.get(sModule);
+        if (mongoTemplate == null) {
+            throw new ObjectNotFoundException("Database " + sModule + " does not exist");
+        }
         Criteria crit = Criteria.where(GenotypingSample.FIELDNAME_PROJECT_ID).is(projId);
         if (individuals != null && individuals.size() > 0) {
             crit.andOperator(Criteria.where(GenotypingSample.FIELDNAME_INDIVIDUAL).in(individuals));
@@ -474,7 +481,7 @@ public class MgdbDao {
         return result;
     }
 
-    public static ArrayList<GenotypingSample> getSamplesForProject(final String sModule, final int projId, final Collection<String> individuals) {
+    public static ArrayList<GenotypingSample> getSamplesForProject(final String sModule, final int projId, final Collection<String> individuals) throws ObjectNotFoundException {
         ArrayList<GenotypingSample> result = new ArrayList<>();
         for (ArrayList<GenotypingSample> sampleList : getSamplesByIndividualForProject(sModule, projId, individuals).values()) {
             result.addAll(sampleList);
@@ -576,4 +583,35 @@ public class MgdbDao {
         }
         return result;
     }
+    
+    public static List<Integer> getUserReadableProjectsIds(AbstractTokenManager tokenManager, String token, String sModule, boolean getReadable) throws ObjectNotFoundException {
+        boolean fGotDBRights = tokenManager.canUserReadDB(token, sModule);
+        if (fGotDBRights) {
+            Query q = new Query();
+            q.fields().include(GenotypingProject.FIELDNAME_NAME);
+            List<GenotypingProject> listProj = MongoTemplateManager.get(sModule).find(q, GenotypingProject.class);
+            List<Integer> projIds = listProj.stream().map(p -> p.getId()).collect(Collectors.toList());
+            List<Integer> readableProjIds = new ArrayList<>();
+            for (Integer id : projIds) {
+                if (tokenManager.canUserReadProject(token, sModule, id)) {
+                    readableProjIds.add(id);
+                }
+            }
+            if (getReadable) {
+                return readableProjIds;
+            } else {
+                projIds.removeAll(readableProjIds);
+                return projIds;
+            }
+           
+        } else {
+            throw new ObjectNotFoundException(sModule);
+        }
+    }
+    
+    public static List<GenotypingSample> getSamplesFromIndividualIds(String sModule, List<String> indIDs) {
+        Query q = new Query(Criteria.where(GenotypingSample.FIELDNAME_INDIVIDUAL).in(indIDs));
+        List<GenotypingSample> samples = MongoTemplateManager.get(sModule).find(q, GenotypingSample.class);
+        return samples;
+    } 
 }
