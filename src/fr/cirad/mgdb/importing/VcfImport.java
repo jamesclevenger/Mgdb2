@@ -294,7 +294,7 @@ public class VcfImport extends AbstractGenotypeImport {
             final GenotypingProject finalProject = project;
             final int finalEffectAnnotationPos = effectAnnotationPos, finalGeneIdAnnotationPos = geneIdAnnotationPos;
 
-            HashMap<String /*individual*/, GenotypingSample> individualToSampleMap = new HashMap<String /*individual*/, GenotypingSample>();
+            HashMap<String /*individual*/, GenotypingSample> providedIdToSampleMap = new HashMap<String /*individual*/, GenotypingSample>();
             List<Individual> indsToAdd = new ArrayList<>();
             boolean fDbAlreadyContainedIndividuals = mongoTemplate.findOne(new Query(), Individual.class) != null, fDbAlreadyContainedVariants = mongoTemplate.findOne(new Query() {{ fields().include("_id"); }}, VariantData.class) != null;
             for (String sIndOrSpId : header.getSampleNamesInOrder()) {
@@ -308,7 +308,7 @@ public class VcfImport extends AbstractGenotypeImport {
                 }
 
                 int sampleId = AutoIncrementCounter.getNextSequence(mongoTemplate, MongoTemplateManager.getMongoCollectionName(GenotypingSample.class));
-                individualToSampleMap.put(sIndividual, new GenotypingSample(sampleId, project.getId(), sRun, sIndividual, sampleToIndividualMap == null ? null : sIndOrSpId));   // add a sample for this individual to the project
+                providedIdToSampleMap.put(sIndOrSpId, new GenotypingSample(sampleId, project.getId(), sRun, sIndividual, sampleToIndividualMap == null ? null : sIndOrSpId));   // add a sample for this individual to the project
             }
             if (!indsToAdd.isEmpty()) {
                 mongoTemplate.insert(indsToAdd, Individual.class);
@@ -363,7 +363,7 @@ public class VcfImport extends AbstractGenotypeImport {
                                         totalProcessedVariantCount.getAndIncrement();
 
                                     unsavedVariants.add(variant);
-                                    VariantRunData runToSave = addVcfDataToVariant(finalMongoTemplate, header, variant, vcfEntry, finalProject, sRun, phasingGroups, individualToSampleMap, finalEffectAnnotationPos, finalGeneIdAnnotationPos);
+                                    VariantRunData runToSave = addVcfDataToVariant(finalMongoTemplate, header, variant, vcfEntry, finalProject, sRun, phasingGroups, providedIdToSampleMap, finalEffectAnnotationPos, finalGeneIdAnnotationPos);
                                     if (!unsavedRuns.contains(runToSave))
                                         unsavedRuns.add(runToSave);
 
@@ -416,7 +416,7 @@ public class VcfImport extends AbstractGenotypeImport {
                 mongoTemplate.save(project);
             else
                 mongoTemplate.insert(project);
-            mongoTemplate.insert(individualToSampleMap.values(), GenotypingSample.class);
+            mongoTemplate.insert(providedIdToSampleMap.values(), GenotypingSample.class);
 
             progress.addStep("Preparing database for searches");
             progress.moveToNextStep();
@@ -446,13 +446,13 @@ public class VcfImport extends AbstractGenotypeImport {
      * @param project the project
      * @param runName the run name
      * @param phasingGroup the phasing group
-     * @param individualToSampleMap the used samples
+     * @param providedIdToSampleMap the used samples mapped to IDs provided in the VCF
      * @param effectAnnotationPos the effect annotation pos
      * @param geneIdAnnotationPos the gene name annotation pos
      * @return the variant run data
      * @throws Exception the exception
      */
-    static private VariantRunData addVcfDataToVariant(MongoTemplate mongoTemplate, VCFHeader header, VariantData variantToFeed, VariantContextHologram vc, GenotypingProject project, String runName, HashMap<String /*individual*/, Comparable> phasingGroup, Map<String /*individual*/, GenotypingSample> individualToSampleMap, int effectAnnotationPos, int geneIdAnnotationPos) throws Exception
+    static private VariantRunData addVcfDataToVariant(MongoTemplate mongoTemplate, VCFHeader header, VariantData variantToFeed, VariantContextHologram vc, GenotypingProject project, String runName, HashMap<String /*individual*/, Comparable> phasingGroup, Map<String /*individual*/, GenotypingSample> providedIdToSampleMap, int effectAnnotationPos, int geneIdAnnotationPos) throws Exception
     {
         // mandatory fields
         if (variantToFeed.getType() == null) {
@@ -551,11 +551,11 @@ public class VcfImport extends AbstractGenotypeImport {
             Genotype genotype = genotypes.next();
 
             boolean isPhased = genotype.isPhased();
-            String sIndividual = genotype.getSampleName();
+            String sIndOrSpId = genotype.getSampleName();
 
-            Comparable phasedGroup = phasingGroup.get(sIndividual);
+            Comparable phasedGroup = phasingGroup.get(sIndOrSpId);
             if (phasedGroup == null || (!isPhased && !genotype.isNoCall()))
-                phasingGroup.put(sIndividual, variantToFeed.getId());
+                phasingGroup.put(sIndOrSpId, variantToFeed.getId());
 
             List<String> gtAllelesAsStrings = genotype.getAlleles().stream().map(allele -> allele.getBaseString()).collect(Collectors.toList());
 
@@ -566,7 +566,7 @@ public class VcfImport extends AbstractGenotypeImport {
             SampleGenotype aGT = new SampleGenotype(gtCode);
             if (isPhased) {
                 aGT.getAdditionalInfo().put(VariantData.GT_FIELD_PHASED_GT, VariantData.rebuildVcfFormatGenotype(knownAlleleStringToIndexMap, gtAllelesAsStrings, isPhased, true));
-                aGT.getAdditionalInfo().put(VariantData.GT_FIELD_PHASED_ID, phasingGroup.get(sIndividual));
+                aGT.getAdditionalInfo().put(VariantData.GT_FIELD_PHASED_ID, phasingGroup.get(sIndOrSpId));
             }
             if (genotype.hasGQ()) {
                 aGT.getAdditionalInfo().put(VariantData.GT_FIELD_GQ, genotype.getGQ());
@@ -605,7 +605,7 @@ public class VcfImport extends AbstractGenotypeImport {
                 aGT.getAdditionalInfo().put(VariantData.FIELD_FILTERS, genotype.getFilters());
 
             if (genotype.isCalled() || !aGT.getAdditionalInfo().isEmpty())  // otherwise there's no point in persisting an empty object
-                vrd.getSampleGenotypes().put(individualToSampleMap.get(sIndividual).getId(), aGT);
+                vrd.getSampleGenotypes().put(providedIdToSampleMap.get(sIndOrSpId).getId(), aGT);
         }
 
         vrd.setKnownAlleles(variantToFeed.getKnownAlleles());
