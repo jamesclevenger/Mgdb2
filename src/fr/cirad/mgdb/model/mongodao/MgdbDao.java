@@ -41,6 +41,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.query.Criteria;
 import org.springframework.data.mongodb.core.query.Query;
+import org.springframework.security.core.GrantedAuthority;
 import org.springframework.stereotype.Component;
 
 import com.mongodb.BasicDBObject;
@@ -583,9 +584,34 @@ public class MgdbDao {
         }
         return result;
     }
+//    
+//    public static List<Integer> getUserReadableProjectsIds(AbstractTokenManager tokenManager, String token, String sModule, boolean getReadable) throws ObjectNotFoundException {
+//        boolean fGotDBRights = tokenManager.canUserReadDB(token, sModule);
+//        if (fGotDBRights) {
+//            Query q = new Query();
+//            q.fields().include(GenotypingProject.FIELDNAME_NAME);
+//            List<GenotypingProject> listProj = MongoTemplateManager.get(sModule).find(q, GenotypingProject.class);
+//            List<Integer> projIds = listProj.stream().map(p -> p.getId()).collect(Collectors.toList());
+//            List<Integer> readableProjIds = new ArrayList<>();
+//            for (Integer id : projIds) {
+//                if (tokenManager.canUserReadProject(token, sModule, id)) {
+//                    readableProjIds.add(id);
+//                }
+//            }
+//            if (getReadable) {
+//                return readableProjIds;
+//            } else {
+//                projIds.removeAll(readableProjIds);
+//                return projIds;
+//            }
+//           
+//        } else {
+//            throw new ObjectNotFoundException(sModule);
+//        }
+//    }
     
-    public static List<Integer> getUserReadableProjectsIds(AbstractTokenManager tokenManager, String token, String sModule, boolean getReadable) throws ObjectNotFoundException {
-        boolean fGotDBRights = tokenManager.canUserReadDB(token, sModule);
+    public static List<Integer> getUserReadableProjectsIds(AbstractTokenManager tokenManager, Collection<? extends GrantedAuthority> authorities, String sModule, boolean getReadable) throws ObjectNotFoundException {
+        boolean fGotDBRights = tokenManager.canUserReadDB(authorities, sModule);
         if (fGotDBRights) {
             Query q = new Query();
             q.fields().include(GenotypingProject.FIELDNAME_NAME);
@@ -593,7 +619,7 @@ public class MgdbDao {
             List<Integer> projIds = listProj.stream().map(p -> p.getId()).collect(Collectors.toList());
             List<Integer> readableProjIds = new ArrayList<>();
             for (Integer id : projIds) {
-                if (tokenManager.canUserReadProject(token, sModule, id)) {
+                if (tokenManager.canUserReadProject(authorities, sModule, id)) {
                     readableProjIds.add(id);
                 }
             }
