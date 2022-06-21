@@ -21,6 +21,7 @@ import java.net.URL;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -295,7 +296,7 @@ public class VcfImport extends AbstractGenotypeImport {
             final int finalEffectAnnotationPos = effectAnnotationPos, finalGeneIdAnnotationPos = geneIdAnnotationPos;
 
             HashMap<String /*individual*/, GenotypingSample> providedIdToSampleMap = new HashMap<String /*individual*/, GenotypingSample>();
-            List<Individual> indsToAdd = new ArrayList<>();
+            HashSet<Individual> indsToAdd = new HashSet<>();
             boolean fDbAlreadyContainedIndividuals = mongoTemplate.findOne(new Query(), Individual.class) != null, fDbAlreadyContainedVariants = mongoTemplate.findOne(new Query() {{ fields().include("_id"); }}, VariantData.class) != null;
             for (String sIndOrSpId : header.getSampleNamesInOrder()) {
             	String sIndividual = sampleToIndividualMap == null ? sIndOrSpId : sampleToIndividualMap.get(sIndOrSpId);
@@ -304,7 +305,7 @@ public class VcfImport extends AbstractGenotypeImport {
 
                 if (!indsToAdd.isEmpty() && indsToAdd.size() % 1000 == 0) {
                     mongoTemplate.insert(indsToAdd, Individual.class);
-                    indsToAdd = new ArrayList<>();
+                    indsToAdd = new HashSet<>();
                 }
 
                 int sampleId = AutoIncrementCounter.getNextSequence(mongoTemplate, MongoTemplateManager.getMongoCollectionName(GenotypingSample.class));

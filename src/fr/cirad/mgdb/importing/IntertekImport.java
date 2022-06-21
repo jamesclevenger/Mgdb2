@@ -223,7 +223,7 @@ public class IntertekImport extends AbstractGenotypeImport {
             LOG.info(progress.getProgressDescription());
 
             HashMap<String, String> existingVariantIDs = buildSynonymToIdMapForExistingVariants(mongoTemplate, false);
-            boolean fDbAlreadyContainedIndividuals = mongoTemplate.findOne(new Query(), Individual.class) != null, fDbAlreadyContainedVariants = mongoTemplate.findOne(new Query() {{ fields().include("_id"); }}, VariantData.class) != null;
+//            boolean fDbAlreadyContainedIndividuals = mongoTemplate.findOne(new Query(), Individual.class) != null, fDbAlreadyContainedVariants = mongoTemplate.findOne(new Query() {{ fields().include("_id"); }}, VariantData.class) != null;
 
             // Reading csv file
             // Getting alleleX and alleleY for each SNP by reading lines between lines {"SNPID","SNPNum","AlleleY","AlleleX","Sequence"} and {"Scaling"};
@@ -342,8 +342,8 @@ public class IntertekImport extends AbstractGenotypeImport {
             // Store variants and variantRuns
             int count = 0;
             int nNumberOfVariantsToSaveAtOnce = 1;
-            final ArrayList<Thread> threadsToWaitFor = new ArrayList<>();
-            int chunkIndex = 0;
+//            final ArrayList<Thread> threadsToWaitFor = new ArrayList<>();
+//            int chunkIndex = 0;
             int nNConcurrentThreads = Math.max(1, Runtime.getRuntime().availableProcessors());
             LOG.debug("Importing project '" + sProject + "' into " + sModule + " using " + nNConcurrentThreads + " threads");
             
