@@ -90,6 +90,9 @@ public class PlinkImport extends AbstractGenotypeImport {
     public boolean m_fCloseContextOpenAfterImport = false;
 
     private static int m_nCurrentlyTransposingMatrixCount = 0;
+    
+    private static final Pattern nonWhiteSpaceBlockPattern = Pattern.compile("\\S+");
+    private static final Pattern outputFileSeparatorPattern = Pattern.compile("(/|\\t)");
 
     /**
      * Instantiates a new PLINK import.
@@ -152,7 +155,7 @@ public class PlinkImport extends AbstractGenotypeImport {
         {
             LOG.warn("Unable to parse input mode. Using default (0): overwrite run if exists.");
         }
-        new PlinkImport().importToMongo(args[0], args[1], args[2], args[3], new File(args[4]).toURI().toURL(), new File(args[5]), false, true, mode);
+        new PlinkImport().importToMongo(args[0], args[1], args[2], args[3], new File(args[4]).toURI().toURL(), new File(args[5]), null, false, true, mode);
     }
 
     /**
@@ -164,13 +167,14 @@ public class PlinkImport extends AbstractGenotypeImport {
      * @param sTechnology the technology
      * @param mapFileURL the map file URL
      * @param pedFile the ped file
+	 * @param sampleToIndividualMap the sample-individual mapping
      * @param fSkipMonomorphic whether or not to skip import of variants that have no polymorphism (where all individuals have the same genotype)
      * @param fCheckConsistencyBetweenSynonyms if set, will skip genotypes that are not consistent across provided synonyms
      * @param importMode the import mode
      * @return a project ID if it was created by this method, otherwise null
      * @throws Exception the exception
      */
-    public Integer importToMongo(String sModule, String sProject, String sRun, String sTechnology, URL mapFileURL, File pedFile, boolean fSkipMonomorphic, boolean fCheckConsistencyBetweenSynonyms, int importMode) throws Exception
+    public Integer importToMongo(String sModule, String sProject, String sRun, String sTechnology, URL mapFileURL, File pedFile, HashMap<String, String> sampleToIndividualMap, boolean fSkipMonomorphic, boolean fCheckConsistencyBetweenSynonyms, int importMode) throws Exception
     {
         if (m_nCurrentlyTransposingMatrixCount > 3) // we allow up to 4 simultaneous matrix rotations
             throw new Exception("The system is already busy rotating other PLINK datasets, please try again later");
@@ -246,6 +250,22 @@ public class PlinkImport extends AbstractGenotypeImport {
             progress.addStep(info);
             progress.moveToNextStep();
             Map<String, String> userIndividualToPopulationMap = new LinkedHashMap<>();
+
+//            long b4 = System.currentTimeMillis();
+//            // If we're importing samples rather than individuals, check that the mapping file is consistent with the contents of the ped file
+//            //            HashMap<String /*individual*/, GenotypingSample> providedIdToSampleMap = new HashMap<String /*individual*/, GenotypingSample>();
+//            BufferedReader reader = new BufferedReader(new FileReader(pedFile));
+//            String initLine;
+//            while ((initLine = reader.readLine()) != null) {
+//                Matcher initMatcher = nonWhiteSpaceBlockPattern.matcher(initLine);
+//                initMatcher.find(1);
+//                String sIndOrSpId = initMatcher.group();
+//                System.err.println(sIndOrSpId);
+//            }
+//            reader.close();
+//            LOG.info("Name checking took " + (System.currentTimeMillis() - b4) + "ms");
+            
+            
             Map<String, Type> nonSnpVariantTypeMap = new HashMap<>();
 
             File rotatedFile = null;
@@ -256,7 +276,39 @@ public class PlinkImport extends AbstractGenotypeImport {
             finally {
                 m_nCurrentlyTransposingMatrixCount--;
             }
+            
+            
+            
+            
+            
+            HashMap<String /*individual*/, GenotypingSample> providedIdToSampleMap = new HashMap<String /*individual*/, GenotypingSample>();
+            HashSet<Individual> indsToAdd = new HashSet<>();
+            boolean fDbAlreadyContainedIndividuals = mongoTemplate.findOne(new Query(), Individual.class) != null;
+            for (String sIndOrSpId : userIndividualToPopulationMap.keySet()) {
+            	String sIndividual = sampleToIndividualMap == null ? sIndOrSpId : sampleToIndividualMap.get(sIndOrSpId);
+            	if (sIndividual == null)
+            		throw new Exception("Sample / individual mapping file contains no individual for sample " + sIndOrSpId);
+            	
+                if (!fDbAlreadyContainedIndividuals || mongoTemplate.findById(sIndividual, Individual.class) == null)  // we don't have any population data so we don't need to update the Individual if it already exists
+                    indsToAdd.add(new Individual(sIndividual));
 
+                if (!indsToAdd.isEmpty() && indsToAdd.size() % 1000 == 0) {
+                	mongoTemplate.insert(indsToAdd, Individual.class);
+                    indsToAdd = new HashSet<>();
+                }
+
+                int sampleId = AutoIncrementCounter.getNextSequence(mongoTemplate, MongoTemplateManager.getMongoCollectionName(GenotypingSample.class));
+                providedIdToSampleMap.put(sIndOrSpId, new GenotypingSample(sampleId, project.getId(), sRun, sIndividual, sampleToIndividualMap == null ? null : sIndOrSpId));   // add a sample for this individual to the project
+            }
+            if (!indsToAdd.isEmpty()) {
+            	mongoTemplate.insert(indsToAdd, Individual.class);
+                indsToAdd = null;
+            }
+
+            
+            
+            
+            
             progress.addStep("Checking genotype consistency between synonyms");
             progress.moveToNextStep();
 
@@ -331,6 +383,31 @@ public class PlinkImport extends AbstractGenotypeImport {
                 int sampleId = AutoIncrementCounter.getNextSequence(mongoTemplate, MongoTemplateManager.getMongoCollectionName(GenotypingSample.class));
                 samples.put(sIndividual, new GenotypingSample(sampleId, project.getId(), sRun, sIndividual));   // add a sample for this individual to the project
             }
+            
+            
+            
+            
+//            for (String sIndOrSpId : userIndividualToPopulationMap.keySet()) {
+//            	String sIndividual = sampleToIndividualMap == null ? sIndOrSpId : sampleToIndividualMap.get(sIndOrSpId);
+//            	if (sIndividual == null)
+//            		throw new Exception("Sample / individual mapping file contains no individual for sample " + sIndOrSpId);
+//            	
+//                if (!fDbAlreadyContainedIndividuals || finalMongoTemplate.findById(sIndividual, Individual.class) == null)  // we don't have any population data so we don't need to update the Individual if it already exists
+//                    indsToAdd.add(new Individual(sIndividual));
+//
+//                if (!indsToAdd.isEmpty() && indsToAdd.size() % 1000 == 0) {
+//                	finalMongoTemplate.insert(indsToAdd, Individual.class);
+//                    indsToAdd = new HashSet<>();
+//                }
+//
+//                int sampleId = AutoIncrementCounter.getNextSequence(finalMongoTemplate, MongoTemplateManager.getMongoCollectionName(GenotypingSample.class));
+//                providedIdToSampleMap.put(sIndOrSpId, new GenotypingSample(sampleId, finalProject.getId(), sRun, sIndividual, sampleToIndividualMap == null ? null : sIndOrSpId));   // add a sample for this individual to the project
+//            }
+//            if (!indsToAdd.isEmpty()) {
+//            	finalMongoTemplate.insert(indsToAdd, Individual.class);
+//                indsToAdd = null;
+//            }
+            
 
             if (!individualsWithoutPopulation.isEmpty())
                 LOG.warn("Unable to find 3-letter population code for individuals: " + StringUtils.join(individualsWithoutPopulation, ", "));
@@ -513,9 +590,6 @@ public class PlinkImport extends AbstractGenotypeImport {
         File outputFile = File.createTempFile("plinkImport-" + pedFile.getName() + "-", ".tsv");
         FileWriter outputWriter = new FileWriter(outputFile);
 
-        Pattern allelePattern = Pattern.compile("\\S+");
-        Pattern outputFileSeparatorPattern = Pattern.compile("(/|\\t)");
-
         ArrayList<Integer> blockStartMarkers = new ArrayList<Integer>();  // blockStartMarkers[i] = first marker of block i
         ArrayList<ArrayList<Integer>> blockLinePositions = new ArrayList<ArrayList<Integer>>();  // blockLinePositions[line][block] = first character of `block` in `line`
         ArrayList<Integer> lineLengths = new ArrayList<Integer>();
@@ -527,7 +601,7 @@ public class PlinkImport extends AbstractGenotypeImport {
         String initLine;
         int nIndividuals = 0;
         while ((initLine = reader.readLine()) != null) {
-            Matcher initMatcher = allelePattern.matcher(initLine);
+            Matcher initMatcher = nonWhiteSpaceBlockPattern.matcher(initLine);
             initMatcher.find();
             String sPopulation = initMatcher.group();
             initMatcher.find();
@@ -665,7 +739,7 @@ public class PlinkImport extends AbstractGenotypeImport {
                                         }
                                     // Non-trivial case : INDELs and/or multi-characters separators
                                     } else {
-                                        Matcher matcher = allelePattern.matcher(lineBuffer);
+                                        Matcher matcher = nonWhiteSpaceBlockPattern.matcher(lineBuffer);
 
                                         // Start at the closest previous block that has already been mapped
                                         int startBlock = Math.min(blockIndex, individualPositions.size() - 1);
