@@ -90,6 +90,9 @@ public class AbstractGenotypeImport {
     	int nIndividualColPos = -1, nSampleColPos = -1;
     	while (sampleMappingScanner.hasNextLine()) {
     		String[] splitLine = sampleMappingScanner.nextLine().split("\t");
+    		if (splitLine.length < 2)
+    			continue;	// probably a blank line
+
     		if (nIndividualColPos == -1) {
     			nIndividualColPos = "individual".equals(splitLine[0].toLowerCase()) ? 0 : 1;
     			nSampleColPos = nIndividualColPos == 0 ? 1 : 0;

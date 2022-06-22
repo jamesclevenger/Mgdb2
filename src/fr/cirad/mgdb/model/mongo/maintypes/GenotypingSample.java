@@ -56,11 +56,11 @@ public class GenotypingSample {
 	@Field(FIELDNAME_RUN)
 	private String run;
         
-        /**
-         * The additional info.
-         */
-        @Field(SECTION_ADDITIONAL_INFO)
-        private LinkedHashMap<String, Object> additionalInfo = null;
+    /**
+     * The additional info.
+     */
+    @Field(SECTION_ADDITIONAL_INFO)
+    private LinkedHashMap<String, Object> additionalInfo = null;
 
 	/**
 	 * Instantiates a new GenotypingSample.
@@ -115,13 +115,16 @@ public class GenotypingSample {
 //		this.individual = individual;
 //	}
 
-        public LinkedHashMap<String, Object> getAdditionalInfo() {
-            return additionalInfo;
+    public LinkedHashMap<String, Object> getAdditionalInfo() {
+        if (additionalInfo == null) {
+            additionalInfo = new LinkedHashMap<String, Object>();
         }
+        return additionalInfo;
+    }
 
-        public void setAdditionalInfo(LinkedHashMap<String, Object> additionalInfo) {
-            this.additionalInfo = additionalInfo;
-        }
+    public void setAdditionalInfo(LinkedHashMap<String, Object> additionalInfo) {
+        this.additionalInfo = additionalInfo;
+    }
 	
 	@Override
 	public boolean equals(Object o)

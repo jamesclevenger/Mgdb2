@@ -267,13 +267,11 @@ public class IntertekImport extends AbstractGenotypeImport {
                                 String call = values[callColIndex];
                                 String FI = values[yFIColIndex] + "," + values[xFIColIndex];
                                 
-                                if (variantId.equals("") || sIndOrSpId.equals("")) {
+                                if (variantId.equals("") || sIndOrSpId.equals(""))
                                     continue; //skip line if no variantId or no individualId
-                                }
 
-                                if (variantSamplesMap.get(variantId) == null) {
+                                if (variantSamplesMap.get(variantId) == null)
                                     variantSamplesMap.put(variantId, new HashMap<>());
-                                }
 
                                 String gtCode = null;
                                 List<String> variantAlleles = variantAllelesMap.get(variantId);
@@ -302,34 +300,25 @@ public class IntertekImport extends AbstractGenotypeImport {
                                     }
                                     
                                     String sIndividual = sampleToIndividualMap == null ? sIndOrSpId : sampleToIndividualMap.get(sIndOrSpId);
-//                                    if (!fDbAlreadyContainedIndividuals || mongoTemplate.findById(sIndividual, Individual.class) == null)  // we don't have any population data so we don't need to update the Individual if it already exists
-//                                        indsToAdd.add(new Individual(sIndividual));
-//
-//                                    if (!indsToAdd.isEmpty() && indsToAdd.size() % 1000 == 0) {
-//                                        mongoTemplate.insert(indsToAdd, Individual.class);
-//                                        indsToAdd = new ArrayList<>();
-//                                    }
-//
-//                                    int sampleId = AutoIncrementCounter.getNextSequence(mongoTemplate, MongoTemplateManager.getMongoCollectionName(GenotypingSample.class));
-//                                    individualToSampleMap.put(sIndOrSpId, new GenotypingSample(sampleId, project.getId(), sRun, sIndividual, sampleToIndividualMap == null ? null : sIndOrSpId));   // add a sample for this individual to the project
+                                	if (sIndividual == null)
+                                		throw new Exception("Sample / individual mapping file contains no individual for sample " + sIndOrSpId);
 
-                                    
-
-                                    if (individualToSampleMap.get(sIndividual) == null) {
+                                    GenotypingSample sample = individualToSampleMap.get(sIndividual);
+                                    if (sample == null) {
                                         Individual ind = mongoTemplate.findById(sIndividual, Individual.class);
-                                        if (ind == null) {
-                                            ind = new Individual(sIndividual);
-                                            ind.getAdditionalInfo().put("masterPlate", masterPlate);
-                                            mongoTemplate.save(ind);
-                                        }
+                                        if (ind == null)
+                                            mongoTemplate.save(new Individual(sIndividual));
 
                                         int sampleId = AutoIncrementCounter.getNextSequence(mongoTemplate, MongoTemplateManager.getMongoCollectionName(GenotypingSample.class));
-                                        individualToSampleMap.put(sIndividual, new GenotypingSample(sampleId, project.getId(), sRun, sIndividual, sampleToIndividualMap == null ? null : sIndOrSpId));
+                                        sample = new GenotypingSample(sampleId, project.getId(), sRun, sIndividual, sampleToIndividualMap == null ? null : sIndOrSpId);
+                                        sample.getAdditionalInfo().put("masterPlate", masterPlate);
+                                        individualToSampleMap.put(sIndividual, sample);
                                     }
 
                                     SampleGenotype sampleGt = new SampleGenotype(gtCode);
                                     sampleGt.getAdditionalInfo().put("FI", FI);	//TODO - Check how the fluorescence indexes X et Y should be stored
-                                    variantSamplesMap.get(variantId).put(individualToSampleMap.get(sIndividual).getId(), sampleGt);                                             
+
+                                    variantSamplesMap.get(variantId).put(sample.getId(), sampleGt);                                             
                                 }
                             }
                         }

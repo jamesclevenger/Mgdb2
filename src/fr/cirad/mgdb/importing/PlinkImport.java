@@ -250,22 +250,6 @@ public class PlinkImport extends AbstractGenotypeImport {
             progress.addStep(info);
             progress.moveToNextStep();
             Map<String, String> userIndividualToPopulationMap = new LinkedHashMap<>();
-
-//            long b4 = System.currentTimeMillis();
-//            // If we're importing samples rather than individuals, check that the mapping file is consistent with the contents of the ped file
-//            //            HashMap<String /*individual*/, GenotypingSample> providedIdToSampleMap = new HashMap<String /*individual*/, GenotypingSample>();
-//            BufferedReader reader = new BufferedReader(new FileReader(pedFile));
-//            String initLine;
-//            while ((initLine = reader.readLine()) != null) {
-//                Matcher initMatcher = nonWhiteSpaceBlockPattern.matcher(initLine);
-//                initMatcher.find(1);
-//                String sIndOrSpId = initMatcher.group();
-//                System.err.println(sIndOrSpId);
-//            }
-//            reader.close();
-//            LOG.info("Name checking took " + (System.currentTimeMillis() - b4) + "ms");
-            
-            
             Map<String, Type> nonSnpVariantTypeMap = new HashMap<>();
 
             File rotatedFile = null;
@@ -276,11 +260,8 @@ public class PlinkImport extends AbstractGenotypeImport {
             finally {
                 m_nCurrentlyTransposingMatrixCount--;
             }
-            
-            
-            
-            
-            
+
+            // Create the necessary samples
             HashMap<String /*individual*/, GenotypingSample> providedIdToSampleMap = new HashMap<String /*individual*/, GenotypingSample>();
             HashSet<Individual> indsToAdd = new HashSet<>();
             boolean fDbAlreadyContainedIndividuals = mongoTemplate.findOne(new Query(), Individual.class) != null;
@@ -305,10 +286,6 @@ public class PlinkImport extends AbstractGenotypeImport {
                 indsToAdd = null;
             }
 
-            
-            
-            
-            
             progress.addStep("Checking genotype consistency between synonyms");
             progress.moveToNextStep();
 
@@ -318,7 +295,7 @@ public class PlinkImport extends AbstractGenotypeImport {
 
             int nConcurrentThreads = Math.max(1, Runtime.getRuntime().availableProcessors());
             LOG.debug("Importing project '" + sProject + "' into " + sModule + " using " + nConcurrentThreads + " threads");
-            long count = importTempFileContents(progress, nConcurrentThreads, mongoTemplate, rotatedFile, variantsAndPositions, existingVariantIDs, project, sRun, inconsistencies, userIndividualToPopulationMap, nonSnpVariantTypeMap, fSkipMonomorphic);
+            long count = importTempFileContents(progress, nConcurrentThreads, mongoTemplate, rotatedFile, variantsAndPositions, existingVariantIDs, project, sRun, inconsistencies, providedIdToSampleMap, userIndividualToPopulationMap, nonSnpVariantTypeMap, fSkipMonomorphic);
 
             if (progress.getError() != null)
                 throw new Exception(progress.getError());
@@ -339,7 +316,7 @@ public class PlinkImport extends AbstractGenotypeImport {
         }
     }
 
-    public long importTempFileContents(ProgressIndicator progress, int nNConcurrentThreads, MongoTemplate mongoTemplate, File tempFile, LinkedHashMap<String, String> variantsAndPositions, HashMap<String, String> existingVariantIDs, GenotypingProject project, String sRun, HashMap<String, ArrayList<String>> inconsistencies, Map<String, String> userIndividualToPopulationMap, Map<String, Type> nonSnpVariantTypeMap, boolean fSkipMonomorphic) throws Exception
+    public long importTempFileContents(ProgressIndicator progress, int nNConcurrentThreads, MongoTemplate mongoTemplate, File tempFile, LinkedHashMap<String, String> variantsAndPositions, HashMap<String, String> existingVariantIDs, GenotypingProject project, String sRun, HashMap<String, ArrayList<String>> inconsistencies, HashMap<String /*individual*/, GenotypingSample> providedIdToSampleMap, Map<String, String> userIndividualToPopulationMap, Map<String, Type> nonSnpVariantTypeMap, boolean fSkipMonomorphic) throws Exception
     {
         String[] individuals = userIndividualToPopulationMap.keySet().toArray(new String[userIndividualToPopulationMap.size()]);
         final AtomicInteger count = new AtomicInteger(0);
@@ -357,16 +334,19 @@ public class PlinkImport extends AbstractGenotypeImport {
             final int nNumberOfVariantsToSaveAtOnce = Math.max(1, nMaxChunkSize / individuals.length);
             LOG.info("Importing by chunks of size " + nNumberOfVariantsToSaveAtOnce);
 
-            // Create the necessary samples
-            HashMap<String /*individual*/, GenotypingSample> samples = new HashMap<>();
             LinkedHashSet<String> individualsWithoutPopulation = new LinkedHashSet<>();
-            for (String sIndividual : userIndividualToPopulationMap.keySet()) {
+            for (String sIndOrSpId : userIndividualToPopulationMap.keySet()) {
+            	GenotypingSample sample = providedIdToSampleMap.get(sIndOrSpId);
+            	if (sample == null)
+            		throw new Exception("Sample / individual mapping file contains no individual for sample " + sIndOrSpId);
+
+            	String sIndividual = sample.getIndividual();
                 Individual ind = mongoTemplate.findById(sIndividual, Individual.class);
                 boolean fAlreadyExists = ind != null;
                 boolean fNeedToSave = true;
                 if (!fAlreadyExists)
                     ind = new Individual(sIndividual);
-                String sPop = userIndividualToPopulationMap.get(sIndividual);
+                String sPop = userIndividualToPopulationMap.get(sIndOrSpId);
                 if (!sPop.equals(".") && sPop.length() == 3)
                     ind.setPopulation(sPop);
                 else if (!sIndividual.substring(0, 3).matches(".*\\d+.*") && sIndividual.substring(3).matches("\\d+"))
@@ -379,35 +359,7 @@ public class PlinkImport extends AbstractGenotypeImport {
 
                 if (fNeedToSave)
                     mongoTemplate.save(ind);
-
-                int sampleId = AutoIncrementCounter.getNextSequence(mongoTemplate, MongoTemplateManager.getMongoCollectionName(GenotypingSample.class));
-                samples.put(sIndividual, new GenotypingSample(sampleId, project.getId(), sRun, sIndividual));   // add a sample for this individual to the project
             }
-            
-            
-            
-            
-//            for (String sIndOrSpId : userIndividualToPopulationMap.keySet()) {
-//            	String sIndividual = sampleToIndividualMap == null ? sIndOrSpId : sampleToIndividualMap.get(sIndOrSpId);
-//            	if (sIndividual == null)
-//            		throw new Exception("Sample / individual mapping file contains no individual for sample " + sIndOrSpId);
-//            	
-//                if (!fDbAlreadyContainedIndividuals || finalMongoTemplate.findById(sIndividual, Individual.class) == null)  // we don't have any population data so we don't need to update the Individual if it already exists
-//                    indsToAdd.add(new Individual(sIndividual));
-//
-//                if (!indsToAdd.isEmpty() && indsToAdd.size() % 1000 == 0) {
-//                	finalMongoTemplate.insert(indsToAdd, Individual.class);
-//                    indsToAdd = new HashSet<>();
-//                }
-//
-//                int sampleId = AutoIncrementCounter.getNextSequence(finalMongoTemplate, MongoTemplateManager.getMongoCollectionName(GenotypingSample.class));
-//                providedIdToSampleMap.put(sIndOrSpId, new GenotypingSample(sampleId, finalProject.getId(), sRun, sIndividual, sampleToIndividualMap == null ? null : sIndOrSpId));   // add a sample for this individual to the project
-//            }
-//            if (!indsToAdd.isEmpty()) {
-//            	finalMongoTemplate.insert(indsToAdd, Individual.class);
-//                indsToAdd = null;
-//            }
-            
 
             if (!individualsWithoutPopulation.isEmpty())
                 LOG.warn("Unable to find 3-letter population code for individuals: " + StringUtils.join(individualsWithoutPopulation, ", "));
@@ -504,7 +456,7 @@ public class PlinkImport extends AbstractGenotypeImport {
                                         }
                                     }
 
-                                    VariantRunData runToSave = addPlinkDataToVariant(mongoTemplate, variant, sequence, bpPosition, userIndividualToPopulationMap, nonSnpVariantTypeMap, alleles, project, sRun, samples, fImportUnknownVariants);
+                                    VariantRunData runToSave = addPlinkDataToVariant(mongoTemplate, variant, sequence, bpPosition, userIndividualToPopulationMap, nonSnpVariantTypeMap, alleles, project, sRun, providedIdToSampleMap, fImportUnknownVariants);
 
                                     if (variant.getReferencePosition() != null)
                                         project.getSequences().add(variant.getReferencePosition().getSequence());
@@ -561,7 +513,7 @@ public class PlinkImport extends AbstractGenotypeImport {
             if (!project.getRuns().contains(sRun))
                 project.getRuns().add(sRun);
             mongoTemplate.save(project);    // always save project before samples otherwise the sample cleaning procedure in MgdbDao.prepareDatabaseForSearches may remove them if called in the meantime
-            mongoTemplate.insert(samples.values(), GenotypingSample.class);
+            mongoTemplate.insert(providedIdToSampleMap.values(), GenotypingSample.class);
         }
         finally
         {
