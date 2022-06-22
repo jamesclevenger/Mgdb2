@@ -300,8 +300,10 @@ public class VcfImport extends AbstractGenotypeImport {
             boolean fDbAlreadyContainedIndividuals = mongoTemplate.findOne(new Query(), Individual.class) != null, fDbAlreadyContainedVariants = mongoTemplate.findOne(new Query() {{ fields().include("_id"); }}, VariantData.class) != null;
             for (String sIndOrSpId : header.getSampleNamesInOrder()) {
             	String sIndividual = sampleToIndividualMap == null ? sIndOrSpId : sampleToIndividualMap.get(sIndOrSpId);
-            	if (sIndividual == null)
-            		throw new Exception("Sample / individual mapping file contains no individual for sample " + sIndOrSpId);
+            	if (sIndividual == null) {
+            		progress.setError("Sample / individual mapping file contains no individual for sample " + sIndOrSpId);
+            		return null;
+            	}
             	
                 if (!fDbAlreadyContainedIndividuals || mongoTemplate.findById(sIndividual, Individual.class) == null)  // we don't have any population data so we don't need to update the Individual if it already exists
                     indsToAdd.add(new Individual(sIndividual));

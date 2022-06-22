@@ -300,8 +300,10 @@ public class IntertekImport extends AbstractGenotypeImport {
                                     }
                                     
                                     String sIndividual = sampleToIndividualMap == null ? sIndOrSpId : sampleToIndividualMap.get(sIndOrSpId);
-                                	if (sIndividual == null)
-                                		throw new Exception("Sample / individual mapping file contains no individual for sample " + sIndOrSpId);
+                                	if (sIndividual == null) {
+                                		progress.setError("Sample / individual mapping file contains no individual for sample " + sIndOrSpId);
+                                		break;
+                                	}
 
                                     GenotypingSample sample = individualToSampleMap.get(sIndividual);
                                     if (sample == null) {
@@ -327,6 +329,9 @@ public class IntertekImport extends AbstractGenotypeImport {
                 project.setPloidyLevel(nPloidy);
                 csvReader.close();
             }
+            
+            if (progress.getError() != null || progress.isAborted())
+                return null;
 
             // Store variants and variantRuns
             int count = 0;
