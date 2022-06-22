@@ -24,6 +24,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Scanner;
 import java.util.concurrent.ExecutorService;
@@ -81,10 +82,11 @@ public class AbstractGenotypeImport {
 		return result;
 	}
 	
-	static public HashMap<String, String> readSampleMappingFile(URL sampleMappingFileURL) throws FileNotFoundException, URISyntaxException {
+	static public HashMap<String, String> readSampleMappingFile(URL sampleMappingFileURL) throws Exception {
 		if (sampleMappingFileURL == null)
 			return null;
 
+		HashSet<String> encounteredIndividuals = new HashSet<>();
         HashMap<String, String> sampleToIndividualMap = new HashMap<>();
     	Scanner sampleMappingScanner = new Scanner(new File(sampleMappingFileURL.toURI()));
     	int nIndividualColPos = -1, nSampleColPos = -1;
@@ -97,8 +99,13 @@ public class AbstractGenotypeImport {
     			nIndividualColPos = "individual".equals(splitLine[0].toLowerCase()) ? 0 : 1;
     			nSampleColPos = nIndividualColPos == 0 ? 1 : 0;
     		}
-    		else
+    		else {
+    			if (encounteredIndividuals.contains(splitLine[nIndividualColPos]))
+    				throw new Exception("Only a single sample per individual may be provided!");
+    			
     			sampleToIndividualMap.put(splitLine[nSampleColPos], splitLine[nIndividualColPos]);
+    			encounteredIndividuals.add(splitLine[nIndividualColPos]);
+    		}
     	}
     	sampleMappingScanner.close();
 		return sampleToIndividualMap;
