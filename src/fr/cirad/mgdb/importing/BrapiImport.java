@@ -85,6 +85,7 @@ import jhi.brapi.api.markerprofiles.BrapiAlleleMatrix;
 import jhi.brapi.api.markerprofiles.BrapiMarkerProfile;
 import jhi.brapi.api.markers.BrapiMarker;
 import jhi.brapi.client.AsyncChecker;
+import okhttp3.ResponseBody;
 import retrofit2.Call;
 import retrofit2.Response;
 
@@ -251,8 +252,12 @@ public class BrapiImport extends AbstractGenotypeImport {
 			{
 				LOG.debug("Querying marker page " + markerPager.getPage());
 				Response<BrapiListResource<BrapiMarkerPosition>> response = service.getMapMarkerData(mapDbId, null, markerPager.getPageSize(), markerPager.getPage()).execute();
-				if (!response.isSuccessful())
-					throw new Exception(new String(response.errorBody().bytes()));
+				if (!response.isSuccessful()) {
+					ResponseBody errorBody = response.errorBody();
+					byte[] sExceptionMsg = errorBody.bytes();
+					errorBody.close();
+					throw new Exception(new String(sExceptionMsg));
+				}
 				BrapiListResource<BrapiMarkerPosition> positions = response.body();
 		
 				Map<String, VariantData> variantsToCreate = new HashMap<String, VariantData>();
@@ -292,8 +297,12 @@ public class BrapiImport extends AbstractGenotypeImport {
 							markerReponse = service.getMarkerInfo(variantsToCreate.keySet(), null, null, null, null, subPager.getPageSize(), subPager.getPage()).execute();	// try with GET
 						else if (fMayGetMarkerDetails)	// worst solution: get them one by one
 							markerReponse = service.getMarkerDetails(variantsToCreate.keySet().iterator().next()).execute();	// try in v1.0 mode ("markers" instead of "markers-search");
-						if (!markerReponse.isSuccessful())
-							throw new Exception(new String(markerReponse.errorBody().bytes()));
+						if (!markerReponse.isSuccessful()) {
+							ResponseBody errorBody = response.errorBody();
+							byte[] sExceptionMsg = errorBody.bytes();
+							errorBody.close();
+							throw new Exception(new String(sExceptionMsg));
+						}
 
 						BrapiListResource<BrapiMarker> markerInfo;
 						if (fMayPostMarkersSearch || fMayGetMarkersSearch)
@@ -536,8 +545,12 @@ public class BrapiImport extends AbstractGenotypeImport {
 						Response<BrapiBaseResource<BrapiAlleleMatrix>> response = call.execute();
 						if (response.isSuccessful())
 							br = response.body();
-						else
-							throw new Exception(new String(response.errorBody().bytes()));
+						else {
+							ResponseBody errorBody = response.errorBody();
+							byte[] sExceptionMsg = errorBody.bytes();
+							errorBody.close();
+							throw new Exception(new String(sExceptionMsg));
+						}
 
 						for (List<String> row : br.getResult().getData())
 						{
