@@ -369,6 +369,7 @@ public class HapMapImport extends AbstractGenotypeImport {
                 				}
                 				catch (Exception e)
                 				{
+                					LOG.error("Error occured importing variant number " + (totalProcessedVariantCount.get() + 1) + " (" + Type.SNP.toString() + ":" + hmFeature.getChr() + ":" + hmFeature.getStart() + ") ", e);;
                 					throw new Exception("Error occured importing variant number " + (totalProcessedVariantCount.get() + 1) + " (" + Type.SNP.toString() + ":" + hmFeature.getChr() + ":" + hmFeature.getStart() + ") " + (e.getMessage().endsWith("\"index\" is null") ? "containing an invalid allele code" : e.getMessage()), e);
                 				}
                             }
@@ -483,11 +484,16 @@ public class HapMapImport extends AbstractGenotypeImport {
                 continue;    // we don't add invalid genotypes
             }
 
-            SampleGenotype aGT = new SampleGenotype(alleles.stream().map(allele -> alleleIndexMap.get(allele)).sorted().map(index -> index.toString()).collect(Collectors.joining("/")));
-			GenotypingSample sample = providedIdToSampleMap.get(sIndOrSpId);
-        	if (sample == null)
-        		throw new Exception("Sample / individual mapping file contains no individual for sample " + sIndOrSpId);
-			vrd.getSampleGenotypes().put(sample.getId(), aGT);
+            try {
+	            SampleGenotype aGT = new SampleGenotype(alleles.stream().map(allele -> alleleIndexMap.get(allele)).sorted().map(index -> index.toString()).collect(Collectors.joining("/")));
+				GenotypingSample sample = providedIdToSampleMap.get(sIndOrSpId);
+	        	if (sample == null)
+	        		throw new Exception("Sample / individual mapping file contains no individual for sample " + sIndOrSpId);
+				vrd.getSampleGenotypes().put(sample.getId(), aGT);
+            }
+            catch (NullPointerException npe) {
+            	throw new Exception("Some genotypes for variant " + hmFeature.getContig() + ":" + hmFeature.getStart() + " refer to alleles not declared at the beginning of the line!");
+            }
     	}
 		
 		if (ploidiesFound.size() > 1)
