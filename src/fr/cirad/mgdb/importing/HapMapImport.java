@@ -218,6 +218,25 @@ public class HapMapImport extends AbstractGenotypeImport {
 				project.setTechnology(sTechnology);
 				if (nPloidy != null)
 				    project.setPloidyLevel(nPloidy);
+				else {
+					progress.addStep("Attempting to guess ploidy level");
+					progress.moveToNextStep();
+					
+					int nTestedVariantCount = 0;
+					Iterator<RawHapMapFeature> it = reader.iterator();
+                    RawHapMapFeature hmFeature;
+					while (nTestedVariantCount < 1000 && it.hasNext()) {
+                        hmFeature = it.next();
+                        if (hmFeature.getAlleles().length > 1) {
+                        	project.setPloidyLevel(hmFeature.getAlleles().length);
+                        	LOG.info("Guessed ploidy level for dataset to import: " + project.getPloidyLevel());
+                        	break;
+                        }
+                        nTestedVariantCount++;
+					}
+					if (project.getPloidyLevel() == 0)
+						LOG.warn("Unable to guess ploidy level for dataset to import: " + project.getPloidyLevel());
+				}
 				createdProject = project.getId();
 			}
 
@@ -233,7 +252,6 @@ public class HapMapImport extends AbstractGenotypeImport {
             LOG.debug("Importing project '" + sProject + "' into " + sModule + " using " + nNConcurrentThreads + " threads");
             
             Iterator<RawHapMapFeature> it = reader.iterator();
-            
             BlockingQueue<Runnable> saveServiceQueue = new LinkedBlockingQueue<Runnable>(saveServiceQueueLength(nNConcurrentThreads));
             ExecutorService saveService = new ThreadPoolExecutor(1, saveServiceThreads(nNConcurrentThreads), 30, TimeUnit.SECONDS, saveServiceQueue, new ThreadPoolExecutor.CallerRunsPolicy());
             int nImportThreads = Math.max(1, nNConcurrentThreads - 1);
