@@ -33,6 +33,7 @@ import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.NoSuchElementException;
 import java.util.TreeMap;
 import java.util.TreeSet;
@@ -84,6 +85,7 @@ import jhi.brapi.api.markerprofiles.BrapiAlleleMatrix;
 import jhi.brapi.api.markerprofiles.BrapiMarkerProfile;
 import jhi.brapi.api.markers.BrapiMarker;
 import jhi.brapi.client.AsyncChecker;
+import okhttp3.ResponseBody;
 import retrofit2.Call;
 import retrofit2.Response;
 
@@ -137,7 +139,7 @@ public class BrapiImport extends AbstractGenotypeImport {
 		int mode = 0;
 		try
 		{
-			mode = Integer.parseInt(args[5]);
+			mode = Integer.parseInt(args[7]);
 		}
 		catch (Exception e)
 		{
@@ -250,8 +252,12 @@ public class BrapiImport extends AbstractGenotypeImport {
 			{
 				LOG.debug("Querying marker page " + markerPager.getPage());
 				Response<BrapiListResource<BrapiMarkerPosition>> response = service.getMapMarkerData(mapDbId, null, markerPager.getPageSize(), markerPager.getPage()).execute();
-				if (!response.isSuccessful())
-					throw new Exception(new String(response.errorBody().bytes()));
+				if (!response.isSuccessful()) {
+					ResponseBody errorBody = response.errorBody();
+					byte[] sExceptionMsg = errorBody.bytes();
+					errorBody.close();
+					throw new Exception(new String(sExceptionMsg));
+				}
 				BrapiListResource<BrapiMarkerPosition> positions = response.body();
 		
 				Map<String, VariantData> variantsToCreate = new HashMap<String, VariantData>();
@@ -291,8 +297,12 @@ public class BrapiImport extends AbstractGenotypeImport {
 							markerReponse = service.getMarkerInfo(variantsToCreate.keySet(), null, null, null, null, subPager.getPageSize(), subPager.getPage()).execute();	// try with GET
 						else if (fMayGetMarkerDetails)	// worst solution: get them one by one
 							markerReponse = service.getMarkerDetails(variantsToCreate.keySet().iterator().next()).execute();	// try in v1.0 mode ("markers" instead of "markers-search");
-						if (!markerReponse.isSuccessful())
-							throw new Exception(new String(markerReponse.errorBody().bytes()));
+						if (!markerReponse.isSuccessful()) {
+							ResponseBody errorBody = response.errorBody();
+							byte[] sExceptionMsg = errorBody.bytes();
+							errorBody.close();
+							throw new Exception(new String(sExceptionMsg));
+						}
 
 						BrapiListResource<BrapiMarker> markerInfo;
 						if (fMayPostMarkersSearch || fMayGetMarkersSearch)
@@ -401,6 +411,9 @@ public class BrapiImport extends AbstractGenotypeImport {
 					throw new Exception("Only one markerprofile per germplasm is supported when importing a run. Found " + profiles.size() + " for " + gp);
 				profileToGermplasmMap.put(profiles.get(0), gp);
 			}
+			
+			if (mongoTemplate.findOne(new Query(Criteria.where(GenotypingSample.FIELDNAME_NAME).in(profileToGermplasmMap.keySet())), GenotypingSample.class) != null)
+				throw new Exception("The dataset you are trying to import contains markerProfile IDs that already exist in the target database!");
 
 			LOG.debug("Importing " + markerprofiles.size() + " individuals");
 			List<String> markerProfileIDs = markerprofiles.stream().map(BrapiMarkerProfile::getMarkerprofileDbId).collect(Collectors.toList());
@@ -532,8 +545,12 @@ public class BrapiImport extends AbstractGenotypeImport {
 						Response<BrapiBaseResource<BrapiAlleleMatrix>> response = call.execute();
 						if (response.isSuccessful())
 							br = response.body();
-						else
-							throw new Exception(new String(response.errorBody().bytes()));
+						else {
+							ResponseBody errorBody = response.errorBody();
+							byte[] sExceptionMsg = errorBody.bytes();
+							errorBody.close();
+							throw new Exception(new String(sExceptionMsg));
+						}
 
 						for (List<String> row : br.getResult().getData())
 						{
@@ -594,6 +611,10 @@ public class BrapiImport extends AbstractGenotypeImport {
 					}
 		        }
 				tempFileWriter.close();
+				
+				HashMap<String, String> individualToSampleMap = new HashMap<>();	// in order to save sample names we got from BrAPI source
+				for (Entry<String, String> entry : profileToGermplasmMap.entrySet())
+					individualToSampleMap.put(entry.getValue(), entry.getKey());
 
 		        // STDVariantImport is convenient because it always sorts data by variants
 				STDVariantImport stdVariantImport = new STDVariantImport(progress.getProcessId());
@@ -601,6 +622,7 @@ public class BrapiImport extends AbstractGenotypeImport {
 				stdVariantImport.setPloidy(maxPloidyFound);
 				stdVariantImport.allowDbDropIfNoGenotypingData(false);
 				stdVariantImport.tryAndMatchRandomObjectIDs(true);
+				stdVariantImport.setIndividualToSampleMap(individualToSampleMap);
 				stdVariantImport.importToMongo(sModule, sProject, sRun, sTechnology, tempFile.getAbsolutePath(), importMode);
 			}
 			
@@ -785,11 +807,12 @@ public class BrapiImport extends AbstractGenotypeImport {
 			String[] cells = lineForVariant.trim().split("\t");
 			boolean fNewAllelesEncountered = false;
 			for (int k=1; k<=markerProfiles.size(); k++)
-			{				
-				String sIndividual = markerProfileToIndividualMap.get(markerProfiles.get(k - 1));
+			{
+				String markerProfile = markerProfiles.get(k - 1);
+				String sIndividual = markerProfileToIndividualMap.get(markerProfile);
 
-				if (!usedSamples.containsKey(sIndividual))	// we don't want to persist each sample several times
-				{
+				if (!usedSamples.containsKey(sIndividual)) {	// we don't want to persist each sample several times
+				
 	                Individual ind = mongoTemplate.findById(sIndividual, Individual.class);
 	                if (ind == null) {	// we don't have any population data so we don't need to update the Individual if it already exists
 	                    ind = new Individual(sIndividual);
@@ -797,7 +820,7 @@ public class BrapiImport extends AbstractGenotypeImport {
 	                }
 
 	                int sampleId = AutoIncrementCounter.getNextSequence(mongoTemplate, MongoTemplateManager.getMongoCollectionName(GenotypingSample.class));
-	                usedSamples.put(sIndividual, new GenotypingSample(sampleId, project.getId(), vrd.getRunName(), sIndividual));	// add a sample for this individual to the project
+	                usedSamples.put(sIndividual, new GenotypingSample(sampleId, project.getId(), vrd.getRunName(), sIndividual, markerProfile));	// add a sample for this individual to the project
 	            }
 
 				String gtString = "";

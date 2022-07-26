@@ -90,6 +90,9 @@ public class PlinkImport extends AbstractGenotypeImport {
     public boolean m_fCloseContextOpenAfterImport = false;
 
     private static int m_nCurrentlyTransposingMatrixCount = 0;
+    
+    private static final Pattern nonWhiteSpaceBlockPattern = Pattern.compile("\\S+");
+    private static final Pattern outputFileSeparatorPattern = Pattern.compile("(/|\\t)");
 
     /**
      * Instantiates a new PLINK import.
@@ -152,7 +155,7 @@ public class PlinkImport extends AbstractGenotypeImport {
         {
             LOG.warn("Unable to parse input mode. Using default (0): overwrite run if exists.");
         }
-        new PlinkImport().importToMongo(args[0], args[1], args[2], args[3], new File(args[4]).toURI().toURL(), new File(args[5]), false, true, mode);
+        new PlinkImport().importToMongo(args[0], args[1], args[2], args[3], new File(args[4]).toURI().toURL(), new File(args[5]), null, false, true, mode);
     }
 
     /**
@@ -164,13 +167,14 @@ public class PlinkImport extends AbstractGenotypeImport {
      * @param sTechnology the technology
      * @param mapFileURL the map file URL
      * @param pedFile the ped file
+	 * @param sampleToIndividualMap the sample-individual mapping
      * @param fSkipMonomorphic whether or not to skip import of variants that have no polymorphism (where all individuals have the same genotype)
      * @param fCheckConsistencyBetweenSynonyms if set, will skip genotypes that are not consistent across provided synonyms
      * @param importMode the import mode
      * @return a project ID if it was created by this method, otherwise null
      * @throws Exception the exception
      */
-    public Integer importToMongo(String sModule, String sProject, String sRun, String sTechnology, URL mapFileURL, File pedFile, boolean fSkipMonomorphic, boolean fCheckConsistencyBetweenSynonyms, int importMode) throws Exception
+    public Integer importToMongo(String sModule, String sProject, String sRun, String sTechnology, URL mapFileURL, File pedFile, HashMap<String, String> sampleToIndividualMap, boolean fSkipMonomorphic, boolean fCheckConsistencyBetweenSynonyms, int importMode) throws Exception
     {
         if (m_nCurrentlyTransposingMatrixCount > 3) // we allow up to 4 simultaneous matrix rotations
             throw new Exception("The system is already busy rotating other PLINK datasets, please try again later");
@@ -257,6 +261,33 @@ public class PlinkImport extends AbstractGenotypeImport {
                 m_nCurrentlyTransposingMatrixCount--;
             }
 
+            // Create the necessary samples
+            HashMap<String /*individual*/, GenotypingSample> providedIdToSampleMap = new HashMap<String /*individual*/, GenotypingSample>();
+            HashSet<Individual> indsToAdd = new HashSet<>();
+            boolean fDbAlreadyContainedIndividuals = mongoTemplate.findOne(new Query(), Individual.class) != null;
+            for (String sIndOrSpId : userIndividualToPopulationMap.keySet()) {
+            	String sIndividual = sampleToIndividualMap == null ? sIndOrSpId : sampleToIndividualMap.get(sIndOrSpId);
+            	if (sIndividual == null) {
+            		progress.setError("Sample / individual mapping file contains no individual for sample " + sIndOrSpId);
+            		return null;
+            	}
+            	
+                if (!fDbAlreadyContainedIndividuals || mongoTemplate.findById(sIndividual, Individual.class) == null)  // we don't have any population data so we don't need to update the Individual if it already exists
+                    indsToAdd.add(new Individual(sIndividual));
+
+                if (!indsToAdd.isEmpty() && indsToAdd.size() % 1000 == 0) {
+                	mongoTemplate.insert(indsToAdd, Individual.class);
+                    indsToAdd = new HashSet<>();
+                }
+
+                int sampleId = AutoIncrementCounter.getNextSequence(mongoTemplate, MongoTemplateManager.getMongoCollectionName(GenotypingSample.class));
+                providedIdToSampleMap.put(sIndOrSpId, new GenotypingSample(sampleId, project.getId(), sRun, sIndividual, sampleToIndividualMap == null ? null : sIndOrSpId));   // add a sample for this individual to the project
+            }
+            if (!indsToAdd.isEmpty()) {
+            	mongoTemplate.insert(indsToAdd, Individual.class);
+                indsToAdd = null;
+            }
+
             progress.addStep("Checking genotype consistency between synonyms");
             progress.moveToNextStep();
 
@@ -266,7 +297,7 @@ public class PlinkImport extends AbstractGenotypeImport {
 
             int nConcurrentThreads = Math.max(1, Runtime.getRuntime().availableProcessors());
             LOG.debug("Importing project '" + sProject + "' into " + sModule + " using " + nConcurrentThreads + " threads");
-            long count = importTempFileContents(progress, nConcurrentThreads, mongoTemplate, rotatedFile, variantsAndPositions, existingVariantIDs, project, sRun, inconsistencies, userIndividualToPopulationMap, nonSnpVariantTypeMap, fSkipMonomorphic);
+            long count = importTempFileContents(progress, nConcurrentThreads, mongoTemplate, rotatedFile, variantsAndPositions, existingVariantIDs, project, sRun, inconsistencies, providedIdToSampleMap, userIndividualToPopulationMap, nonSnpVariantTypeMap, fSkipMonomorphic);
 
             if (progress.getError() != null)
                 throw new Exception(progress.getError());
@@ -287,7 +318,7 @@ public class PlinkImport extends AbstractGenotypeImport {
         }
     }
 
-    public long importTempFileContents(ProgressIndicator progress, int nNConcurrentThreads, MongoTemplate mongoTemplate, File tempFile, LinkedHashMap<String, String> variantsAndPositions, HashMap<String, String> existingVariantIDs, GenotypingProject project, String sRun, HashMap<String, ArrayList<String>> inconsistencies, Map<String, String> userIndividualToPopulationMap, Map<String, Type> nonSnpVariantTypeMap, boolean fSkipMonomorphic) throws Exception
+    public long importTempFileContents(ProgressIndicator progress, int nNConcurrentThreads, MongoTemplate mongoTemplate, File tempFile, LinkedHashMap<String, String> variantsAndPositions, HashMap<String, String> existingVariantIDs, GenotypingProject project, String sRun, HashMap<String, ArrayList<String>> inconsistencies, HashMap<String /*individual*/, GenotypingSample> providedIdToSampleMap, Map<String, String> userIndividualToPopulationMap, Map<String, Type> nonSnpVariantTypeMap, boolean fSkipMonomorphic) throws Exception
     {
         String[] individuals = userIndividualToPopulationMap.keySet().toArray(new String[userIndividualToPopulationMap.size()]);
         final AtomicInteger count = new AtomicInteger(0);
@@ -305,16 +336,21 @@ public class PlinkImport extends AbstractGenotypeImport {
             final int nNumberOfVariantsToSaveAtOnce = Math.max(1, nMaxChunkSize / individuals.length);
             LOG.info("Importing by chunks of size " + nNumberOfVariantsToSaveAtOnce);
 
-            // Create the necessary samples
-            HashMap<String /*individual*/, GenotypingSample> samples = new HashMap<>();
             LinkedHashSet<String> individualsWithoutPopulation = new LinkedHashSet<>();
-            for (String sIndividual : userIndividualToPopulationMap.keySet()) {
+            for (String sIndOrSpId : userIndividualToPopulationMap.keySet()) {
+            	GenotypingSample sample = providedIdToSampleMap.get(sIndOrSpId);
+            	if (sample == null) {
+            		progress.setError("Sample / individual mapping file contains no individual for sample " + sIndOrSpId);
+            		return 0;
+            	}
+
+            	String sIndividual = sample.getIndividual();
                 Individual ind = mongoTemplate.findById(sIndividual, Individual.class);
                 boolean fAlreadyExists = ind != null;
                 boolean fNeedToSave = true;
                 if (!fAlreadyExists)
                     ind = new Individual(sIndividual);
-                String sPop = userIndividualToPopulationMap.get(sIndividual);
+                String sPop = userIndividualToPopulationMap.get(sIndOrSpId);
                 if (!sPop.equals(".") && sPop.length() == 3)
                     ind.setPopulation(sPop);
                 else if (!sIndividual.substring(0, 3).matches(".*\\d+.*") && sIndividual.substring(3).matches("\\d+"))
@@ -327,9 +363,6 @@ public class PlinkImport extends AbstractGenotypeImport {
 
                 if (fNeedToSave)
                     mongoTemplate.save(ind);
-
-                int sampleId = AutoIncrementCounter.getNextSequence(mongoTemplate, MongoTemplateManager.getMongoCollectionName(GenotypingSample.class));
-                samples.put(sIndividual, new GenotypingSample(sampleId, project.getId(), sRun, sIndividual));   // add a sample for this individual to the project
             }
 
             if (!individualsWithoutPopulation.isEmpty())
@@ -427,7 +460,7 @@ public class PlinkImport extends AbstractGenotypeImport {
                                         }
                                     }
 
-                                    VariantRunData runToSave = addPlinkDataToVariant(mongoTemplate, variant, sequence, bpPosition, userIndividualToPopulationMap, nonSnpVariantTypeMap, alleles, project, sRun, samples, fImportUnknownVariants);
+                                    VariantRunData runToSave = addPlinkDataToVariant(mongoTemplate, variant, sequence, bpPosition, userIndividualToPopulationMap, nonSnpVariantTypeMap, alleles, project, sRun, providedIdToSampleMap, fImportUnknownVariants);
 
                                     if (variant.getReferencePosition() != null)
                                         project.getSequences().add(variant.getReferencePosition().getSequence());
@@ -484,7 +517,7 @@ public class PlinkImport extends AbstractGenotypeImport {
             if (!project.getRuns().contains(sRun))
                 project.getRuns().add(sRun);
             mongoTemplate.save(project);    // always save project before samples otherwise the sample cleaning procedure in MgdbDao.prepareDatabaseForSearches may remove them if called in the meantime
-            mongoTemplate.insert(samples.values(), GenotypingSample.class);
+            mongoTemplate.insert(providedIdToSampleMap.values(), GenotypingSample.class);
         }
         finally
         {
@@ -513,9 +546,6 @@ public class PlinkImport extends AbstractGenotypeImport {
         File outputFile = File.createTempFile("plinkImport-" + pedFile.getName() + "-", ".tsv");
         FileWriter outputWriter = new FileWriter(outputFile);
 
-        Pattern allelePattern = Pattern.compile("\\S+");
-        Pattern outputFileSeparatorPattern = Pattern.compile("(/|\\t)");
-
         ArrayList<Integer> blockStartMarkers = new ArrayList<Integer>();  // blockStartMarkers[i] = first marker of block i
         ArrayList<ArrayList<Integer>> blockLinePositions = new ArrayList<ArrayList<Integer>>();  // blockLinePositions[line][block] = first character of `block` in `line`
         ArrayList<Integer> lineLengths = new ArrayList<Integer>();
@@ -527,7 +557,7 @@ public class PlinkImport extends AbstractGenotypeImport {
         String initLine;
         int nIndividuals = 0;
         while ((initLine = reader.readLine()) != null) {
-            Matcher initMatcher = allelePattern.matcher(initLine);
+            Matcher initMatcher = nonWhiteSpaceBlockPattern.matcher(initLine);
             initMatcher.find();
             String sPopulation = initMatcher.group();
             initMatcher.find();
@@ -665,7 +695,7 @@ public class PlinkImport extends AbstractGenotypeImport {
                                         }
                                     // Non-trivial case : INDELs and/or multi-characters separators
                                     } else {
-                                        Matcher matcher = allelePattern.matcher(lineBuffer);
+                                        Matcher matcher = nonWhiteSpaceBlockPattern.matcher(lineBuffer);
 
                                         // Start at the closest previous block that has already been mapped
                                         int startBlock = Math.min(blockIndex, individualPositions.size() - 1);

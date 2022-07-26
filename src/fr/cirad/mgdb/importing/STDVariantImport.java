@@ -66,6 +66,8 @@ public class STDVariantImport extends AbstractGenotypeImport {
 	private String m_processID;
 	private boolean fImportUnknownVariants = false;
 	private boolean m_fTryAndMatchRandomObjectIDs = false;
+
+	private HashMap<String, String> individualToSampleMap = null;
 	
 	public STDVariantImport()
 	{
@@ -352,7 +354,7 @@ public class STDVariantImport extends AbstractGenotypeImport {
     					if (fNeedToSave)
     	                    mongoTemplate.save(ind);
     	                int sampleId = AutoIncrementCounter.getNextSequence(mongoTemplate, MongoTemplateManager.getMongoCollectionName(GenotypingSample.class));
-    	                usedSamples.put(sIndividual, new GenotypingSample(sampleId, project.getId(), vrd.getRunName(), sIndividual));	// add a sample for this individual to the project
+    	                usedSamples.put(sIndividual, new GenotypingSample(sampleId, project.getId(), vrd.getRunName(), sIndividual, individualToSampleMap == null ? null : individualToSampleMap.get(sIndividual)));	// add a sample for this individual to the project
     	            }
     
     				String gtCode = null;
@@ -497,5 +499,9 @@ public class STDVariantImport extends AbstractGenotypeImport {
 
 	public void setPloidy(int ploidy) {
 		m_ploidy = ploidy;
+	}
+
+	public void setIndividualToSampleMap(HashMap<String, String> individualToSampleMap) {
+		this.individualToSampleMap  = individualToSampleMap;
 	}
 }
