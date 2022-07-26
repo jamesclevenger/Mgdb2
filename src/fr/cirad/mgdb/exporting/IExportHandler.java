@@ -124,7 +124,11 @@ public interface IExportHandler
 	public List<String> getSupportedVariantTypes();
 	
 	public static MongoCursor<Document> getMarkerCursorWithCorrectCollation(MongoCollection<Document> varColl, Document varQuery, int nQueryChunkSize) {
-		return varColl.find(varQuery).projection(projectionDoc).sort(sortDoc).noCursorTimeout(true).collation(collationObj).batchSize(nQueryChunkSize).iterator();
+		return getMarkerCursorWithCorrectCollation(varColl, varQuery, null, nQueryChunkSize);
+	}
+	
+	public static MongoCursor<Document> getMarkerCursorWithCorrectCollation(MongoCollection<Document> varColl, Document varQuery, Document customProjectionDoc, int nQueryChunkSize) {
+		return varColl.find(varQuery).projection(customProjectionDoc == null ? projectionDoc : customProjectionDoc).sort(sortDoc).noCursorTimeout(true).collation(collationObj).batchSize(nQueryChunkSize).iterator();
 	}
 
 	public static ZipOutputStream createArchiveOutputStream(OutputStream outputStream, Map<String, InputStream> readyToExportFiles) throws IOException {
