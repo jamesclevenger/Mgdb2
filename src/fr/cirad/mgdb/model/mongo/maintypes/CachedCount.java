@@ -25,7 +25,7 @@ import org.springframework.data.mongodb.core.mapping.Document;
 import org.springframework.data.mongodb.core.mapping.Field;
 
 /**
- * The Class CachedQuery.
+ * The Class CachedCount.
  */
 @Document(collection = "cachedCounts")
 @TypeAlias("CC")
@@ -42,7 +42,7 @@ public class CachedCount {
 	private List<Long> chunkCounts = new ArrayList<>();
 
 	/**
-	 * Instantiates a new CachedQuery.
+	 * Instantiates a new CachedCount.
 	 *
 	 * @param queryKey the query id
 	 * @param counts the list of counts to cache (one per chunk)
