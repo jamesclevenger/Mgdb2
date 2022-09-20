@@ -170,9 +170,8 @@ public class IntertekImport extends AbstractGenotypeImport {
 
                 MongoTemplateManager.initialize(ctx);
                 mongoTemplate = MongoTemplateManager.get(sModule);
-                if (mongoTemplate == null) {
+                if (mongoTemplate == null)
                     throw new Exception("DATASOURCE '" + sModule + "' is not supported!");
-                }
             }
 
             if (m_processID == null) {
@@ -213,17 +212,7 @@ public class IntertekImport extends AbstractGenotypeImport {
                 createdProject = project.getId();
             }
             
-            VCFFormatHeaderLine headerLineGT = new VCFFormatHeaderLine("GT", 1, VCFHeaderLineType.String, "Genotype");
-            VCFFormatHeaderLine headerLineFI = new VCFFormatHeaderLine("FI", 2, VCFHeaderLineType.Float, "Fluorescence intensity");
-            VCFHeader header = new VCFHeader(new HashSet<>(Arrays.asList(headerLineGT, headerLineFI)));
-            mongoTemplate.save(new DBVCFHeader(new DBVCFHeader.VcfHeaderId(project.getId(), sRun), header));
-            
-            progress.addStep("Header was written for project " + sProject + " and run " + sRun);
-            progress.moveToNextStep();
-            LOG.info(progress.getProgressDescription());
-
             HashMap<String, String> existingVariantIDs = buildSynonymToIdMapForExistingVariants(mongoTemplate, false);
-//            boolean fDbAlreadyContainedIndividuals = mongoTemplate.findOne(new Query(), Individual.class) != null, fDbAlreadyContainedVariants = mongoTemplate.findOne(new Query() {{ fields().include("_id"); }}, VariantData.class) != null;
 
             // Reading csv file
             // Getting alleleX and alleleY for each SNP by reading lines between lines {"SNPID","SNPNum","AlleleY","AlleleX","Sequence"} and {"Scaling"};
@@ -326,12 +315,28 @@ public class IntertekImport extends AbstractGenotypeImport {
                         }
                     }
                 }
-                project.setPloidyLevel(nPloidy);
                 csvReader.close();
+
+                if (variantsToSave.isEmpty())
+                	progress.setError("Found no variants to import in provided file, please check its contents!");
+                else {
+	                if (importMode == 0 && createdProject == null && project.getPloidyLevel() != nPloidy)
+	                    throw new Exception("Ploidy levels differ between existing (" + project.getPloidyLevel() + ") and provided (" + nPloidy + ") data!");
+	                project.setPloidyLevel(nPloidy);
+                }
             }
             
             if (progress.getError() != null || progress.isAborted())
                 return null;
+            
+            VCFFormatHeaderLine headerLineGT = new VCFFormatHeaderLine("GT", 1, VCFHeaderLineType.String, "Genotype");
+            VCFFormatHeaderLine headerLineFI = new VCFFormatHeaderLine("FI", 2, VCFHeaderLineType.Float, "Fluorescence intensity");
+            VCFHeader header = new VCFHeader(new HashSet<>(Arrays.asList(headerLineGT, headerLineFI)));
+            mongoTemplate.save(new DBVCFHeader(new DBVCFHeader.VcfHeaderId(project.getId(), sRun), header));
+            
+            progress.addStep("Header was written for project " + sProject + " and run " + sRun);
+            progress.moveToNextStep();
+            LOG.info(progress.getProgressDescription());
 
             // Store variants and variantRuns
             int count = 0;
