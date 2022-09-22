@@ -119,6 +119,11 @@ public class STDVariantImport extends AbstractGenotypeImport {
 		}
 		
 		GenericXmlApplicationContext ctx = null;
+		File genotypeFile = new File(mainFilePath);
+		List<File> sortTempFiles = null;
+		File sortedFile = new File("sortedImportFile_" + genotypeFile.getName());
+		sortedFile.deleteOnExit();	//just to be sure
+
 		try
 		{
 			MongoTemplate mongoTemplate = MongoTemplateManager.get(sModule);
@@ -145,9 +150,7 @@ public class STDVariantImport extends AbstractGenotypeImport {
 			
 			progress.addStep("Reading marker IDs");
 			progress.moveToNextStep();
-			
-			File genotypeFile = new File(mainFilePath);
-	
+				
             HashMap<String, String> existingVariantIDs = buildSynonymToIdMapForExistingVariants(mongoTemplate, m_fTryAndMatchRandomObjectIDs);
 						
 			progress.addStep("Checking genotype consistency");
@@ -166,37 +169,33 @@ public class STDVariantImport extends AbstractGenotypeImport {
 					return (splitted1[finalMarkerFieldIndex]/* + "_" + splitted1[finalSampleFieldIndex]*/).compareTo(splitted2[finalMarkerFieldIndex]/* + "_" + splitted2[finalSampleFieldIndex]*/);
 				}
 			};
-			File sortedFile = new File("sortedImportFile_" + genotypeFile.getName());
-			sortedFile.deleteOnExit();
 			LOG.info("Sorted file will be " + sortedFile.getAbsolutePath());
 			
-			List<File> sortTempFiles = null;
 			try
 			{
 				progress.addStep("Creating temp files to sort in batch");
 				progress.moveToNextStep();			
 				sortTempFiles = ExternalSort.sortInBatch(in, genotypeFile.length(), comparator, ExternalSort.DEFAULTMAXTEMPFILES, Charset.defaultCharset(), sortedFile.getParentFile(), false, 0, true, progress);
+	            if (progress.getError() != null || progress.isAborted())
+	                return;
+
 				long afterSortInBatch = System.currentTimeMillis();
 				LOG.info("sortInBatch took " + (afterSortInBatch - before)/1000 + "s");
 				
 				progress.addStep("Merging temp files");
 				progress.moveToNextStep();
 				ExternalSort.mergeSortedFiles(sortTempFiles, sortedFile, comparator, Charset.defaultCharset(), false, false, true, progress, genotypeFile.length());
+	            if (progress.getError() != null || progress.isAborted())
+	                return;
+
 				LOG.info("mergeSortedFiles took " + (System.currentTimeMillis() - afterSortInBatch)/1000 + "s");
 			}
 	        catch (java.io.IOException ioe)
 	        {
-	        	// it failed: let's cleanup
-	        	if (sortTempFiles != null)
-	            	for (File f : sortTempFiles)
-	            		f.delete();
-	        	if (sortedFile.exists())
-	        		sortedFile.delete();
 	        	LOG.error("Error occured sorting import file", ioe);
 	        	return;
 	        }
 
-			// create project if necessary
 			if (project == null)
 			{	// create it
 				project = new GenotypingProject(AutoIncrementCounter.getNextSequence(mongoTemplate, MongoTemplateManager.getMongoCollectionName(GenotypingProject.class)));
@@ -253,7 +252,10 @@ public class STDVariantImport extends AbstractGenotypeImport {
 					LOG.info(info);
 				}
 			}
-			while (sLine != null);		
+			while (sLine != null && progress.getError() == null && !progress.isAborted());
+			
+            if (progress.getError() != null || progress.isAborted())
+                return;
 
 			String mgdbVariantId = existingVariantIDs.get(sVariantName.toUpperCase());	// when saving the last variant there is not difference between sVariantName and sPreviousVariant
 			if (mgdbVariantId == null && !fImportUnknownVariants)
@@ -266,7 +268,6 @@ public class STDVariantImport extends AbstractGenotypeImport {
 				unsavedVariants.add(sVariantName);
 	
 			in.close();
-			sortedFile.delete();
 							
 			// save project data
             if (!project.getVariantTypes().contains(Type.SNP.toString())) {
@@ -291,6 +292,14 @@ public class STDVariantImport extends AbstractGenotypeImport {
 		}
 		finally
 		{
+        	// let's cleanup
+        	if (sortedFile.exists())
+        		sortedFile.delete();
+        	if (sortTempFiles != null)
+            	for (File f : sortTempFiles)
+            		if (f.exists())
+            			f.delete();
+        	
 			if (ctx != null)
 				ctx.close();
 			

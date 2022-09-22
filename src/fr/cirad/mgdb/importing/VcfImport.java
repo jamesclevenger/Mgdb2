@@ -259,12 +259,13 @@ public class VcfImport extends AbstractGenotypeImport {
 
             Integer createdProject = null;
             // create project if necessary
-            if (project == null || importMode == 2) {   // create it
+            if (project == null || importMode > 0) {   // create it
                 project = new GenotypingProject(AutoIncrementCounter.getNextSequence(mongoTemplate, MongoTemplateManager.getMongoCollectionName(GenotypingProject.class)));
                 project.setName(sProject);
-                project.setOrigin(2 /* Sequencing */);
+//                project.setOrigin(2 /* Sequencing */);
                 project.setTechnology(sTechnology);
-                createdProject = project.getId();
+                if (importMode != 1)
+                	createdProject = project.getId();
             }
             project.setPloidyLevel(nPloidy);
 
@@ -324,7 +325,7 @@ public class VcfImport extends AbstractGenotypeImport {
             // loop over each variation
             while (variantIterator.hasNext()) {
                 if (progress.getError() != null || progress.isAborted())
-                    return null;
+                    break;
 
                 VariantContext vcfEntry = variantIterator.next();
                 if (vcfEntry.getCommonInfo().hasAttribute(""))
@@ -345,6 +346,9 @@ public class VcfImport extends AbstractGenotypeImport {
                                 List<VariantData> unsavedVariants = new ArrayList<>();
                                 List<VariantRunData> unsavedRuns = new ArrayList<>();
                                 for (VariantContextHologram vcfEntry : vcChunkToImport) {
+                                    if (progress.getError() != null || progress.isAborted())
+                                        return;
+                                    
                                     String variantId = null;
                                     for (String variantDescForPos : getIdentificationStrings(vcfEntry.getType().toString(), vcfEntry.getContig(), (long) vcfEntry.getStart(), Arrays.asList(new String[] {vcfEntry.getID()})))
                                     {
@@ -413,7 +417,7 @@ public class VcfImport extends AbstractGenotypeImport {
             saveService.awaitTermination(Integer.MAX_VALUE, TimeUnit.DAYS);
 
             if (progress.getError() != null || progress.isAborted())
-                return null;
+                return createdProject;
 
             // always save project before samples otherwise the sample cleaning procedure in MgdbDao.prepareDatabaseForSearches may remove them if called in the meantime
             if (!project.getRuns().contains(sRun))

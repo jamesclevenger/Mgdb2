@@ -219,6 +219,9 @@ public class AbstractGenotypeImport {
 	}
 
 	protected void saveChunk(final Collection<VariantData> unsavedVariants, final Collection<VariantRunData> unsavedRuns, HashMap<String, String> existingVariantIDs, MongoTemplate finalMongoTemplate, ProgressIndicator progress, ExecutorService saveService) throws InterruptedException {
+        if (progress.getError() != null || progress.isAborted())
+            return;
+
         Thread insertionThread = new Thread() {
             @Override
             public void run() {

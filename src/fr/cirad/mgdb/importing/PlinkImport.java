@@ -220,13 +220,13 @@ public class PlinkImport extends AbstractGenotypeImport {
 
             Integer createdProject = null;
             // create project if necessary
-            if (project == null || importMode == 2)
-            {   // create it
+            if (project == null || importMode > 0) {   // create it
                 project = new GenotypingProject(AutoIncrementCounter.getNextSequence(mongoTemplate, MongoTemplateManager.getMongoCollectionName(GenotypingProject.class)));
                 project.setName(sProject);
-                project.setOrigin(2 /* Sequencing */);
+//                project.setOrigin(2 /* Sequencing */);
                 project.setTechnology(sTechnology);
-                createdProject = project.getId();
+                if (importMode != 1)
+                	createdProject = project.getId();
             }
             project.setPloidyLevel(2);
 
@@ -292,8 +292,8 @@ public class PlinkImport extends AbstractGenotypeImport {
             progress.moveToNextStep();
 
             HashMap<String, ArrayList<String>> inconsistencies = !fCheckConsistencyBetweenSynonyms ? null : checkSynonymGenotypeConsistency(rotatedFile, existingVariantIDs, userIndividualToPopulationMap.keySet(), pedFile.getParentFile() + File.separator + sModule + "_" + sProject + "_" + sRun);
-            if (progress.getError() != null)
-                return 0;
+            if (progress.getError() != null || progress.isAborted())
+                return createdProject;
 
             int nConcurrentThreads = Math.max(1, Runtime.getRuntime().availableProcessors());
             LOG.debug("Importing project '" + sProject + "' into " + sModule + " using " + nConcurrentThreads + " threads");
@@ -301,6 +301,9 @@ public class PlinkImport extends AbstractGenotypeImport {
 
             if (progress.getError() != null)
                 throw new Exception(progress.getError());
+
+            if (progress.isAborted())
+            	return createdProject;
 
             progress.addStep("Preparing database for searches");
             progress.moveToNextStep();
@@ -511,7 +514,7 @@ public class PlinkImport extends AbstractGenotypeImport {
             saveService.awaitTermination(Integer.MAX_VALUE, TimeUnit.DAYS);
 
             if (progress.getError() != null || progress.isAborted())
-                return 0;
+            	return count.get();
 
             // save project data
             if (!project.getRuns().contains(sRun))
@@ -615,7 +618,7 @@ public class PlinkImport extends AbstractGenotypeImport {
                         char[] fileBuffer = new char[cMaxLineLength];
                         ArrayList<StringBuilder> transposed = new ArrayList<StringBuilder>();
 
-                        while (blockStartMarkers.get(blockStartMarkers.size() - 1) < variants.length && progress.getError() == null) {
+                        while (blockStartMarkers.get(blockStartMarkers.size() - 1) < variants.length && progress.getError() == null && !progress.isAborted()) {
                             FileReader reader = new FileReader(pedFile);
                             try {
                                 int blockIndex, blockSize, blockStart;
@@ -780,15 +783,16 @@ public class PlinkImport extends AbstractGenotypeImport {
         for (int i = 0; i < nConcurrentThreads; i++)
             transposeThreads[i].join();
 
-        // Fill the variant type map with the variant type array
-        for (int i = 0; i < variants.length; i++) {
-            if (variantTypes[i] != null)
-                nonSnpVariantTypeMapToFill.put(variants[i], variantTypes[i]);
-        }
         outputWriter.close();
-        if (progress.getError() == null)
-            LOG.info("PED matrix transposition took " + (System.currentTimeMillis() - before) + "ms for " + variants.length + " markers and " + userIndividualToPopulationMapToFill.size() + " individuals");
+        if (progress.getError() == null && !progress.isAborted()) {
+        	LOG.info("PED matrix transposition took " + (System.currentTimeMillis() - before) + "ms for " + variants.length + " markers and " + userIndividualToPopulationMapToFill.size() + " individuals");
 
+            // Fill the variant type map with the variant type array
+            for (int i = 0; i < variants.length; i++)
+                if (variantTypes[i] != null)
+                    nonSnpVariantTypeMapToFill.put(variants[i], variantTypes[i]);
+        }
+        
         Runtime.getRuntime().gc();  // Release our (lots of) memory as soon as possible
         return outputFile;
     }

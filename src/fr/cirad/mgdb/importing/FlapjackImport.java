@@ -206,13 +206,13 @@ public class FlapjackImport extends AbstractGenotypeImport {
 
             Integer createdProject = null;
             // create project if necessary
-            if (project == null || importMode == 2)
-            {   // create it
+            if (project == null || importMode > 0) {   // create it
                 project = new GenotypingProject(AutoIncrementCounter.getNextSequence(mongoTemplate, MongoTemplateManager.getMongoCollectionName(GenotypingProject.class)));
                 project.setName(sProject);
-                project.setOrigin(2 /* Sequencing */);
+//                project.setOrigin(2 /* Sequencing */);
                 project.setTechnology(sTechnology);
-                createdProject = project.getId();
+                if (importMode != 1)
+                	createdProject = project.getId();
             }
             else if (nPloidy != null && importMode == 0 && project.getPloidyLevel() != nPloidy)
                 throw new Exception("Ploidy levels differ between existing (" + project.getPloidyLevel() + ") and provided (" + nPloidy + ") data!");
@@ -252,8 +252,8 @@ public class FlapjackImport extends AbstractGenotypeImport {
                 m_nCurrentlyTransposingMatrixCount--;
             }
 
-            if (progress.getError() != null)
-                return 0;
+            if (progress.getError() != null && !progress.isAborted())
+                return createdProject;
             
             // Create the necessary samples
             HashMap<String /*individual*/, GenotypingSample> providedIdToSampleMap = new HashMap<String /*individual*/, GenotypingSample>();
@@ -285,9 +285,12 @@ public class FlapjackImport extends AbstractGenotypeImport {
             int nConcurrentThreads = Math.max(1, Runtime.getRuntime().availableProcessors());
             LOG.debug("Importing project '" + sProject + "' into " + sModule + " using " + nConcurrentThreads + " threads");
             long count = importTempFileContents(progress, nConcurrentThreads, mongoTemplate, rotatedFile, variantsAndPositions, existingVariantIDs, project, sRun, providedIdToSampleMap, nonSnpVariantTypeMap, individualNames, fSkipMonomorphic);
-            
+
             if (progress.getError() != null)
                 throw new Exception(progress.getError());
+
+            if (progress.isAborted())
+            	return createdProject;
 
             progress.addStep("Preparing database for searches");
             progress.moveToNextStep();
@@ -482,6 +485,9 @@ public class FlapjackImport extends AbstractGenotypeImport {
             saveService.shutdown();
             saveService.awaitTermination(Integer.MAX_VALUE, TimeUnit.DAYS);
 
+            if (progress.getError() != null || progress.isAborted())
+                return count.get();
+            
             // save project data
             if (!project.getRuns().contains(sRun))
                 project.getRuns().add(sRun);
@@ -622,7 +628,7 @@ public class FlapjackImport extends AbstractGenotypeImport {
                         char[] fileBuffer = new char[cMaxLineLength];
                         ArrayList<StringBuilder> transposed = new ArrayList<StringBuilder>();
 
-                        while (blockStartMarkers.get(blockStartMarkers.size() - 1) < cVariants && progress.getError() == null) {
+                        while (blockStartMarkers.get(blockStartMarkers.size() - 1) < cVariants && progress.getError() == null && !progress.isAborted()) {
                             FileReader reader = new FileReader(genotypeFile);
                             try {
                                 int blockIndex, blockSize, blockStart;
@@ -808,14 +814,15 @@ public class FlapjackImport extends AbstractGenotypeImport {
         for (int i = 0; i < nConcurrentThreads; i++)
             transposeThreads[i].join();
 
-        // Fill the variant type map with the variant type array
-        for (int i = 0; i < cVariants; i++) {
-            if (variantTypes[i] != null)
-                nonSnpVariantTypeMapToFill.put(variants.get(i), variantTypes[i]);
-        }
         outputWriter.close();
-        if (progress.getError() == null)
+        if (progress.getError() == null && !progress.isAborted()) {
             LOG.info("Genotype matrix transposition took " + (System.currentTimeMillis() - before) + "ms for " + cVariants + " markers and " + cIndividuals + " individuals");
+
+            // Fill the variant type map with the variant type array
+            for (int i = 0; i < cVariants; i++)
+                if (variantTypes[i] != null)
+                    nonSnpVariantTypeMapToFill.put(variants.get(i), variantTypes[i]);
+        }
 
         Runtime.getRuntime().gc();  // Release our (lots of) memory as soon as possible
         return nProvidedPloidy != null ? nProvidedPloidy : ploidy.get();

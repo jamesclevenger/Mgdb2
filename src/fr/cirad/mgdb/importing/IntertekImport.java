@@ -202,14 +202,14 @@ public class IntertekImport extends AbstractGenotypeImport {
             cleanupBeforeImport(mongoTemplate, sModule, project, importMode, sRun);
 
             Integer createdProject = null;
-            // create project if necessary
-            if (project == null || importMode == 2) {	// create it
+            if (project == null || importMode > 0) {	// create it
                 project = new GenotypingProject(AutoIncrementCounter.getNextSequence(mongoTemplate, MongoTemplateManager.getMongoCollectionName(GenotypingProject.class)));
                 project.setName(sProject);
-                project.setOrigin(2 /* Sequencing */);
+//                project.setOrigin(2 /* Sequencing */);
                 project.setTechnology(sTechnology);
                 project.getVariantTypes().add(Type.SNP.toString());
-                createdProject = project.getId();
+                if (importMode != 1)
+                	createdProject = project.getId();
             }
             
             HashMap<String, String> existingVariantIDs = buildSynonymToIdMapForExistingVariants(mongoTemplate, false);
@@ -218,13 +218,15 @@ public class IntertekImport extends AbstractGenotypeImport {
             // Getting alleleX and alleleY for each SNP by reading lines between lines {"SNPID","SNPNum","AlleleY","AlleleX","Sequence"} and {"Scaling"};
             // Then getting genotypes for each individual by reading lines after line {"DaughterPlate","MasterPlate","MasterWell","Call","X","Y","SNPID","SubjectID","Norm","Carrier","DaughterWell","LongID"}
             try (BufferedReader in = new BufferedReader(new InputStreamReader(fileURL.openStream())); CSVReader csvReader = new CSVReader(in)) {
-
                 boolean snpPart = false;
                 boolean dataPart = false;
                 String[] values;
                 int i = 0;
                 int nPloidy = 0;
                 while ((values = csvReader.readNext()) != null) {
+                    if (progress.getError() != null || progress.isAborted())
+                        return createdProject;
+
                     i = i+1;
                     if (Arrays.asList(values).containsAll(Arrays.asList(snpHeader))) {
                         snpPart = true;
@@ -325,10 +327,7 @@ public class IntertekImport extends AbstractGenotypeImport {
 	                project.setPloidyLevel(nPloidy);
                 }
             }
-            
-            if (progress.getError() != null || progress.isAborted())
-                return null;
-            
+                        
             VCFFormatHeaderLine headerLineGT = new VCFFormatHeaderLine("GT", 1, VCFHeaderLineType.String, "Genotype");
             VCFFormatHeaderLine headerLineFI = new VCFFormatHeaderLine("FI", 2, VCFHeaderLineType.Float, "Fluorescence intensity");
             VCFHeader header = new VCFHeader(new HashSet<>(Arrays.asList(headerLineGT, headerLineFI)));
@@ -353,7 +352,10 @@ public class IntertekImport extends AbstractGenotypeImport {
             HashSet<VariantData> variantsChunk = new HashSet<>();
             HashSet<VariantRunData> variantRunsChunk = new HashSet<>();
             Set<String> existingIds = new HashSet<>(existingVariantIDs.values());
-            for (VariantData variant : variantsToSave) {                
+            for (VariantData variant : variantsToSave) {
+                if (progress.getError() != null || progress.isAborted())
+                    break;
+
                 if (!existingIds.contains(variant.getId()) && fSkipMonomorphic && variantSamplesMap.get(variant.getVariantId()).values().stream().map(sampleGT -> sampleGT.getCode()).filter(gtCode -> gtCode != null).distinct().count() < 2)
                     continue;
 
