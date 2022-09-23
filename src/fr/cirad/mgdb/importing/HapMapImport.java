@@ -386,7 +386,7 @@ public class HapMapImport extends AbstractGenotypeImport {
                 				}
                 				catch (Exception e)
                 				{
-                					LOG.error("Error occured importing variant number " + (totalProcessedVariantCount.get() + 1) + " (" + Type.SNP.toString() + ":" + hmFeature.getChr() + ":" + hmFeature.getStart() + ") ", e);;
+                					LOG.error("Error occured importing variant number " + (totalProcessedVariantCount.get() + 1) + " (" + Type.SNP.toString() + ":" + hmFeature.getChr() + ":" + hmFeature.getStart() + ") ", e);
                 					throw new Exception("Error occured importing variant number " + (totalProcessedVariantCount.get() + 1) + " (" + Type.SNP.toString() + ":" + hmFeature.getChr() + ":" + hmFeature.getStart() + ") " + (e.getMessage().endsWith("\"index\" is null") ? "containing an invalid allele code" : e.getMessage()), e);
                 				}
                             }
@@ -458,10 +458,9 @@ public class HapMapImport extends AbstractGenotypeImport {
 	{
         boolean fSNP = variantType.equals(Type.SNP);
 
-		// mandatory fields
-		if (variantToFeed.getType() == null)
+		if (variantToFeed.getType() == null || Type.NO_VARIATION.toString().equals(variantToFeed.getType()))
 			variantToFeed.setType(variantType.toString());
-		else if (!variantToFeed.getType().equals(variantType.toString()))
+		else if (Type.NO_VARIATION != variantType && !variantToFeed.getType().equals(variantType.toString()))
 			throw new Exception("Variant type mismatch between existing data and data to import: " + variantToFeed.getId());
 
 		if (variantToFeed.getReferencePosition() == null)	// otherwise we leave it as it is (had some trouble with overridden end-sites)

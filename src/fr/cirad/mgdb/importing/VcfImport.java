@@ -389,7 +389,7 @@ public class VcfImport extends AbstractGenotypeImport {
                             }
                             catch (Exception e)
                             {
-                                progress.setError("Error occured importing variant number " + (totalProcessedVariantCount.get() + 1) + " (" + vcfEntry.getType().toString() + ":" + vcfEntry.getContig() + ":" + vcfEntry.getStart() + ")");
+                                progress.setError("Error occured importing variant number " + (totalProcessedVariantCount.get() + 1) + " (" + vcfEntry.getType().toString() + ":" + vcfEntry.getContig() + ":" + vcfEntry.getStart() + "): " + e.getMessage());
                                 LOG.error("Error", e);
                             }
                             finally {
@@ -464,12 +464,10 @@ public class VcfImport extends AbstractGenotypeImport {
      */
     static private VariantRunData addVcfDataToVariant(MongoTemplate mongoTemplate, VCFHeader header, VariantData variantToFeed, VariantContextHologram vc, GenotypingProject project, String runName, HashMap<String /*individual*/, Comparable> phasingGroup, Map<String /*individual*/, GenotypingSample> providedIdToSampleMap, int effectAnnotationPos, int geneIdAnnotationPos) throws Exception
     {
-        // mandatory fields
-        if (variantToFeed.getType() == null) {
+        if (variantToFeed.getType() == null || Type.NO_VARIATION.toString().equals(variantToFeed.getType()))
             variantToFeed.setType(vc.getType().toString());
-        } else if (!variantToFeed.getType().equals(vc.getType().toString())) {
+        else if (Type.NO_VARIATION != vc.getType() && !variantToFeed.getType().equals(vc.getType().toString()))
             throw new Exception("Variant type mismatch between existing data and data to import: " + variantToFeed.getId());
-        }
 
         List<String> knownAlleleList = new ArrayList<String>();
         if (variantToFeed.getKnownAlleles().size() > 0)

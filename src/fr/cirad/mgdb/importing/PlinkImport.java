@@ -844,20 +844,15 @@ public class PlinkImport extends AbstractGenotypeImport {
         if (fImportUnknownVariants && variantToFeed.getReferencePosition() == null && sequence != null) // otherwise we leave it as it is (had some trouble with overridden end-sites)
             variantToFeed.setReferencePosition(new ReferencePosition(sequence, bpPos, !variantToFeed.getKnownAlleles().isEmpty() ? bpPos + variantToFeed.getKnownAlleles().iterator().next().length() - 1 : null));
 
-        // mandatory fields
         if (!alleleIndexMap.isEmpty()) {
             Type variantType = nonSnpVariantTypeMap.get(variantToFeed.getId());
-            String sVariantType;
-            if (variantType == null)
-                sVariantType = Type.SNP.toString();
-            else
-                sVariantType = variantType.toString();
+            String sVariantType = variantType == null ? Type.SNP.toString() : variantType.toString();
 
-            if (variantToFeed.getType() == null || Type.NO_VARIATION == variantType) {
+            if (variantToFeed.getType() == null || Type.NO_VARIATION.toString().equals(variantToFeed.getType())) {
                 variantToFeed.setType(sVariantType);
                 project.getVariantTypes().add(sVariantType);
             }
-            else if (!variantToFeed.getType().equals(sVariantType))
+            else if (Type.NO_VARIATION != variantType && !variantToFeed.getType().equals(sVariantType))
                 throw new Exception("Variant type mismatch between existing data and data to import: " + variantToFeed.getId());
         }
 
