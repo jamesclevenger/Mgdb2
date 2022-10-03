@@ -20,6 +20,9 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.FileReader;
 import java.io.IOException;
+import java.util.Enumeration;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Properties;
 import java.util.ResourceBundle;
 import java.util.ResourceBundle.Control;
@@ -85,5 +88,16 @@ public class AppConfig {
             LOG.info("instanceUUID generated as " + instanceUUID);
         }
         return instanceUUID;
+    }
+    
+    public Map<String, String> getPrefixed(String sPrefix) {
+        Map<String, String>  result = new HashMap<>();
+        Enumeration<String> keys = props.getKeys();
+        while (keys.hasMoreElements()) {
+                String key = keys.nextElement();
+                if (key.startsWith(sPrefix))
+                        result.put(key, get(key));
+        }
+        return result;
     }
 }
