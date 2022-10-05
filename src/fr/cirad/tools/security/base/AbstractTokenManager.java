@@ -51,6 +51,9 @@ public abstract class AbstractTokenManager {
     
     abstract public boolean canUserReadDB(String token, String module) throws ObjectNotFoundException;    
     abstract public boolean canUserReadDB(Collection<? extends GrantedAuthority> authorities, String module) throws ObjectNotFoundException;
+    
+    abstract public boolean canUserWriteToProject(Collection<? extends GrantedAuthority> authorities, String sModule, int projectId);
+    abstract public boolean canUserWriteToProject(String token, String sModule, int projectId);
 
 	abstract public void cleanupTokenMap() throws ParseException;
 	
