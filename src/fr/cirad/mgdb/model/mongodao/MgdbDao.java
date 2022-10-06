@@ -57,6 +57,8 @@ import fr.cirad.mgdb.exporting.IExportHandler.SessionAttributeAwareExportThread;
 import fr.cirad.mgdb.model.mongo.maintypes.CachedCount;
 import fr.cirad.mgdb.model.mongo.maintypes.CustomIndividualMetadata;
 import fr.cirad.mgdb.model.mongo.maintypes.CustomIndividualMetadata.CustomIndividualMetadataId;
+import fr.cirad.mgdb.model.mongo.maintypes.CustomSampleMetadata;
+import fr.cirad.mgdb.model.mongo.maintypes.CustomSampleMetadata.CustomSampleMetadataId;
 import fr.cirad.mgdb.model.mongo.maintypes.DBVCFHeader;
 import fr.cirad.mgdb.model.mongo.maintypes.DBVCFHeader.VcfHeaderId;
 import fr.cirad.mgdb.model.mongo.maintypes.GenotypingProject;
@@ -532,12 +534,8 @@ public class MgdbDao {
         headerCursor.close();
         return result;
     }
-
+    
     /**
-     * This method is not static because it requires access to a HttpSession
-     * which we get from a ObjectFactory<HttpSession> that we couln't autowire
-     * from a static getter
-     *
      * @param module the database name (mandatory)
      * @param sCurrentUser username for whom to get custom metadata (optional)
      * @param projIDs a list of project IDs (optional)
@@ -576,6 +574,52 @@ public class MgdbDao {
                 for (CustomIndividualMetadata cimd : mongoTemplate.find(new Query(new Criteria().andOperator(Criteria.where("_id." + CustomIndividualMetadataId.FIELDNAME_USER).is(sCurrentUser), Criteria.where("_id." + CustomIndividualMetadataId.FIELDNAME_INDIVIDUAL_ID).in(indIDs))), CustomIndividualMetadata.class)) {
                     if (cimd.getAdditionalInfo() != null && !cimd.getAdditionalInfo().isEmpty()) {
                         result.get(cimd.getId().getIndividualId()).getAdditionalInfo().putAll(cimd.getAdditionalInfo());
+                    }
+                }
+            }
+        }
+        return result;
+    }
+
+    /**
+     * @param module the database name (mandatory)
+     * @param sCurrentUser username for whom to get custom metadata (optional)
+     * @param projIDs a list of project IDs (optional)
+     * @param spIDs a list of sample IDs (optional)
+     * @return sample IDs mapped to sample objects with static metada +
+     * custom metadata (if available). If spIDs is specified the list is
+     * restricted by it, otherwise if projIDs is specified the list is
+     * restricted by it, otherwise all database samples are returned
+     */
+    public LinkedHashMap<Integer, GenotypingSample> loadSamplesWithAllMetadata(String module, String sCurrentUser, Collection<Integer> projIDs, Collection<Integer> spIDs) {
+        MongoTemplate mongoTemplate = MongoTemplateManager.get(module);
+
+        // build the initial list of Sample objects
+        if (spIDs == null) {
+            spIDs = mongoTemplate.findDistinct(projIDs == null || projIDs.isEmpty() ? new Query() : new Query(Criteria.where(GenotypingSample.FIELDNAME_PROJECT_ID).in(projIDs)), "_id", GenotypingSample.class, Integer.class);
+        }
+        Query q = new Query(Criteria.where("_id").in(spIDs));
+        q.with(Sort.by(Sort.Direction.ASC, "_id"));
+        Map<Integer, GenotypingSample> indMap = mongoTemplate.find(q, GenotypingSample.class).stream().collect(Collectors.toMap(GenotypingSample::getId, sp -> sp));
+        LinkedHashMap<Integer, GenotypingSample> result = new LinkedHashMap<>();	// this one will be sorted according to the provided list
+        for (Integer spId : spIDs) {
+            result.put(spId, indMap.get(spId));
+        }
+
+        boolean fGrabSessionAttributesFromThread = SessionAttributeAwareExportThread.class.isAssignableFrom(Thread.currentThread().getClass());
+        LinkedHashMap<String, LinkedHashMap<String, Object>> sessionMetaData = (LinkedHashMap<String, LinkedHashMap<String, Object>>) (fGrabSessionAttributesFromThread ? ((SessionAttributeAwareExportThread) Thread.currentThread()).getSessionAttributes().get("samples_metadata_" + module) : httpSessionFactory.getObject().getAttribute("samples_metadata_" + module));
+        if (sCurrentUser != null) {	// merge with custom metadata if available
+            if ("anonymousUser".equals(sCurrentUser) && sessionMetaData != null) {
+                for (Integer indId : spIDs) {
+                    LinkedHashMap<String, Object> indSessionMetadata = sessionMetaData.get(indId);
+                    if (indSessionMetadata != null && !indSessionMetadata.isEmpty()) {
+                        result.get(indId).getAdditionalInfo().putAll(indSessionMetadata);
+                    }
+                }
+            } else {
+                for (CustomSampleMetadata cimd : mongoTemplate.find(new Query(new Criteria().andOperator(Criteria.where("_id." + CustomSampleMetadataId.FIELDNAME_USER).is(sCurrentUser), Criteria.where("_id." + CustomSampleMetadataId.FIELDNAME_SAMPLE_ID).in(spIDs))), CustomSampleMetadata.class)) {
+                    if (cimd.getAdditionalInfo() != null && !cimd.getAdditionalInfo().isEmpty()) {
+                        result.get(cimd.getId().getSampleId()).getAdditionalInfo().putAll(cimd.getAdditionalInfo());
                     }
                 }
             }

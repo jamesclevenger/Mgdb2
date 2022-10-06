@@ -17,15 +17,15 @@ public class CustomSampleMetadata {
 	
 	static public class CustomSampleMetadataId {
                 
-                /** The Constant FIELDNAME_SAMPLE_NAME. */
-		public final static String FIELDNAME_SAMPLE_NAME= "nm";
+         /** The Constant FIELDNAME_SAMPLE_ID. */
+		public final static String FIELDNAME_SAMPLE_ID= "si";
 		
 		/** The Constant FIELDNAME_USER. */
 		public final static String FIELDNAME_USER = "ur";
                 
-                /** The sample name. */
-		@Field(FIELDNAME_SAMPLE_NAME)
-		private String name;
+		/** The sample id. */
+		@Field(FIELDNAME_SAMPLE_ID)
+		private Integer sampleId;
 
 		/** The user name. */
 		@Field(FIELDNAME_USER)
@@ -33,13 +33,13 @@ public class CustomSampleMetadata {
 
 
 		/**
-		 * Instantiates a new custom individual metadata id.
+		 * Instantiates a new custom sample metadata id.
 		 *
-		 * @param individual the individual id
+		 * @param sampleId the sample id
 		 * @param user the user's name
 		 */
-		public CustomSampleMetadataId(String name, String user) {
-                        this.name = name;
+		public CustomSampleMetadataId(Integer sampleId, String user) {
+			this.sampleId = sampleId;
 			this.user = user;
 		}
 
@@ -52,12 +52,9 @@ public class CustomSampleMetadata {
 			return user;
 		}
 
-                public String getName() {
-                    return name;
-                }
-
-                
-                
+        public Integer getSampleId() {
+            return sampleId;
+        }  
 	}
 	
 	
@@ -101,7 +98,7 @@ public class CustomSampleMetadata {
 	
 	@Override
 	public String toString() {
-		return id.getName();
+		return id.getSampleId() + "§" + id.getUser();
 	}
 
 }
