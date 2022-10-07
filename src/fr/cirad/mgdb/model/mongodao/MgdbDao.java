@@ -563,20 +563,17 @@ public class MgdbDao {
         boolean fGrabSessionAttributesFromThread = SessionAttributeAwareExportThread.class.isAssignableFrom(Thread.currentThread().getClass());
         LinkedHashMap<String, LinkedHashMap<String, Object>> sessionMetaData = (LinkedHashMap<String, LinkedHashMap<String, Object>>) (fGrabSessionAttributesFromThread ? ((SessionAttributeAwareExportThread) Thread.currentThread()).getSessionAttributes().get("individuals_metadata_" + module) : httpSessionFactory.getObject().getAttribute("individuals_metadata_" + module));
         if (sCurrentUser != null) {	// merge with custom metadata if available
-            if ("anonymousUser".equals(sCurrentUser) && sessionMetaData != null) {
-                for (String indId : indIDs) {
-                    LinkedHashMap<String, Object> indSessionMetadata = sessionMetaData.get(indId);
-                    if (indSessionMetadata != null && !indSessionMetadata.isEmpty()) {
-                        result.get(indId).getAdditionalInfo().putAll(indSessionMetadata);
-                    }
-                }
-            } else {
-                for (CustomIndividualMetadata cimd : mongoTemplate.find(new Query(new Criteria().andOperator(Criteria.where("_id." + CustomIndividualMetadataId.FIELDNAME_USER).is(sCurrentUser), Criteria.where("_id." + CustomIndividualMetadataId.FIELDNAME_INDIVIDUAL_ID).in(indIDs))), CustomIndividualMetadata.class)) {
-                    if (cimd.getAdditionalInfo() != null && !cimd.getAdditionalInfo().isEmpty()) {
+            if ("anonymousUser".equals(sCurrentUser)) {
+            	if (sessionMetaData != null)
+	                for (String indId : indIDs) {
+	                    LinkedHashMap<String, Object> indSessionMetadata = sessionMetaData.get(indId);
+	                    if (indSessionMetadata != null && !indSessionMetadata.isEmpty())
+	                        result.get(indId).getAdditionalInfo().putAll(indSessionMetadata);
+	                }
+            } else
+                for (CustomIndividualMetadata cimd : mongoTemplate.find(new Query(new Criteria().andOperator(Criteria.where("_id." + CustomIndividualMetadataId.FIELDNAME_USER).is(sCurrentUser), Criteria.where("_id." + CustomIndividualMetadataId.FIELDNAME_INDIVIDUAL_ID).in(indIDs))), CustomIndividualMetadata.class))
+                    if (cimd.getAdditionalInfo() != null && !cimd.getAdditionalInfo().isEmpty())
                         result.get(cimd.getId().getIndividualId()).getAdditionalInfo().putAll(cimd.getAdditionalInfo());
-                    }
-                }
-            }
         }
         return result;
     }
@@ -609,20 +606,17 @@ public class MgdbDao {
         boolean fGrabSessionAttributesFromThread = SessionAttributeAwareExportThread.class.isAssignableFrom(Thread.currentThread().getClass());
         LinkedHashMap<String, LinkedHashMap<String, Object>> sessionMetaData = (LinkedHashMap<String, LinkedHashMap<String, Object>>) (fGrabSessionAttributesFromThread ? ((SessionAttributeAwareExportThread) Thread.currentThread()).getSessionAttributes().get("samples_metadata_" + module) : httpSessionFactory.getObject().getAttribute("samples_metadata_" + module));
         if (sCurrentUser != null) {	// merge with custom metadata if available
-            if ("anonymousUser".equals(sCurrentUser) && sessionMetaData != null) {
-                for (Integer indId : spIDs) {
-                    LinkedHashMap<String, Object> indSessionMetadata = sessionMetaData.get(indId);
-                    if (indSessionMetadata != null && !indSessionMetadata.isEmpty()) {
-                        result.get(indId).getAdditionalInfo().putAll(indSessionMetadata);
-                    }
-                }
-            } else {
-                for (CustomSampleMetadata cimd : mongoTemplate.find(new Query(new Criteria().andOperator(Criteria.where("_id." + CustomSampleMetadataId.FIELDNAME_USER).is(sCurrentUser), Criteria.where("_id." + CustomSampleMetadataId.FIELDNAME_SAMPLE_ID).in(spIDs))), CustomSampleMetadata.class)) {
-                    if (cimd.getAdditionalInfo() != null && !cimd.getAdditionalInfo().isEmpty()) {
+            if ("anonymousUser".equals(sCurrentUser)) {
+            	if (sessionMetaData != null)
+	                for (Integer spID : spIDs) {
+	                    LinkedHashMap<String, Object> indSessionMetadata = sessionMetaData.get(spID);
+	                    if (indSessionMetadata != null && !indSessionMetadata.isEmpty())
+	                        result.get(spID).getAdditionalInfo().putAll(indSessionMetadata);
+	                }
+            } else
+                for (CustomSampleMetadata cimd : mongoTemplate.find(new Query(new Criteria().andOperator(Criteria.where("_id." + CustomSampleMetadataId.FIELDNAME_USER).is(sCurrentUser), Criteria.where("_id." + CustomSampleMetadataId.FIELDNAME_SAMPLE_ID).in(spIDs))), CustomSampleMetadata.class))
+                    if (cimd.getAdditionalInfo() != null && !cimd.getAdditionalInfo().isEmpty())
                         result.get(cimd.getId().getSampleId()).getAdditionalInfo().putAll(cimd.getAdditionalInfo());
-                    }
-                }
-            }
         }
         return result;
     }
