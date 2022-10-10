@@ -94,13 +94,13 @@ public class IndividualMetadataImport {
     
     public static final ObjectMapper mapper = new ObjectMapper();    
     
-//    static {
-//        //use a custom serializer to convert Germplasm to Map (some complex types are transformed or not kept)
-//        SimpleModule module = new SimpleModule();
+    static {
+        //use a custom serializer to convert Germplasm to Map (some complex types are transformed or not kept)
+        SimpleModule module = new SimpleModule();
 //        module.addSerializer(Germplasm.class, new GermplasmSerializer());
-//        mapper.registerModule(module);
-//        mapper.setSerializationInclusion(Include.NON_NULL);
-//    }    
+        mapper.registerModule(module);
+        mapper.setSerializationInclusion(Include.NON_NULL);
+    }    
     
 
     /**
