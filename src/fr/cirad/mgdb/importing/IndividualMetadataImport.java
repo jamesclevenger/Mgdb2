@@ -94,13 +94,13 @@ public class IndividualMetadataImport {
     
     public static final ObjectMapper mapper = new ObjectMapper();    
     
-    static {
-        //use a custom serializer to convert Germplasm to Map (some complex types are transformed or not kept)
-        SimpleModule module = new SimpleModule();
-        module.addSerializer(Germplasm.class, new GermplasmSerializer());
-        mapper.registerModule(module);
-        mapper.setSerializationInclusion(Include.NON_NULL);
-    }    
+//    static {
+//        //use a custom serializer to convert Germplasm to Map (some complex types are transformed or not kept)
+//        SimpleModule module = new SimpleModule();
+//        module.addSerializer(Germplasm.class, new GermplasmSerializer());
+//        mapper.registerModule(module);
+//        mapper.setSerializationInclusion(Include.NON_NULL);
+//    }    
     
 
     /**
@@ -234,6 +234,8 @@ public class IndividualMetadataImport {
                 BulkWriteResult wr = bulkOperations.execute();
                 if (targetEntityList.size() == 0)
                     LOG.info("Database " + sModule + ": metadata was deleted for " + wr.getModifiedCount() + " " + targetTypeColName + "s");
+                else if (wr.getUpserts().size() > 0)
+                	LOG.info("Database " + sModule + ": " + wr.getUpserts().size() + " custom " + targetTypeColName + " metadata records added");
                 else
                     LOG.info("Database " + sModule + ": " + wr.getModifiedCount() + " " + targetTypeColName + "s updated with metadata, out of " + wr.getMatchedCount() + " matched documents");
                 return wr.getModifiedCount() + wr.getUpserts().size() + wr.getDeletedCount();
@@ -246,9 +248,8 @@ public class IndividualMetadataImport {
             }
         } finally {
             scanner.close();
-            if (ctx != null) {
+            if (ctx != null)
                 ctx.close();
-            }
         }
     }
 
@@ -884,12 +885,11 @@ public class IndividualMetadataImport {
 
             for (Germplasm germplasm : germplasmList) {
                 Map<String, Object> aiMap = mapper.convertValue(germplasm, Map.class);
-                if (attributesMap.get(germplasm.getGermplasmDbId()) != null && !attributesMap.get(germplasm.getGermplasmDbId()).isEmpty()) {
-                    attributesMap.get(germplasm.getGermplasmDbId()).forEach(k -> aiMap.put(!StringUtils.isBlank(k.getAttributeName()) ? k.getAttributeName():  k.getAttributeDbId(), k.getValue()));
-                }
+                List<GermplasmAttributeValue> attrValList = attributesMap.get(germplasm.getGermplasmDbId());
+                if (attrValList != null && !attrValList.isEmpty())
+                	attrValList.forEach(k -> aiMap.put(!StringUtils.isBlank(k.getAttributeName()) ? k.getAttributeName():  k.getAttributeDbId(), k.getValue()));
 
                 germplasmMap.put(germplasm.getGermplasmDbId(), aiMap);
-
             }
         }
 
