@@ -27,6 +27,7 @@ import javax.servlet.http.HttpServletRequest;
 import org.apache.log4j.Logger;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -71,4 +72,10 @@ public abstract class AbstractTokenManager {
     	}
 		return token == null ? "" : token;
     }
+    
+	public static String getUserNameFromAuthentication(Authentication auth) {
+		if (auth == null)
+			auth = SecurityContextHolder.getContext().getAuthentication();
+        return auth == null || "anonymousUser".equals(auth.getName()) ? "anonymousUser" : auth.getName();	    
+	}
 }

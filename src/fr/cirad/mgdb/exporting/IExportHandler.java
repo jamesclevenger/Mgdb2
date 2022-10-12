@@ -47,6 +47,7 @@ import fr.cirad.mgdb.model.mongo.subtypes.AbstractVariantData;
 import fr.cirad.mgdb.model.mongo.subtypes.ReferencePosition;
 import fr.cirad.mgdb.model.mongodao.MgdbDao;
 import fr.cirad.tools.Helper;
+import fr.cirad.tools.security.base.AbstractTokenManager;
 
 /**
  * The Interface IExportHandler.
@@ -155,13 +156,8 @@ public interface IExportHandler
 		return (int) Math.max(1, Math.min(nExportedVariantCount / 20 /* no more than 5% at a time */, (nMaxChunkSizeInMb*1024*1024 / avgObjSize.doubleValue())));
 	}
 	
-	public static String getLoggedUserName() {
-        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        return auth == null || "anonymousUser".equals(auth.getName()) ? "anonymousUser" : auth.getName();	    
-	}
-	
-	public static void writeMetadataFile(String sModule, Collection<String> exportedIndividuals, Collection<String> individualMetadataFieldsToExport, OutputStream os) throws IOException {
-        Collection<Individual> listInd = MgdbDao.getInstance().loadIndividualsWithAllMetadata(sModule, getLoggedUserName(), null, exportedIndividuals).values();
+	public static void writeMetadataFile(String sModule, String sExportingUser, Collection<String> exportedIndividuals, Collection<String> individualMetadataFieldsToExport, OutputStream os) throws IOException {
+		Collection<Individual> listInd = MgdbDao.getInstance().loadIndividualsWithAllMetadata(sModule, sExportingUser, null, exportedIndividuals).values();
         LinkedHashSet<String> mdHeaders = new LinkedHashSet<>();	// definite header collection (avoids empty columns)
         for (Individual ind : listInd)
         	for (String key : individualMetadataFieldsToExport)

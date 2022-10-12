@@ -95,9 +95,7 @@ public class IndividualMetadataImport {
     public static final ObjectMapper mapper = new ObjectMapper();    
     
     static {
-        //use a custom serializer to convert Germplasm to Map (some complex types are transformed or not kept)
         SimpleModule module = new SimpleModule();
-//        module.addSerializer(Germplasm.class, new GermplasmSerializer());
         mapper.registerModule(module);
         mapper.setSerializationInclusion(Include.NON_NULL);
     }    
@@ -514,7 +512,7 @@ public class IndividualMetadataImport {
 
         // Getting sample information by calling Brapi services
         if (client.hasCallSearchSamples()) {
-            progress.addStep("Getting samples list from " + endpointUrl);
+            progress.addStep("Getting sample information from " + endpointUrl);
             progress.moveToNextStep();
 
             try {
@@ -547,24 +545,6 @@ public class IndividualMetadataImport {
                 }
             }
         }
-
-//        progress.addStep("Getting germplasm information from " + endpointUrl);
-//        progress.moveToNextStep();
-
-        //fill map with germplasmDbIds to get linked information
-//        for (BrapiSample sample : sampleList) {
-//            String sampleDbId = sample.getSampleDbId();
-//            String germplasmDbId = sample.getGermplasmDbId();
-//            String individual = externalToInternalIdMap.get(REF_TYPE_SAMPLE).get(sampleDbId);
-//            if (externalToInternalIdMap.get(REF_TYPE_GERMPLASM) == null) {
-//                externalToInternalIdMap.put(REF_TYPE_GERMPLASM, new HashMap<>());
-//            }
-//            externalToInternalIdMap.get(REF_TYPE_GERMPLASM).put(germplasmDbId, individual);
-//        }
-//
-//        //Getting information from germplasm and attributes linked to the samples
-//        boolean fCanQueryAttributes = client.hasCallGetAttributes();
-//        Map<String, Map<String, Object>> germplasmMap = getBrapiV1GermplasmWithAttributes(service, endpointUrl, externalToInternalIdMap.get(REF_TYPE_GERMPLASM).keySet(), fCanQueryAttributes, progress);
 
         progress.addStep("Importing sample information from " + endpointUrl);
         progress.moveToNextStep();
@@ -653,7 +633,7 @@ public class IndividualMetadataImport {
 
         // Getting sample information by calling Brapi services
         if (client.hasCallSearchSample()) {
-            progress.addStep("Getting samples list from " + endpointUrl);
+            progress.addStep("Getting information list from " + endpointUrl);
             progress.moveToNextStep();
 
             try {
