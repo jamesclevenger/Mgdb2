@@ -108,13 +108,13 @@ public class IndividualMetadataImport {
      * @throws Exception the exception
      */
     public static void main(String[] args) throws Exception {
-        if (args.length < 3) {
+        if (args.length < 3)
             throw new Exception("You must pass 3 or 4 parameters as arguments: DATASOURCE name, metadata file path (TSV format with header on first line), label of column containing individual names (matching those in the DB), and optionally a CSV list of column labels for fields to import (all will be imported if no such parameter is supplied).");
-        }
-        importIndividualMetadata(args[0], null, new File(args[1]).toURI().toURL(), args[2], args.length > 3 ? args[3] : null, null);
+
+        importIndividualOrSampleMetadata(args[0], null, new File(args[1]).toURI().toURL(), args[2], args.length > 3 ? args[3] : null, null);
     }
 
-    public static int importIndividualMetadata(String sModule, HttpSession session, URL metadataFileURL, String targetTypeColName, String csvFieldListToImport, String username) throws Exception {
+    public static int importIndividualOrSampleMetadata(String sModule, HttpSession session, URL metadataFileURL, String targetTypeColName, String csvFieldListToImport, String username) throws Exception {
         List<String> fieldsToImport = csvFieldListToImport != null ? Arrays.asList(csvFieldListToImport.toLowerCase().split(",")) : null;
         Scanner scanner = new Scanner(metadataFileURL.openStream());
 
@@ -136,6 +136,8 @@ public class IndividualMetadataImport {
             sessionObject = new LinkedHashMap<>();
             session.setAttribute(targetTypeColName + "s_metadata_" + sModule, sessionObject);
         }
+        
+        boolean fFlapjackFormat = metadataFileURL.getFile().toLowerCase().endsWith(".phenotype");
 
         try {
             HashMap<Integer, String> columnLabels = new HashMap<Integer, String>();
@@ -150,8 +152,8 @@ public class IndividualMetadataImport {
             
             List<String> targetEntityList = new ArrayList<>();
             while (scanner.hasNextLine()) {
-                sLine = scanner.nextLine().trim();
-                if (sLine.length() == 0)
+                sLine = scanner.nextLine();
+                if (sLine.length() == 0 || (fFlapjackFormat && sLine.replaceAll("\\s+", "").equals("#fjFile=PHENOTYPE")))
                     continue;
 
                 if (columnLabels.isEmpty() && sLine.startsWith("\uFEFF"))
@@ -164,11 +166,15 @@ public class IndividualMetadataImport {
                         String cell = cells.get(i);
                         if (cell.equalsIgnoreCase(targetTypeColName))
                             idColumn = i;
-                        else if (fieldsToImport == null || fieldsToImport.contains(cell.toLowerCase()))
+                        else if (!cell.isEmpty() && (fieldsToImport == null || fieldsToImport.contains(cell.toLowerCase())))
                             columnLabels.put(i, cell);
                     }
-                    if (idColumn == -1)
-                        throw new Exception(cells.size() <= 1 ? "Provided file does not seem to be tab-delimited!" : "Unable to find individual name column \"" + targetTypeColName + "\" in file header!");
+                    if (idColumn == -1) {
+                    	if (!fFlapjackFormat || columnLabels.containsKey(0))
+                            throw new Exception(cells.size() <= 1 ? "Provided file does not seem to be tab-delimited!" : "Unable to find individual name column \"" + targetTypeColName + "\" in file header!");
+
+                    	idColumn = 0;	// FJ .phenotype file's field-name line starts with an empty string 
+                    }
                     continue;
                 }
 
@@ -180,7 +186,15 @@ public class IndividualMetadataImport {
 
                 String targetEntity = cells.get(idColumn);
                 targetEntityList.add(targetEntity);
-                Integer spId = targetTypeColName.equals("sample") ? mongoTemplate.findDistinct(new Query(Criteria.where(GenotypingSample.FIELDNAME_NAME).is(targetEntity)), "_id", GenotypingSample.class, Integer.class).get(0) : null;	// will remain null if working on individuals
+                
+                Integer spId = null;	// will remain null if working on individuals
+                if (targetTypeColName.equals("sample"))
+                	try {
+                		spId = mongoTemplate.findDistinct(new Query(Criteria.where(GenotypingSample.FIELDNAME_NAME).is(targetEntity)), "_id", GenotypingSample.class, Integer.class).get(0);
+                	}
+                	catch (IndexOutOfBoundsException ioobe) {
+                		throw new Exception("Unexisting sample: " + targetEntity);
+                	}
 
                 Update update = new Update();
                 if (username == null) { // global metadata                    
@@ -577,12 +591,19 @@ public class IndividualMetadataImport {
             }
             aiMap.remove(BrapiService.BRAPI_FIELD_sampleDbId); // we don't want to persist this field as it's internal to the remote source but not to the present system
 
-       		Integer spId = mongoTemplate.findDistinct(new Query(Criteria.where(GenotypingSample.FIELDNAME_NAME).is(externalToInternalIdMap.get(sample.getSampleDbId()))), "_id",  GenotypingSample.class, Integer.class).get(0);
+            String internalId = externalToInternalIdMap.get(sample.getSampleDbId());
+            Integer spId = null;
+        	try {
+        		spId = mongoTemplate.findDistinct(new Query(Criteria.where(GenotypingSample.FIELDNAME_NAME).is(internalId)), "_id",  GenotypingSample.class, Integer.class).get(0);
+        	}
+        	catch (IndexOutOfBoundsException ioobe) {
+        		throw new Exception("Unexisting sample: " + internalId);
+        	}
 
        		Update update = new Update();
             if (username == null) { // global metadata
                 aiMap.forEach((k, v) -> update.set(GenotypingSample.SECTION_ADDITIONAL_INFO + "." + k, v));
-                bulkOperations.updateMulti(new Query(Criteria.where(GenotypingSample.FIELDNAME_NAME).is(externalToInternalIdMap.get(sample.getSampleDbId()))), update);
+                bulkOperations.updateMulti(new Query(Criteria.where(GenotypingSample.FIELDNAME_NAME).is(internalId)), update);
             } else if (!fIsAnonymous) { // persistent user-level metadata
                 aiMap.forEach((k, v) -> update.set(CustomSampleMetadata.SECTION_ADDITIONAL_INFO + "." + k, v));
            		bulkOperations.upsert(new Query(new Criteria().andOperator(Criteria.where("_id." + CustomSampleMetadataId.FIELDNAME_USER).is(username), new Criteria().andOperator(Criteria.where("_id." + CustomSampleMetadataId.FIELDNAME_SAMPLE_ID).is(spId)))), update);
@@ -717,12 +738,19 @@ public class IndividualMetadataImport {
             aiMap.remove(BrapiService.BRAPI_FIELD_sampleDbId); // we don't want to persist this field as it's internal to the remote source but not to the present system
             //aiMap.put(BrapiService.BRAPI_FIELD_extGermplasmDbId, aiMap.remove(BrapiService.BRAPI_FIELD_germplasmDbId));
             
-            Integer spId = mongoTemplate.findDistinct(new Query(Criteria.where(GenotypingSample.FIELDNAME_NAME).is(externalToInternalIdMap.get(sample.getSampleDbId()))), "_id",  GenotypingSample.class, Integer.class).get(0);
+            String internalId = externalToInternalIdMap.get(sample.getSampleDbId());
+            Integer spId = null;
+        	try {
+        		spId = mongoTemplate.findDistinct(new Query(Criteria.where(GenotypingSample.FIELDNAME_NAME).is(internalId)), "_id",  GenotypingSample.class, Integer.class).get(0);
+        	}
+        	catch (IndexOutOfBoundsException ioobe) {
+        		throw new Exception("Unexisting sample: " + internalId);
+        	}
 
             Update update = new Update();
             if (username == null) { // global metadata
                 aiMap.forEach((k, v) -> update.set(GenotypingSample.SECTION_ADDITIONAL_INFO + "." + k, v));
-                bulkOperations.updateMulti(new Query(Criteria.where(GenotypingSample.FIELDNAME_NAME).is(externalToInternalIdMap.get(sample.getSampleDbId()))), update);
+                bulkOperations.updateMulti(new Query(Criteria.where(GenotypingSample.FIELDNAME_NAME).is(internalId)), update);
             } else if (!fIsAnonymous) { // persistent user-level metadata
                 aiMap.forEach((k, v) -> update.set(CustomSampleMetadata.SECTION_ADDITIONAL_INFO + "." + k, v));
            		bulkOperations.upsert(new Query(new Criteria().andOperator(Criteria.where("_id." + CustomSampleMetadataId.FIELDNAME_USER).is(username), new Criteria().andOperator(Criteria.where("_id." + CustomSampleMetadataId.FIELDNAME_SAMPLE_ID).is(spId)))), update);
