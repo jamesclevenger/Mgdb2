@@ -69,7 +69,7 @@ public class CustomIndividualMetadata {
 
 	/** The additional info. */
 	@Field(SECTION_ADDITIONAL_INFO)
-	private LinkedHashMap<String, Comparable> additionalInfo = null;
+	private LinkedHashMap<String, Object> additionalInfo = null;
 	
 	/**
 	 * Gets the id.
@@ -86,9 +86,9 @@ public class CustomIndividualMetadata {
 	 *
 	 * @return the additional info
 	 */
-	public HashMap<String, Comparable> getAdditionalInfo() {
+	public HashMap<String, Object> getAdditionalInfo() {
 		if (additionalInfo == null)
-			additionalInfo = new LinkedHashMap<String, Comparable>();
+			additionalInfo = new LinkedHashMap<String, Object>();
 		return additionalInfo;
 	}
 
@@ -97,7 +97,7 @@ public class CustomIndividualMetadata {
 	 *
 	 * @param additionalInfo the additional info
 	 */
-	public void setAdditionalInfo(LinkedHashMap<String, Comparable> additionalInfo) {
+	public void setAdditionalInfo(LinkedHashMap<String, Object> additionalInfo) {
 		this.additionalInfo = additionalInfo;
 	}
 	
