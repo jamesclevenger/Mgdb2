@@ -20,12 +20,17 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.FileReader;
 import java.io.IOException;
+import java.util.Collections;
 import java.util.Enumeration;
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
 import java.util.Map;
 import java.util.Properties;
 import java.util.ResourceBundle;
 import java.util.ResourceBundle.Control;
+import java.util.Set;
+import java.util.stream.Collectors;
 import java.util.UUID;
 
 import org.apache.log4j.Logger;
@@ -41,6 +46,7 @@ public class AppConfig {
 	static private final Logger LOG = Logger.getLogger(AppConfig.class);
 
 	public static final String CONFIG_FILE = "config";
+	public static final String ENV_PROPERTY_PREFIX = "GIGWA.";
 	
     /**
      * The resource control.
@@ -57,7 +63,26 @@ public class AppConfig {
         }
     };
     
-    private ResourceBundle props = ResourceBundle.getBundle(CONFIG_FILE, resourceControl);
+    private ResourceBundle props = new ResourceBundle() {
+    	ResourceBundle innerRB = ResourceBundle.getBundle(CONFIG_FILE, resourceControl);
+    	final Map<String, String> envProperties = System.getenv().entrySet().stream().filter(e -> e.getKey().startsWith(ENV_PROPERTY_PREFIX)).collect(Collectors.toMap(e -> ((String) e.getKey()).substring(ENV_PROPERTY_PREFIX.length()), Map.Entry::getValue));
+
+		@Override
+		protected Object handleGetObject(String key) {
+			Object envValue = envProperties.get(key);
+			return envValue != null ? envValue : innerRB.getObject(key);
+		}
+
+		@Override
+		public Enumeration<String> getKeys() {
+			Set<String> propKeys = new HashSet<>(envProperties.keySet());
+			Iterator<String> rbKeys = innerRB.getKeys().asIterator();
+			while (rbKeys.hasNext())
+				propKeys.add(rbKeys.next());
+			return Collections.enumeration(propKeys);
+		}
+    };
+    
 
     /**
      * Db server cleanup.
@@ -91,7 +116,7 @@ public class AppConfig {
     }
     
     public Map<String, String> getPrefixed(String sPrefix) {
-        Map<String, String>  result = new HashMap<>();
+        Map<String, String> result = new HashMap<>();
         Enumeration<String> keys = props.getKeys();
         while (keys.hasMoreElements()) {
                 String key = keys.nextElement();
