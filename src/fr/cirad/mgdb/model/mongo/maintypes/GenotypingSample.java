@@ -16,7 +16,6 @@
  *******************************************************************************/
 package fr.cirad.mgdb.model.mongo.maintypes;
 
-import static fr.cirad.mgdb.model.mongo.maintypes.Individual.SECTION_ADDITIONAL_INFO;
 import java.util.LinkedHashMap;
 import org.springframework.data.annotation.Id;
 import org.springframework.data.annotation.TypeAlias;
@@ -35,7 +34,8 @@ public class GenotypingSample {
 	public final static String FIELDNAME_INDIVIDUAL = "in";
 	public final static String FIELDNAME_PROJECT_ID = "pj";
 	public final static String FIELDNAME_RUN = "rn";
-
+    public final static String SECTION_ADDITIONAL_INFO = "ai";
+    
 	/** The sample id. */
 	@Id
 	private int id;
