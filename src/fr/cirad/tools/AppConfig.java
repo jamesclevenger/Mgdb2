@@ -24,7 +24,6 @@ import java.util.Collections;
 import java.util.Enumeration;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.Iterator;
 import java.util.Map;
 import java.util.Properties;
 import java.util.ResourceBundle;
@@ -76,9 +75,9 @@ public class AppConfig {
 		@Override
 		public Enumeration<String> getKeys() {
 			Set<String> propKeys = new HashSet<>(envProperties.keySet());
-			Iterator<String> rbKeys = innerRB.getKeys().asIterator();
-			while (rbKeys.hasNext())
-				propKeys.add(rbKeys.next());
+			Enumeration<String> rbKeys = innerRB.getKeys();
+			while (rbKeys.hasMoreElements())
+				propKeys.add(rbKeys.nextElement());
 			return Collections.enumeration(propKeys);
 		}
     };
