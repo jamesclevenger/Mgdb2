@@ -33,6 +33,7 @@ import java.util.stream.Collectors;
 import java.util.UUID;
 
 import org.apache.log4j.Logger;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.io.ClassPathResource;
 
@@ -43,9 +44,10 @@ import org.springframework.core.io.ClassPathResource;
 public class AppConfig {
 	
 	static private final Logger LOG = Logger.getLogger(AppConfig.class);
+	
+	@Autowired AbstractConfigManager configManager;
 
-	public static final String CONFIG_FILE = "config";
-	public static final String ENV_PROPERTY_PREFIX = "GIGWA.";
+	public final String CONFIG_FILE = "config";
 	
     /**
      * The resource control.
@@ -63,17 +65,33 @@ public class AppConfig {
     };
     
     private ResourceBundle props = new ResourceBundle() {
-    	ResourceBundle innerRB = ResourceBundle.getBundle(CONFIG_FILE, resourceControl);
-    	final Map<String, String> envProperties = System.getenv().entrySet().stream().filter(e -> e.getKey().startsWith(ENV_PROPERTY_PREFIX)).collect(Collectors.toMap(e -> ((String) e.getKey()).substring(ENV_PROPERTY_PREFIX.length()), Map.Entry::getValue));
+    	boolean initialized = false;
+    	Map<String, String> envProperties;
+    	ResourceBundle innerRB;
+    	
+    	private void init() throws SecurityException {
+        	envProperties = System.getenv().entrySet().stream().filter(e -> e.getKey().startsWith(configManager.getPropertyOverridingPrefix())).collect(Collectors.toMap(e -> ((String) e.getKey()).substring(configManager.getPropertyOverridingPrefix().length()), Map.Entry::getValue));
+        	for (String forbiddenKey : configManager.getNonOverridablePropertyNames())
+	        	if (envProperties.containsKey(forbiddenKey))
+	        		throw new SecurityException("Overriding casServerURL via env variable is not allowed");
+
+        	innerRB = ResourceBundle.getBundle(CONFIG_FILE, resourceControl);
+    	}
 
 		@Override
 		protected Object handleGetObject(String key) {
+    		if (!initialized)
+    			init();
+
 			Object envValue = envProperties.get(key);
 			return envValue != null ? envValue : innerRB.getObject(key);
 		}
 
 		@Override
 		public Enumeration<String> getKeys() {
+    		if (!initialized)
+    			init();
+
 			Set<String> propKeys = new HashSet<>(envProperties.keySet());
 			Enumeration<String> rbKeys = innerRB.getKeys();
 			while (rbKeys.hasMoreElements())
@@ -118,9 +136,9 @@ public class AppConfig {
         Map<String, String> result = new HashMap<>();
         Enumeration<String> keys = props.getKeys();
         while (keys.hasMoreElements()) {
-                String key = keys.nextElement();
-                if (key.startsWith(sPrefix))
-                        result.put(key, get(key));
+            String key = keys.nextElement();
+            if (key.startsWith(sPrefix))
+                    result.put(key, get(key));
         }
         return result;
     }
