@@ -45,7 +45,10 @@ public class AppConfig {
 	
 	static private final Logger LOG = Logger.getLogger(AppConfig.class);
 	
-	@Autowired AbstractConfigManager configManager;
+	static private AbstractConfigManager configManager;
+	@Autowired void setConfigManager(AbstractConfigManager cm) {
+		configManager = cm;
+	}
 
 	public final String CONFIG_FILE = "config";
 	
