@@ -16,7 +16,7 @@
  *******************************************************************************/
 package fr.cirad.tools.security.base;
 
-import java.io.IOException;
+//import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.text.ParseException;
 import java.util.Collection;
@@ -40,7 +40,7 @@ public abstract class AbstractTokenManager {
 	static public final String ENTITY_DATASET = "dataset";
 	static public final String ROLE_READER = "READER";
 
-    abstract public String createAndAttachToken(String username, String password) throws IllegalArgumentException, IOException;
+//    abstract public String createAndAttachToken(String username, String password) throws IllegalArgumentException, IOException;
     
     abstract public Authentication getAuthenticationFromToken(String token);
  
