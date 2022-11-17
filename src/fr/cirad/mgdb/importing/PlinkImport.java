@@ -184,27 +184,26 @@ public class PlinkImport extends AbstractGenotypeImport {
         LinkedHashSet<Integer> redundantVariantIndexes = new LinkedHashSet<>();
 
         GenericXmlApplicationContext ctx = null;
-        try
-        {
-            MongoTemplate mongoTemplate = MongoTemplateManager.get(sModule);
-            if (mongoTemplate == null)
-            {   // we are probably being invoked offline
-                try
-                {
-                    ctx = new GenericXmlApplicationContext("applicationContext-data.xml");
-                }
-                catch (BeanDefinitionStoreException fnfe)
-                {
-                    LOG.warn("Unable to find applicationContext-data.xml. Now looking for applicationContext.xml", fnfe);
-                    ctx = new GenericXmlApplicationContext("applicationContext.xml");
-                }
-
-                MongoTemplateManager.initialize(ctx);
-                mongoTemplate = MongoTemplateManager.get(sModule);
-                if (mongoTemplate == null)
-                    throw new Exception("DATASOURCE '" + sModule + "' is not supported!");
+        MongoTemplate mongoTemplate = MongoTemplateManager.get(sModule);
+        if (mongoTemplate == null)
+        {   // we are probably being invoked offline
+            try
+            {
+                ctx = new GenericXmlApplicationContext("applicationContext-data.xml");
+            }
+            catch (BeanDefinitionStoreException fnfe)
+            {
+                LOG.warn("Unable to find applicationContext-data.xml. Now looking for applicationContext.xml", fnfe);
+                ctx = new GenericXmlApplicationContext("applicationContext.xml");
             }
 
+            MongoTemplateManager.initialize(ctx);
+            mongoTemplate = MongoTemplateManager.get(sModule);
+            if (mongoTemplate == null)
+                throw new Exception("DATASOURCE '" + sModule + "' is not supported!");
+        }
+        try
+        {
             fImportUnknownVariants = doesDatabaseSupportImportingUnknownVariants(sModule);
 
             if (m_processID == null)

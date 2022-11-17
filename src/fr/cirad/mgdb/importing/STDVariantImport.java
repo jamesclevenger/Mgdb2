@@ -124,19 +124,18 @@ public class STDVariantImport extends AbstractGenotypeImport {
 		File sortedFile = new File("sortedImportFile_" + genotypeFile.getName());
 		sortedFile.deleteOnExit();	//just to be sure
 
-		try
-		{
-			MongoTemplate mongoTemplate = MongoTemplateManager.get(sModule);
+		MongoTemplate mongoTemplate = MongoTemplateManager.get(sModule);
+		if (mongoTemplate == null) { // we are probably being invoked offline
+			ctx = new GenericXmlApplicationContext("applicationContext-data.xml");
+
+			MongoTemplateManager.initialize(ctx);
+			mongoTemplate = MongoTemplateManager.get(sModule);
 			if (mongoTemplate == null)
-			{	// we are probably being invoked offline
-				ctx = new GenericXmlApplicationContext("applicationContext-data.xml");
-	
-				MongoTemplateManager.initialize(ctx);
-				mongoTemplate = MongoTemplateManager.get(sModule);
-				if (mongoTemplate == null)
-					throw new Exception("DATASOURCE '" + sModule + "' is not supported!");
-			}
-			
+				throw new Exception("DATASOURCE '" + sModule + "' is not supported!");
+		}
+
+		try
+		{			
 			mongoTemplate.getDb().runCommand(new BasicDBObject("profile", 0));	// disable profiling
 			GenotypingProject project = mongoTemplate.findOne(new Query(Criteria.where(GenotypingProject.FIELDNAME_NAME).is(sProject)), GenotypingProject.class);
             if (importMode == 0 && project != null && project.getPloidyLevel() > 0 && project.getPloidyLevel() != m_ploidy)
