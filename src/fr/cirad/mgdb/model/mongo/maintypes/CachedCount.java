@@ -21,6 +21,7 @@ import java.util.List;
 
 import org.springframework.data.annotation.Id;
 import org.springframework.data.annotation.TypeAlias;
+import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.mapping.Document;
 import org.springframework.data.mongodb.core.mapping.Field;
 
@@ -41,6 +42,10 @@ public class CachedCount {
 	@Field(FIELDNAME_CHUNK_COUNTS)
 	private List<Long> chunkCounts = new ArrayList<>();
 
+	public List<Long> getChunkCounts() {
+		return chunkCounts;
+	}
+
 	/**
 	 * Instantiates a new CachedCount.
 	 *
@@ -57,5 +62,18 @@ public class CachedCount {
 
 	public String getId() {
 		return id;
+	}
+		
+	@SuppressWarnings("unchecked")
+	static public Long getCachedCount(MongoTemplate mongoTemplate, String queryKey, Class cachedCountType) {
+		CachedCount cachedCount = (CachedCount) mongoTemplate.findById(queryKey, cachedCountType == null ? CachedCount.class : cachedCountType);
+		if (cachedCount == null)
+			return null;
+        
+		long result = 0;
+		for (Long partialCount : cachedCount.getChunkCounts())
+			result += partialCount;
+
+        return result;
 	}
 }
