@@ -39,6 +39,7 @@ import java.util.TreeSet;
 import java.util.stream.Collectors;
 
 import org.apache.log4j.Logger;
+import org.bson.Document;
 import org.springframework.beans.BeansException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationContext;
@@ -53,6 +54,7 @@ import org.springframework.stereotype.Component;
 import com.mongodb.BasicDBObject;
 import com.mongodb.ServerAddress;
 import com.mongodb.client.MongoClient;
+import com.mongodb.client.MongoCollection;
 import com.mongodb.connection.ClusterDescription;
 import com.mongodb.connection.ServerDescription;
 
@@ -515,8 +517,11 @@ public class MongoTemplateManager implements ApplicationContextAware {
             public void run() {
                 for (String module : MongoTemplateManager.getTemplateMap().keySet()) {
                     for (String tempCollName : tempCollNames) { // drop all temp collections associated to this token in this module
-                        templateMap.get(module).getCollection(tempCollName).drop();
-                        LOG.debug("Dropped " + module + "." + tempCollName + " from dropAllTempColls");
+                        MongoCollection<Document> coll = templateMap.get(module).getCollection(tempCollName);
+                        if (coll.estimatedDocumentCount() != 0) {
+                        	coll.drop();
+                        	LOG.debug("Dropped " + module + "." + tempCollName + " from dropAllTempColls");
+                        }
                     }
                 }
             }
