@@ -30,7 +30,6 @@ import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.stream.Collectors;
 
-import javax.ejb.ObjectNotFoundException;
 import javax.servlet.http.HttpSession;
 
 import org.apache.log4j.Level;
@@ -56,9 +55,6 @@ import fr.cirad.mgdb.exporting.IExportHandler;
 import fr.cirad.mgdb.exporting.IExportHandler.SessionAttributeAwareExportThread;
 import fr.cirad.mgdb.model.mongo.maintypes.CachedCount;
 import fr.cirad.mgdb.model.mongo.maintypes.CustomIndividualMetadata;
-import fr.cirad.mgdb.model.mongo.maintypes.CustomIndividualMetadata.CustomIndividualMetadataId;
-import fr.cirad.mgdb.model.mongo.maintypes.CustomSampleMetadata;
-import fr.cirad.mgdb.model.mongo.maintypes.CustomSampleMetadata.CustomSampleMetadataId;
 import fr.cirad.mgdb.model.mongo.maintypes.DBVCFHeader;
 import fr.cirad.mgdb.model.mongo.maintypes.DBVCFHeader.VcfHeaderId;
 import fr.cirad.mgdb.model.mongo.maintypes.GenotypingProject;
@@ -66,14 +62,18 @@ import fr.cirad.mgdb.model.mongo.maintypes.GenotypingSample;
 import fr.cirad.mgdb.model.mongo.maintypes.Individual;
 import fr.cirad.mgdb.model.mongo.maintypes.VariantData;
 import fr.cirad.mgdb.model.mongo.maintypes.VariantRunData;
+import fr.cirad.mgdb.model.mongo.maintypes.CustomIndividualMetadata.CustomIndividualMetadataId;
 import fr.cirad.mgdb.model.mongo.maintypes.VariantRunData.VariantRunDataId;
 import fr.cirad.mgdb.model.mongo.subtypes.ReferencePosition;
+import fr.cirad.mgdb.model.mongo.subtypes.SampleGenotype;
 import fr.cirad.tools.mongo.MongoTemplateManager;
 import fr.cirad.tools.security.base.AbstractTokenManager;
 import htsjdk.variant.vcf.VCFConstants;
 import htsjdk.variant.vcf.VCFFormatHeaderLine;
 import htsjdk.variant.vcf.VCFHeaderLineCount;
 import htsjdk.variant.vcf.VCFHeaderLineType;
+import java.util.HashSet;
+import javax.ejb.ObjectNotFoundException;
 
 /**
  * The Class MgdbDao.
@@ -140,8 +140,8 @@ public class MgdbDao {
         MongoCollection<Document> taggedVarColl = mongoTemplate.getCollection(MgdbDao.COLLECTION_NAME_TAGGED_VARIANT_IDS);
 
         List<String> result = new ArrayList<>();
-        Thread t = new Thread() {
-            public void run() {
+        //Thread t = new Thread() {
+        //    public void run() {
                 // create indexes
                 LOG.debug("Creating index on field " + VariantData.FIELDNAME_SYNONYMS + "." + VariantData.FIELDNAME_SYNONYM_TYPE_ID_ILLUMINA + " of collection " + variantColl.getNamespace());
                 variantColl.createIndex(new BasicDBObject(VariantData.FIELDNAME_SYNONYMS + "." + VariantData.FIELDNAME_SYNONYM_TYPE_ID_ILLUMINA, 1));
@@ -194,15 +194,15 @@ public class MgdbDao {
                 }
                 if (!taggedVariants.isEmpty())
                 	taggedVarColl.insertMany(taggedVariants);	// otherwise there is apparently no variant in the DB
-            }
+            //}
             
             /*  This is how it is internally handled when sharding the data:
             var splitKeys = db.runCommand({splitVector: "mgdb_Musa_acuminata_v2_private.variantRunData", keyPattern: {"_id":1}, maxChunkSizeBytes: 40250000}).splitKeys;
             for (var key in splitKeys)
               db.taggedVariants.insert({"_id" : splitKeys[key]["_id"]["vi"]});
              */
-        };
-        t.start();
+        //};
+        //t.start();
 
         if (mongoTemplate.findOne(new Query(Criteria.where(GenotypingProject.FIELDNAME_EFFECT_ANNOTATIONS + ".0").exists(true)) {{ fields().include("_id"); }}, GenotypingProject.class) == null)
             LOG.debug("Skipping index creation for effect name & gene since database contains no such information");
@@ -221,7 +221,7 @@ public class MgdbDao {
 //		runCollIndexKeys.put("_id." + VariantRunDataId.FIELDNAME_PROJECT_ID, 1);
 //		runColl.createIndex(runCollIndexKeys);
         
-        t.join();
+        //t.join();
         if (result.isEmpty())
             throw new Exception("An error occured while preparing database for searches, please check server logs");
         return result;
@@ -286,7 +286,8 @@ public class MgdbDao {
                         }
 
                         LOG.log(fIsTmpColl ? Level.DEBUG : Level.INFO, "Creating index " + coumpoundIndexKeys + " on collection " + coll.getNamespace());
-                        coll.createIndex(coumpoundIndexKeys, new IndexOptions().collation(IExportHandler.collationObj));
+                        //coll.createIndex(coumpoundIndexKeys, new IndexOptions().collation(IExportHandler.collationObj));
+                        coll.createIndex(coumpoundIndexKeys);
                     }
                 };
                 ssIndexCreationThread.start();
@@ -534,8 +535,12 @@ public class MgdbDao {
         headerCursor.close();
         return result;
     }
-    
+
     /**
+     * This method is not static because it requires access to a HttpSession
+     * which we get from a ObjectFactory<HttpSession> that we couln't autowire
+     * from a static getter
+     *
      * @param module the database name (mandatory)
      * @param sCurrentUser username for whom to get custom metadata (optional)
      * @param projIDs a list of project IDs (optional)
@@ -563,60 +568,20 @@ public class MgdbDao {
         boolean fGrabSessionAttributesFromThread = SessionAttributeAwareExportThread.class.isAssignableFrom(Thread.currentThread().getClass());
         LinkedHashMap<String, LinkedHashMap<String, Object>> sessionMetaData = (LinkedHashMap<String, LinkedHashMap<String, Object>>) (fGrabSessionAttributesFromThread ? ((SessionAttributeAwareExportThread) Thread.currentThread()).getSessionAttributes().get("individuals_metadata_" + module) : httpSessionFactory.getObject().getAttribute("individuals_metadata_" + module));
         if (sCurrentUser != null) {	// merge with custom metadata if available
-            if ("anonymousUser".equals(sCurrentUser)) {
-            	if (sessionMetaData != null)
-	                for (String indId : indIDs) {
-	                    LinkedHashMap<String, Object> indSessionMetadata = sessionMetaData.get(indId);
-	                    if (indSessionMetadata != null && !indSessionMetadata.isEmpty())
-	                        result.get(indId).getAdditionalInfo().putAll(indSessionMetadata);
-	                }
-            } else
-                for (CustomIndividualMetadata cimd : mongoTemplate.find(new Query(new Criteria().andOperator(Criteria.where("_id." + CustomIndividualMetadataId.FIELDNAME_USER).is(sCurrentUser), Criteria.where("_id." + CustomIndividualMetadataId.FIELDNAME_INDIVIDUAL_ID).in(indIDs))), CustomIndividualMetadata.class))
-                    if (cimd.getAdditionalInfo() != null && !cimd.getAdditionalInfo().isEmpty())
+            if ("anonymousUser".equals(sCurrentUser) && sessionMetaData != null) {
+                for (String indId : indIDs) {
+                    LinkedHashMap<String, Object> indSessionMetadata = sessionMetaData.get(indId);
+                    if (indSessionMetadata != null && !indSessionMetadata.isEmpty()) {
+                        result.get(indId).getAdditionalInfo().putAll(indSessionMetadata);
+                    }
+                }
+            } else {
+                for (CustomIndividualMetadata cimd : mongoTemplate.find(new Query(new Criteria().andOperator(Criteria.where("_id." + CustomIndividualMetadataId.FIELDNAME_USER).is(sCurrentUser), Criteria.where("_id." + CustomIndividualMetadataId.FIELDNAME_INDIVIDUAL_ID).in(indIDs))), CustomIndividualMetadata.class)) {
+                    if (cimd.getAdditionalInfo() != null && !cimd.getAdditionalInfo().isEmpty()) {
                         result.get(cimd.getId().getIndividualId()).getAdditionalInfo().putAll(cimd.getAdditionalInfo());
-        }
-        return result;
-    }
-
-    /**
-     * @param module the database name (mandatory)
-     * @param sCurrentUser username for whom to get custom metadata (optional)
-     * @param projIDs a list of project IDs (optional)
-     * @param spIDs a list of sample IDs (optional)
-     * @return sample IDs mapped to sample objects with static metada +
-     * custom metadata (if available). If spIDs is specified the list is
-     * restricted by it, otherwise if projIDs is specified the list is
-     * restricted by it, otherwise all database samples are returned
-     */
-    public LinkedHashMap<Integer, GenotypingSample> loadSamplesWithAllMetadata(String module, String sCurrentUser, Collection<Integer> projIDs, Collection<Integer> spIDs) {
-        MongoTemplate mongoTemplate = MongoTemplateManager.get(module);
-
-        // build the initial list of Sample objects
-        if (spIDs == null) {
-            spIDs = mongoTemplate.findDistinct(projIDs == null || projIDs.isEmpty() ? new Query() : new Query(Criteria.where(GenotypingSample.FIELDNAME_PROJECT_ID).in(projIDs)), "_id", GenotypingSample.class, Integer.class);
-        }
-        Query q = new Query(Criteria.where("_id").in(spIDs));
-        q.with(Sort.by(Sort.Direction.ASC, "_id"));
-        Map<Integer, GenotypingSample> indMap = mongoTemplate.find(q, GenotypingSample.class).stream().collect(Collectors.toMap(GenotypingSample::getId, sp -> sp));
-        LinkedHashMap<Integer, GenotypingSample> result = new LinkedHashMap<>();	// this one will be sorted according to the provided list
-        for (Integer spId : spIDs) {
-            result.put(spId, indMap.get(spId));
-        }
-
-        boolean fGrabSessionAttributesFromThread = SessionAttributeAwareExportThread.class.isAssignableFrom(Thread.currentThread().getClass());
-        LinkedHashMap<String, LinkedHashMap<String, Object>> sessionMetaData = (LinkedHashMap<String, LinkedHashMap<String, Object>>) (fGrabSessionAttributesFromThread ? ((SessionAttributeAwareExportThread) Thread.currentThread()).getSessionAttributes().get("samples_metadata_" + module) : httpSessionFactory.getObject().getAttribute("samples_metadata_" + module));
-        if (sCurrentUser != null) {	// merge with custom metadata if available
-            if ("anonymousUser".equals(sCurrentUser)) {
-            	if (sessionMetaData != null)
-	                for (Integer spID : spIDs) {
-	                    LinkedHashMap<String, Object> indSessionMetadata = sessionMetaData.get(spID);
-	                    if (indSessionMetadata != null && !indSessionMetadata.isEmpty())
-	                        result.get(spID).getAdditionalInfo().putAll(indSessionMetadata);
-	                }
-            } else
-                for (CustomSampleMetadata cimd : mongoTemplate.find(new Query(new Criteria().andOperator(Criteria.where("_id." + CustomSampleMetadataId.FIELDNAME_USER).is(sCurrentUser), Criteria.where("_id." + CustomSampleMetadataId.FIELDNAME_SAMPLE_ID).in(spIDs))), CustomSampleMetadata.class))
-                    if (cimd.getAdditionalInfo() != null && !cimd.getAdditionalInfo().isEmpty())
-                        result.get(cimd.getId().getSampleId()).getAdditionalInfo().putAll(cimd.getAdditionalInfo());
+                    }
+                }
+            }
         }
         return result;
     }
